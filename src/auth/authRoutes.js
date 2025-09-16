@@ -48,7 +48,7 @@ router.post('/register', async (req, res) => {
         }
 
         // Check if employee code already exists
-        const existingEmployeeCode = await User.findOne({ where: { employeeCode } });
+const existingEmployeeCode = await User.findOne({ where: { employee_code: employeeCode } });
         if (existingEmployeeCode) {
             return res.status(400).json({ msg: 'Employee Code already exists' });
         }
@@ -79,6 +79,7 @@ router.post('/register', async (req, res) => {
             mobile_number: mobileNumber || phone,
             head_office_id: headOffice || null,
             employee_code: employeeCode,
+               role, 
             gender,
             salary_type: salaryType,
             salary_amount: salaryAmount ? parseFloat(salaryAmount) : null,
@@ -134,6 +135,7 @@ router.post('/register', async (req, res) => {
         
         res.status(500).json({ msg: 'Server error' });
     }
+    console.log('Register req.body:', req.body);
 });
 
 // LOGIN
