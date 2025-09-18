@@ -19,13 +19,36 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all doctor visits
 const getAllDoctorVisits = async (req, res) => {
   try {
-    const { DoctorVisit } = req.app.get('models'); // Get DoctorVisit model from app context
-    const doctorVisits = await DoctorVisit.findAll();
-    res.json({
-      success: true,
-      count: doctorVisits.length,
-      data: doctorVisits
+    const { DoctorVisit, Doctor, User } = req.app.get('models'); // Get models from app context
+    const doctorVisits = await DoctorVisit.findAll({
+      include: [
+        {
+          model: Doctor,
+          as: 'DoctorInfo',
+          attributes: ['id', 'name', 'specialization']
+        },
+        {
+          model: User,
+          as: 'UserInfo',
+          attributes: ['id', 'name', 'email']
+        }
+      ]
     });
+
+    // Transform the response to match the expected format
+    const transformedVisits = doctorVisits.map(visit => {
+      const visitObj = visit.toJSON();
+      return {
+        ...visitObj,
+        doctor: visitObj.DoctorInfo || null,
+        user: visitObj.UserInfo || null,
+        // Remove the nested objects
+        DoctorInfo: undefined,
+        UserInfo: undefined
+      };
+    });
+
+    res.json(transformedVisits);
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -248,16 +271,23 @@ const confirmDoctorVisit = async (req, res) => {
 // GET visits by user ID
 const getDoctorVisitsByUserId = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor } = req.app.get('models'); // Get DoctorVisit and Doctor models from app context
+    const { DoctorVisit, Doctor, User } = req.app.get('models'); // Get models from app context
     const { userId } = req.params;
     
     const visits = await DoctorVisit.findAll({
       where: { user_id: userId },
-      include: [{
-        model: Doctor,
-        as: 'DoctorInfo',  // Use the correct alias
-        attributes: ['id', 'name', 'specialization']
-      }]
+      include: [
+        {
+          model: Doctor,
+          as: 'DoctorInfo',
+          attributes: ['id', 'name', 'specialization']
+        },
+        {
+          model: User,
+          as: 'UserInfo',
+          attributes: ['id', 'name', 'email']
+        }
+      ]
     });
 
     // Transform the response to match the expected format
@@ -266,8 +296,10 @@ const getDoctorVisitsByUserId = async (req, res) => {
       return {
         ...visitObj,
         doctor: visitObj.DoctorInfo || null,
-        // Remove the nested object
-        DoctorInfo: undefined
+        user: visitObj.UserInfo || null,
+        // Remove the nested objects
+        DoctorInfo: undefined,
+        UserInfo: undefined
       };
     });
 

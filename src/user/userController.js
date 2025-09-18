@@ -167,6 +167,25 @@ const createUser = async (req, res) => {
     // Get the User model from app context
     const { User } = req.app.get('models');
     
+    // Validate required fields
+    if (!req.body.name) return res.status(400).json({ success: false, message: 'Name is required' });
+    if (!req.body.email) return res.status(400).json({ success: false, message: 'Email is required' });
+    if (!req.body.employeeCode) return res.status(400).json({ success: false, message: 'Employee Code is required' });
+    if (!req.body.role) return res.status(400).json({ success: false, message: 'Role is required' });
+    if (!req.body.gender) return res.status(400).json({ success: false, message: 'Gender is required' });
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { email: req.body.email } });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    // Check if employee code already exists
+    const existingEmployeeCode = await User.findOne({ where: { employee_code: req.body.employeeCode } });
+    if (existingEmployeeCode) {
+      return res.status(400).json({ success: false, message: 'Employee Code already exists' });
+    }
+    
     // Convert camelCase to snake_case for PostgreSQL
     const userData = {};
     Object.keys(req.body).forEach(key => {
@@ -174,8 +193,19 @@ const createUser = async (req, res) => {
       if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice'].includes(key)) return;
       
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-      userData[snakeCaseKey] = req.body[key];
+      
+      // Handle password field specially
+      if (key === 'password') {
+        userData['password_hash'] = req.body[key]; // Will be hashed by model hook
+      } else {
+        userData[snakeCaseKey] = req.body[key];
+      }
     });
+
+    // Set default values for admin-created users
+    userData.email_verified = true;
+    userData.email_verified_at = new Date();
+    userData.is_active = true;
     
     const user = await User.create(userData);
     
@@ -290,6 +320,49 @@ const updateUser = async (req, res) => {
   }
 };
 
+// UPDATE user password
+const updateUserPassword = async (req, res) => {
+  try {
+    // Get the User model from app context
+    const { User } = req.app.get('models');
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password is required'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Update password (will be hashed by model hook)
+    await user.update({ password_hash: password });
+    
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // DELETE a user
 const deleteUser = async (req, res) => {
   try {
@@ -391,6 +464,7 @@ module.exports = {
   getUserById,
   createUser,
   updateUser,
+  updateUserPassword,
   deleteUser,
   getMyHeadOffices
 };

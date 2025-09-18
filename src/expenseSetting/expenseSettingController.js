@@ -1,8 +1,7 @@
-const ExpenseSetting = require('./ExpenseSetting');
-
 // GET all expense settings
 const getAllExpenseSettings = async (req, res) => {
   try {
+    const { ExpenseSetting } = req.app.get('models');
     const expenseSettings = await ExpenseSetting.findAll();
     res.json({
       success: true,
@@ -20,6 +19,7 @@ const getAllExpenseSettings = async (req, res) => {
 // GET expense setting by ID
 const getExpenseSettingById = async (req, res) => {
   try {
+    const { ExpenseSetting } = req.app.get('models');
     const expenseSetting = await ExpenseSetting.findByPk(req.params.id);
     if (!expenseSetting) {
       return res.status(404).json({
@@ -42,6 +42,7 @@ const getExpenseSettingById = async (req, res) => {
 // CREATE a new expense setting
 const createExpenseSetting = async (req, res) => {
   try {
+    const { ExpenseSetting } = req.app.get('models');
     const expenseSetting = await ExpenseSetting.create(req.body);
     res.status(201).json({
       success: true,
@@ -58,6 +59,7 @@ const createExpenseSetting = async (req, res) => {
 // UPDATE an expense setting
 const updateExpenseSetting = async (req, res) => {
   try {
+    const { ExpenseSetting } = req.app.get('models');
     const expenseSetting = await ExpenseSetting.findByPk(req.params.id);
     if (!expenseSetting) {
       return res.status(404).json({
@@ -82,6 +84,7 @@ const updateExpenseSetting = async (req, res) => {
 // DELETE an expense setting
 const deleteExpenseSetting = async (req, res) => {
   try {
+    const { ExpenseSetting } = req.app.get('models');
     const expenseSetting = await ExpenseSetting.findByPk(req.params.id);
     if (!expenseSetting) {
       return res.status(404).json({

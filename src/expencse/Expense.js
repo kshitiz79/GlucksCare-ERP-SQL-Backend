@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 const Expense = (sequelize) => {
-  return sequelize.define('Expense', {
+  const model = sequelize.define('Expense', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -65,6 +65,16 @@ const Expense = (sequelize) => {
     timestamps: true,
     underscored: true
   });
+
+  // Define associations
+  model.associate = (models) => {
+    model.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'UserInfo'
+    });
+  };
+
+  return model;
 };
 
 module.exports = Expense;

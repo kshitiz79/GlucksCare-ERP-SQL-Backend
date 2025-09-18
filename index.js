@@ -120,6 +120,7 @@ async function startServer() {
   const visitProductNotAgreedRoutes = require('./src/visitProductNotAgreed/visitProductNotAgreedRoutes');
   const locationHistoryRoutes = require('./src/locationHistory/locationHistoryRoutes');
   const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
+  const expenseRoutes = require('./src/expencse/expenseRoutes');
   const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
   const payrollSettingRoutes = require('./src/payrollSetting/payrollSettingRoutes');
   const notificationRecipientRoutes = require('./src/notificationRecipient/notificationRecipientRoutes');
@@ -164,6 +165,7 @@ async function startServer() {
   app.use('/api/visit-products-not-agreed', visitProductNotAgreedRoutes);
   app.use('/api/location-histories', locationHistoryRoutes);
   app.use('/api/location-events', locationEventRoutes);
+  app.use('/api/expenses', expenseRoutes);
   app.use('/api/expense-settings', expenseSettingRoutes);
   app.use('/api/payroll-settings', payrollSettingRoutes);
   app.use('/api/notification-recipients', notificationRecipientRoutes);

@@ -7,6 +7,7 @@ const {
   getUserById,
   createUser,
   updateUser,
+  updateUserPassword,
   deleteUser,
   getMyHeadOffices
 } = require('./userController');
@@ -27,6 +28,9 @@ router.post('/', authMiddleware, createUser);
 
 // UPDATE a user
 router.put('/:id', authMiddleware, updateUser);
+
+// UPDATE user password
+router.put('/:id/password', authMiddleware, updateUserPassword);
 
 // DELETE a user
 router.delete('/:id', authMiddleware, deleteUser);

@@ -35,20 +35,52 @@ const User = (sequelize) => {
       allowNull: false
     },
     gender: {
-      type: DataTypes.ENUM('Male', 'Female'),
-      allowNull: false
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      validate: {
+        isIn: [['Male', 'Female']]
+      }
     },
     role: {
-      type: DataTypes.ENUM(
-        'Super Admin', 'Admin', 'Opps Team', 'National Head',
-        'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'
-      ),
-      allowNull: false
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      validate: {
+        isIn: [['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User']]
+      }
     },
+    // References
     head_office_id: {
       type: DataTypes.UUID,
       references: {
         model: 'head_offices',
+        key: 'id'
+      }
+    },
+    branch_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'branches',
+        key: 'id'
+      }
+    },
+    department_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'departments',
+        key: 'id'
+      }
+    },
+    designation_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'designations',
+        key: 'id'
+      }
+    },
+    employment_type_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'employment_types',
         key: 'id'
       }
     },
@@ -57,6 +89,14 @@ const User = (sequelize) => {
       references: {
         model: 'states',
         key: 'id'
+      }
+    },
+    // Employment Details
+    salary_type: {
+      type: DataTypes.STRING(20),
+      defaultValue: 'Monthly',
+      validate: {
+        isIn: [['Monthly', 'Yearly']]
       }
     },
     salary_amount: {
@@ -71,36 +111,67 @@ const User = (sequelize) => {
     date_of_joining: {
       type: DataTypes.DATE
     },
+    // Bank Details (JSONB for flexibility)
     bank_details: {
       type: DataTypes.JSONB
     },
+    // Legal Documents (JSONB for Cloudinary URLs)
     legal_documents: {
       type: DataTypes.JSONB
     },
+    // Emergency Contact (JSONB)
     emergency_contact: {
       type: DataTypes.JSONB
     },
+    // Reference (JSONB)
     reference: {
       type: DataTypes.JSONB
     },
+    // Status and Verification
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true
-    },
-    email_verified: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false
     },
     otp: {
       type: DataTypes.STRING(10)
     },
     otp_expire: {
       type: DataTypes.DATE
+    },
+    email_verified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    email_verified_at: {
+      type: DataTypes.DATE
+    },
+    pin: {
+      type: DataTypes.STRING(10)
+    },
+    pin_expire: {
+      type: DataTypes.DATE
+    },
+    // Audit fields
+    created_by: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    },
+    updated_by: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'users',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   });
 };
 
@@ -121,12 +192,12 @@ const setupHooks = (UserModel) => {
   });
 
   // Method to validate password
-  UserModel.prototype.validatePassword = async function(password) {
+  UserModel.prototype.validatePassword = async function (password) {
     return await bcrypt.compare(password, this.password_hash);
   };
 
   // Add comparePassword method for compatibility with existing frontend code
-  UserModel.prototype.comparePassword = async function(password) {
+  UserModel.prototype.comparePassword = async function (password) {
     return await bcrypt.compare(password, this.password_hash);
   };
 };

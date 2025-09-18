@@ -5,7 +5,9 @@ const {
   getExpenseById,
   createExpense,
   updateExpense,
-  deleteExpense
+  deleteExpense,
+  approveExpense,
+  rejectExpense
 } = require('./expenseController');
 
 // GET all expenses
@@ -22,5 +24,11 @@ router.put('/:id', updateExpense);
 
 // DELETE an expense
 router.delete('/:id', deleteExpense);
+
+// APPROVE an expense
+router.put('/:id/approve', approveExpense);
+
+// REJECT an expense
+router.put('/:id/reject', rejectExpense);
 
 module.exports = router;
