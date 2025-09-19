@@ -159,12 +159,14 @@ router.post('/login', async (req, res) => {
 
     console.log('Login attempt for email:', email);
     
-    // Find user with headOffice
+    // Find user with all assigned head offices
     const user = await User.findOne({ 
       where: { email },
       include: [
         {
           model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }, // Don't include junction table attributes
           attributes: ['id', 'name']
         }
       ]
@@ -195,6 +197,28 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Get all head offices for the user
+    let headOffices = [];
+    
+    if (user.headOffices && user.headOffices.length > 0) {
+      // User has multiple head offices through many-to-many relationship
+      headOffices = user.headOffices.map(ho => ({
+        id: ho.id,
+        name: ho.name
+      }));
+    } else if (user.head_office_id) {
+      // User has a single head office through foreign key
+      const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id, {
+        attributes: ['id', 'name']
+      });
+      if (singleHeadOffice) {
+        headOffices = [{
+          id: singleHeadOffice.id,
+          name: singleHeadOffice.name
+        }];
+      }
+    }
+
     const responseUser = {
       id: user.id.toString(),
       name: user.name,
@@ -202,7 +226,7 @@ router.post('/login', async (req, res) => {
       role: user.role,
       emailVerified: user.email_verified,
       phone: user.mobile_number,
-      headOffices: user.HeadOffice ? [user.HeadOffice] : []
+      headOffices: headOffices
     };
 
     console.log('Sending login response for user:', responseUser.id);

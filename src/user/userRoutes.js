@@ -14,7 +14,8 @@ const {
   deleteUserWithOptions,
   forceDeleteUser,
   getMyHeadOffices,
-  registerAdmin
+  registerAdmin,
+  registerUser
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -24,6 +25,9 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 
 // REGISTER ADMIN (no auth required - for initial setup)
 router.post('/register-admin', registerAdmin);
+
+// REGISTER USER (no auth required - for creating regular users)
+router.post('/register-user', registerUser);
 
 // GET current user's assigned head offices (must be defined before :id route)
 router.get('/my-head-offices', authMiddleware, getMyHeadOffices);
