@@ -100,6 +100,7 @@ async function startServer() {
   const salesRoutes = require('./src/sales/salesRoutes');
   const attendanceRoutes = require('./src/attendance/attendanceRoutes');
   const leaveRoutes = require('./src/leave/leaveRoutes');
+  const leaveTypeRoutes = require('./src/leaveType/leaveTypeRoutes');
   const shiftRoutes = require('./src/shift/shiftRoutes');
   const locationRoutes = require('./src/location/locationRoutes');
     
@@ -123,8 +124,10 @@ async function startServer() {
   const expenseRoutes = require('./src/expencse/expenseRoutes');
   const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
   const payrollSettingRoutes = require('./src/payrollSetting/payrollSettingRoutes');
+  const notificationRoutes = require('./src/notification/notificationRoutes');
   const notificationRecipientRoutes = require('./src/notificationRecipient/notificationRecipientRoutes');
   const ticketRoutes = require('./src/ticket/ticketRoutes');
+  const holidayRoutes = require('./src/holiday/holidayRoutes');
   const userHeadOfficeRoutes = require('./src/userHeadOffice/userHeadOfficeRoutes');
   const userManagerRoutes = require('./src/userManager/userManagerRoutes');
   const userShiftRoutes = require('./src/userShift/userShiftRoutes');
@@ -145,6 +148,7 @@ async function startServer() {
   app.use('/api/sales', salesRoutes);
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/leaves', leaveRoutes);
+  app.use('/api/leave-types', leaveTypeRoutes);
   app.use('/api/shifts', shiftRoutes);
   app.use('/api/locations', locationRoutes);
     
@@ -168,8 +172,10 @@ async function startServer() {
   app.use('/api/expenses', expenseRoutes);
   app.use('/api/expense-settings', expenseSettingRoutes);
   app.use('/api/payroll-settings', payrollSettingRoutes);
+  app.use('/api/notifications', notificationRoutes);
   app.use('/api/notification-recipients', notificationRecipientRoutes);
   app.use('/api/tickets', ticketRoutes);
+  app.use('/api/holidays', holidayRoutes);
   app.use('/api/user-head-offices', userHeadOfficeRoutes);
   app.use('/api/user-managers', userManagerRoutes);
   app.use('/api/user-shifts', userShiftRoutes);

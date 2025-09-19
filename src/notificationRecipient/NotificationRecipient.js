@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 const NotificationRecipient = (sequelize) => {
-  const NotificationRecipientModel = sequelize.define('NotificationRecipient', {
+  const model = sequelize.define('NotificationRecipient', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -29,6 +29,8 @@ const NotificationRecipient = (sequelize) => {
   }, {
     tableName: 'notification_recipients',
     timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: false, // Disable updatedAt since the table doesn't have this column
     underscored: true,
     indexes: [
       {
@@ -38,7 +40,20 @@ const NotificationRecipient = (sequelize) => {
     ]
   });
 
-  return NotificationRecipientModel;
+  // Define associations
+  model.associate = (models) => {
+    model.belongsTo(models.Notification, {
+      foreignKey: 'notification_id',
+      as: 'Notification'
+    });
+    
+    model.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'User'
+    });
+  };
+
+  return model;
 };
 
 module.exports = NotificationRecipient;

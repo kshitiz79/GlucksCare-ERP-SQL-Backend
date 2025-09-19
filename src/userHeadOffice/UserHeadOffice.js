@@ -18,6 +18,8 @@ const UserHeadOffice = (sequelize) => {
   }, {
     tableName: 'user_head_offices',
     timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: false, // Table doesn't have updated_at column
     underscored: true,
     indexes: [
       {

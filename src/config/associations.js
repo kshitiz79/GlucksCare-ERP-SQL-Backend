@@ -25,13 +25,15 @@ module.exports = (db) => {
   db.User.hasMany(db.Expense, { foreignKey: 'user_id' });
   db.User.hasMany(db.Notification, { foreignKey: 'sender_id' });
   db.User.hasMany(db.Ticket, { foreignKey: 'user_id' });
+  db.User.hasMany(db.Holiday, { foreignKey: 'created_by', as: 'createdHolidays' });
+  db.User.hasMany(db.Holiday, { foreignKey: 'updated_by', as: 'updatedHolidays' });
   db.User.hasMany(db.Version, { foreignKey: 'user_id' });
   db.User.hasMany(db.UserHeadOffice, { foreignKey: 'user_id' });
   db.User.hasMany(db.UserManager, { foreignKey: 'user_id' });
   db.User.hasMany(db.UserManager, { foreignKey: 'manager_id' });
   db.User.hasMany(db.UserShift, { foreignKey: 'user_id' });
   db.User.hasMany(db.PdfFile, { foreignKey: 'uploaded_by', as: 'uploadedFiles' });
-  
+
   // Many-to-many relationship with HeadOffice
   db.User.belongsToMany(db.HeadOffice, {
     through: db.UserHeadOffice,
@@ -46,7 +48,7 @@ module.exports = (db) => {
   db.HeadOffice.hasMany(db.Chemist, { foreignKey: 'head_office_id', as: 'Chemists' });
   db.HeadOffice.hasMany(db.Stockist, { foreignKey: 'head_office_id', as: 'Stockists' });
   db.HeadOffice.belongsTo(db.State, { foreignKey: 'stateId' });
-  
+
   // Many-to-many relationship with User
   db.HeadOffice.belongsToMany(db.User, {
     through: db.UserHeadOffice,
@@ -159,25 +161,26 @@ module.exports = (db) => {
 
   // Shift associations
   db.Shift.hasMany(db.Attendance, { foreignKey: 'shift_id' });
-  db.Shift.hasMany(db.UserShift, { foreignKey: 'shift_id' });
+  db.Shift.hasMany(db.UserShift, { foreignKey: 'shift_id', as: 'userShifts' });
 
   // Attendance associations
-  db.Attendance.belongsTo(db.User, { foreignKey: 'user_id' });
-  db.Attendance.belongsTo(db.Shift, { foreignKey: 'shift_id' });
+  db.Attendance.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+  db.Attendance.belongsTo(db.Shift, { foreignKey: 'shift_id', as: 'shift' });
 
   // UserShift associations
-  db.UserShift.belongsTo(db.User, { foreignKey: 'user_id' });
-  db.UserShift.belongsTo(db.Shift, { foreignKey: 'shift_id' });
+  db.UserShift.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+  db.UserShift.belongsTo(db.Shift, { foreignKey: 'shift_id', as: 'shift' });
 
   // LeaveType associations
-  db.LeaveType.hasMany(db.Leave, { foreignKey: 'leave_type_id' });
+  db.LeaveType.hasMany(db.Leave, { foreignKey: 'leave_type_id', as: 'leaves' });
 
   // Leave associations
-  db.Leave.belongsTo(db.User, { foreignKey: 'employee_id' });
-  db.Leave.belongsTo(db.LeaveType, { foreignKey: 'leave_type_id' });
+  db.Leave.belongsTo(db.User, { foreignKey: 'employee_id', as: 'employee' });
+  db.Leave.belongsTo(db.LeaveType, { foreignKey: 'leave_type_id', as: 'leaveType' });
 
   // Holiday associations
-  // No specific associations needed
+  db.Holiday.belongsTo(db.User, { foreignKey: 'created_by', as: 'Creator' });
+  db.Holiday.belongsTo(db.User, { foreignKey: 'updated_by', as: 'Updater' });
 
   // Expense associations
   db.Expense.belongsTo(db.User, { foreignKey: 'user_id' });

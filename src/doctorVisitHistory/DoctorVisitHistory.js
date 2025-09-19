@@ -31,6 +31,8 @@ const DoctorVisitHistory = (sequelize) => {
   }, {
     tableName: 'doctor_visit_history',
     timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: false, // Table doesn't have updated_at column
     underscored: true
   });
 };

@@ -7,7 +7,8 @@ const getAllDoctors = async (req, res) => {
         model: HeadOffice,
         as: 'HeadOffice',
         attributes: ['id', 'name'] // Only include necessary fields
-      }]
+      }],
+      distinct: true // This prevents duplicates when using includes
     });
     
     // Transform the response to match the MongoDB format
@@ -256,14 +257,39 @@ const deleteDoctor = async (req, res) => {
 // GET doctors by head office ID
 const getDoctorsByHeadOffice = async (req, res) => {
   try {
-    const { Doctor } = req.app.get('models');
+    const { Doctor, HeadOffice } = req.app.get('models');
     const { headOfficeId } = req.params;
     const doctors = await Doctor.findAll({
       where: {
-        head_office_id: headOfficeId
-      }
+        headOfficeId: headOfficeId
+      },
+      include: [{
+        model: HeadOffice,
+        as: 'HeadOffice',
+        attributes: ['id', 'name']
+      }],
+      distinct: true // This prevents duplicates when using includes
     });
-    res.json(doctors);
+    
+    // Transform the response to match the MongoDB format
+    const transformedDoctors = doctors.map(doctor => {
+      const doctorObj = doctor.toJSON();
+      return {
+        ...doctorObj,
+        headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+        _id: doctorObj.id,
+        createdAt: doctorObj.created_at,
+        updatedAt: doctorObj.updated_at,
+        // Remove the nested objects
+        HeadOffice: undefined
+      };
+    });
+    
+    res.json({
+      success: true,
+      count: transformedDoctors.length,
+      data: transformedDoctors
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -314,13 +340,14 @@ const getMyDoctors = async (req, res) => {
     // Find all doctors assigned to user's head offices
     const doctors = await Doctor.findAll({
       where: {
-        head_office_id: { [require('sequelize').Op.in]: headOfficeIds }
+        headOfficeId: { [require('sequelize').Op.in]: headOfficeIds }
       },
       include: [{
         model: HeadOffice,
         as: 'HeadOffice',
         attributes: ['id', 'name']
-      }]
+      }],
+      distinct: true // This prevents duplicates when using includes
     });
     
     // Transform the response to match the MongoDB format

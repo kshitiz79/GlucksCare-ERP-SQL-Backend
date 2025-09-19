@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 const Notification = (sequelize) => {
-  return sequelize.define('Notification', {
+  const model = sequelize.define('Notification', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -17,11 +17,7 @@ const Notification = (sequelize) => {
     },
     sender_id: {
       type: DataTypes.UUID,
-      allowNull: false,
-      references: {
-        model: 'users',
-        key: 'id'
-      }
+      allowNull: false
     },
     is_broadcast: {
       type: DataTypes.BOOLEAN,
@@ -32,6 +28,21 @@ const Notification = (sequelize) => {
     timestamps: true,
     underscored: true
   });
+
+  // Define associations
+  model.associate = (models) => {
+    model.belongsTo(models.User, {
+      foreignKey: 'sender_id',
+      as: 'Sender'
+    });
+    
+    model.hasMany(models.NotificationRecipient, {
+      foreignKey: 'notification_id',
+      as: 'Recipients'
+    });
+  };
+
+  return model;
 };
 
 module.exports = Notification;

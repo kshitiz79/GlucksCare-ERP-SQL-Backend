@@ -25,6 +25,8 @@ const UserManager = (sequelize) => {
   }, {
     tableName: 'user_managers',
     timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: false, // Table doesn't have updated_at column
     underscored: true,
     indexes: [
       {

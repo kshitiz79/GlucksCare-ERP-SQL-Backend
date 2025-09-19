@@ -5,14 +5,22 @@ const {
   getShiftById,
   createShift,
   updateShift,
-  deleteShift
+  deleteShift,
+  getUsersForShiftAssignment,
+  assignUsersToShift
 } = require('./shiftController');
 
 // GET all shifts
 router.get('/', getAllShifts);
 
+// GET users for shift assignment
+router.get('/users/for-shift-assignment', getUsersForShiftAssignment);
+
 // GET shift by ID
 router.get('/:id', getShiftById);
+
+// POST assign users to shift
+router.post('/:shiftId/assign-users', assignUsersToShift);
 
 // CREATE a new shift
 router.post('/', createShift);

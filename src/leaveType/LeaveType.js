@@ -65,6 +65,21 @@ const LeaveType = (sequelize) => {
     color: {
       type: DataTypes.STRING(7),
       defaultValue: '#3B82F6'
+    },
+    created_by: {
+      type: DataTypes.UUID,
+      allowNull: true, // Allow nu
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    },
+    updated_by: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'leave_types',

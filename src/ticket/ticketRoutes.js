@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { authMiddleware, adminAuth } = require('../middleware/authMiddleware');
 const {
   getAllTickets,
   getTicketById,
@@ -8,19 +9,19 @@ const {
   deleteTicket
 } = require('./ticketController');
 
-// GET all tickets
-router.get('/', getAllTickets);
+// GET all tickets (authenticated users)
+router.get('/', authMiddleware, getAllTickets);
 
-// GET ticket by ID
-router.get('/:id', getTicketById);
+// GET ticket by ID (authenticated users)
+router.get('/:id', authMiddleware, getTicketById);
 
-// CREATE a new ticket
-router.post('/', createTicket);
+// CREATE a new ticket (authenticated users)
+router.post('/', authMiddleware, createTicket);
 
-// UPDATE a ticket
-router.put('/:id', updateTicket);
+// UPDATE a ticket (authenticated users)
+router.put('/:id', authMiddleware, updateTicket);
 
-// DELETE a ticket
-router.delete('/:id', deleteTicket);
+// DELETE a ticket (authenticated users)
+router.delete('/:id', authMiddleware, deleteTicket);
 
 module.exports = router;

@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 const Ticket = (sequelize) => {
-  return sequelize.define('Ticket', {
+  const model = sequelize.define('Ticket', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -40,6 +40,16 @@ const Ticket = (sequelize) => {
     timestamps: true,
     underscored: true
   });
+
+  // Define associations
+  model.associate = (models) => {
+    model.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'User'
+    });
+  };
+
+  return model;
 };
 
 module.exports = Ticket;

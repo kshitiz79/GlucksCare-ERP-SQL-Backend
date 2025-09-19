@@ -74,6 +74,21 @@ const Holiday = (sequelize) => {
     timestamps: true,
     underscored: true
   });
+
+  // Define associations
+  model.associate = (models) => {
+    model.belongsTo(models.User, {
+      foreignKey: 'created_by',
+      as: 'Creator'
+    });
+    
+    model.belongsTo(models.User, {
+      foreignKey: 'updated_by',
+      as: 'Updater'
+    });
+  };
+
+  return model;
 };
 
 module.exports = Holiday;
