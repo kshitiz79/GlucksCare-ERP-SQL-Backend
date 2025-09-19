@@ -1076,14 +1076,14 @@ const registerAdmin = async (req, res) => {
     if (!req.body.password) return res.status(400).json({ success: false, message: 'Password is required' });
     if (!req.body.employeeCode) return res.status(400).json({ success: false, message: 'Employee Code is required' });
 
-    // Check if any admin already exists
-    const existingAdmin = await User.findOne({ where: { role: 'Admin' } });
-    if (existingAdmin) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Admin already exists. Use regular user creation endpoint.' 
-      });
-    }
+    // Optional: Check if any admin already exists (commented out to allow multiple admins)
+    // const existingAdmin = await User.findOne({ where: { role: 'Admin' } });
+    // if (existingAdmin) {
+    //   return res.status(400).json({ 
+    //     success: false, 
+    //     message: 'Admin already exists. Use regular user creation endpoint.' 
+    //   });
+    // }
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email: req.body.email } });
