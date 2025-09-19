@@ -1,8 +1,7 @@
-const UserHeadOffice = require('./UserHeadOffice');
-
 // GET all user head offices
 const getAllUserHeadOffices = async (req, res) => {
   try {
+    const { UserHeadOffice } = req.app.get('models');
     const userHeadOffices = await UserHeadOffice.findAll();
     res.json({
       success: true,
@@ -20,6 +19,7 @@ const getAllUserHeadOffices = async (req, res) => {
 // GET user head office by ID
 const getUserHeadOfficeById = async (req, res) => {
   try {
+    const { UserHeadOffice } = req.app.get('models');
     const userHeadOffice = await UserHeadOffice.findByPk(req.params.id);
     if (!userHeadOffice) {
       return res.status(404).json({
@@ -42,7 +42,15 @@ const getUserHeadOfficeById = async (req, res) => {
 // CREATE a new user head office
 const createUserHeadOffice = async (req, res) => {
   try {
-    const userHeadOffice = await UserHeadOffice.create(req.body);
+    const { UserHeadOffice } = req.app.get('models');
+    
+    // Convert camelCase to snake_case for database
+    const data = {
+      user_id: req.body.userId,
+      head_office_id: req.body.headOfficeId
+    };
+    
+    const userHeadOffice = await UserHeadOffice.create(data);
     res.status(201).json({
       success: true,
       data: userHeadOffice
@@ -58,6 +66,7 @@ const createUserHeadOffice = async (req, res) => {
 // DELETE a user head office
 const deleteUserHeadOffice = async (req, res) => {
   try {
+    const { UserHeadOffice } = req.app.get('models');
     const userHeadOffice = await UserHeadOffice.findByPk(req.params.id);
     if (!userHeadOffice) {
       return res.status(404).json({
