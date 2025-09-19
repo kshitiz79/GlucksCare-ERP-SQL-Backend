@@ -1064,6 +1064,93 @@ const forceDeleteUser = async (req, res) => {
   return deleteUser(req, res);
 };
 
+// REGISTER ADMIN (no auth required - for initial setup)
+const registerAdmin = async (req, res) => {
+  try {
+    // Get the User model from app context
+    const { User } = req.app.get('models');
+
+    // Validate required fields
+    if (!req.body.name) return res.status(400).json({ success: false, message: 'Name is required' });
+    if (!req.body.email) return res.status(400).json({ success: false, message: 'Email is required' });
+    if (!req.body.password) return res.status(400).json({ success: false, message: 'Password is required' });
+    if (!req.body.employeeCode) return res.status(400).json({ success: false, message: 'Employee Code is required' });
+
+    // Check if any admin already exists
+    const existingAdmin = await User.findOne({ where: { role: 'Admin' } });
+    if (existingAdmin) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Admin already exists. Use regular user creation endpoint.' 
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { email: req.body.email } });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    // Check if employee code already exists
+    const existingEmployeeCode = await User.findOne({ where: { employee_code: req.body.employeeCode } });
+    if (existingEmployeeCode) {
+      return res.status(400).json({ success: false, message: 'Employee Code already exists' });
+    }
+
+    // Convert camelCase to snake_case for PostgreSQL
+    const userData = {};
+    Object.keys(req.body).forEach(key => {
+      // Skip relationship fields for now
+      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice'].includes(key)) return;
+
+      const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+
+      // Handle password field specially
+      if (key === 'password') {
+        userData['password_hash'] = req.body[key]; // Will be hashed by model hook
+      } else {
+        userData[snakeCaseKey] = req.body[key];
+      }
+    });
+
+    // Force admin role and set default values
+    userData.role = 'Admin';
+    userData.email_verified = true;
+    userData.email_verified_at = new Date();
+    userData.is_active = true;
+
+    const user = await User.create(userData);
+
+    // Transform user to match MongoDB format (without sensitive data)
+    const transformedUser = {
+      _id: user.id,
+      id: user.id,
+      employeeCode: user.employee_code,
+      name: user.name,
+      email: user.email,
+      mobileNumber: user.mobile_number,
+      gender: user.gender,
+      role: user.role,
+      isActive: user.is_active,
+      emailVerified: user.email_verified,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at
+    };
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin registered successfully',
+      data: transformedUser
+    });
+  } catch (error) {
+    console.error('Register admin error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
@@ -1076,5 +1163,6 @@ module.exports = {
   softDeleteUser,
   deleteUserWithOptions,
   forceDeleteUser,
-  getMyHeadOffices
+  getMyHeadOffices,
+  registerAdmin
 };
