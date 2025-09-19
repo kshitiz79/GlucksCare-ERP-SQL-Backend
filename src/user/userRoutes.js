@@ -13,13 +13,17 @@ const {
   softDeleteUser,
   deleteUserWithOptions,
   forceDeleteUser,
-  getMyHeadOffices
+  getMyHeadOffices,
+  registerAdmin
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
 const { deleteUserSimple } = require('./simpleUserController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
+
+// REGISTER ADMIN (no auth required - for initial setup)
+router.post('/register-admin', registerAdmin);
 
 // GET current user's assigned head offices (must be defined before :id route)
 router.get('/my-head-offices', authMiddleware, getMyHeadOffices);
