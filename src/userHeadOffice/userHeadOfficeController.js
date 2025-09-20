@@ -64,7 +64,7 @@ const deleteUserHeadOffice = async (req, res) => {
         message: 'User head office not found'
       });
     }
-    
+
     await userHeadOffice.destroy();
     res.json({
       success: true,

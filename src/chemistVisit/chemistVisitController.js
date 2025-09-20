@@ -229,11 +229,15 @@ const confirmChemistVisit = async (req, res) => {
 // GET visits by user ID
 const getChemistVisitsByUserId = async (req, res) => {
   try {
-    const { ChemistVisit } = req.app.get('models'); // Get ChemistVisit model from app context
+    const { ChemistVisit, Chemist } = req.app.get('models'); // Get models from app context
     const { userId } = req.params;
     
     const visits = await ChemistVisit.findAll({
-      where: { user_id: userId }
+      where: { user_id: userId },
+      include: [{
+        model: Chemist,
+        as: 'chemist' // This should match the association name in your model
+      }]
     });
 
     res.json(visits);
