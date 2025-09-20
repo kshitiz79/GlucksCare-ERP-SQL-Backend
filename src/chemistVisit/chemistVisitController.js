@@ -236,7 +236,7 @@ const getChemistVisitsByUserId = async (req, res) => {
       where: { user_id: userId },
       include: [{
         model: Chemist,
-        as: 'chemist' // This should match the association name in your model
+        as: 'Chemist' // This should match the association name in your model
       }]
     });
 
