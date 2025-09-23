@@ -231,7 +231,7 @@ const cancelLeave = async (req, res) => {
 const getLeaveBalance = async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
-    
+
     // Validate userId
     if (!userId) {
       return res.status(400).json({
@@ -352,7 +352,7 @@ const updateLeave = async (req, res) => {
         message: 'Leave record not found'
       });
     }
-    
+
     await leave.update(req.body);
     res.json({
       success: true,
@@ -377,7 +377,7 @@ const deleteLeave = async (req, res) => {
         message: 'Leave record not found'
       });
     }
-    
+
     await leave.destroy();
     res.json({
       success: true,
@@ -391,6 +391,262 @@ const deleteLeave = async (req, res) => {
   }
 };
 
+// GET pending approvals for managers/admins
+const getPendingApprovals = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    // Validate user
+    if (!userId || !userRole) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    // Define roles that can approve leaves
+    const approverRoles = [
+      'Super Admin',
+      'Admin',
+      'National Head',
+      'State Head',
+      'Zonal Manager',
+      'Area Manager',
+      'Manager'
+    ];
+
+    if (!approverRoles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view pending approvals'
+      });
+    }
+
+    const { Leave, User } = req.app.get('models');
+
+    // Build where clause based on user role
+    let whereClause = {
+      status: 'Pending'
+    };
+
+    // For non-admin roles, filter based on hierarchy
+    if (!['Super Admin', 'Admin'].includes(userRole)) {
+      // Get current user details to filter based on hierarchy
+      const currentUser = await User.findByPk(userId);
+
+      if (!currentUser) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Build hierarchy filter based on role
+      const hierarchyFilter = {};
+
+      switch (userRole) {
+        case 'National Head':
+          // Can approve all leaves
+          break;
+        case 'State Head':
+          hierarchyFilter.state_id = currentUser.state_id;
+          break;
+        case 'Zonal Manager':
+          hierarchyFilter.head_office_id = currentUser.head_office_id;
+          break;
+        case 'Area Manager':
+        case 'Manager':
+          hierarchyFilter.head_office_id = currentUser.head_office_id;
+          hierarchyFilter.branch_id = currentUser.branch_id;
+          break;
+      }
+
+      // If hierarchy filter exists, apply it to employee filter
+      if (Object.keys(hierarchyFilter).length > 0) {
+        whereClause['$employee.head_office_id$'] = hierarchyFilter.head_office_id;
+        if (hierarchyFilter.branch_id) {
+          whereClause['$employee.branch_id$'] = hierarchyFilter.branch_id;
+        }
+        if (hierarchyFilter.state_id) {
+          whereClause['$employee.state_id$'] = hierarchyFilter.state_id;
+        }
+      }
+    }
+
+    // Get pending leaves with employee and leave type details
+    const pendingLeaves = await Leave.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          as: 'employee',
+          attributes: ['id', 'name', 'employee_code', 'role', 'head_office_id', 'branch_id', 'state_id'],
+          required: true
+        },
+        {
+          model: req.app.get('models').LeaveType,
+          as: 'leaveType',
+          attributes: ['id', 'name', 'code', 'color']
+        }
+      ],
+      order: [['applied_date', 'ASC']] // Oldest first for approval queue
+    });
+
+    // Format response to match frontend expectations
+    const formattedLeaves = pendingLeaves.map(leave => ({
+      _id: leave.id,
+      employeeId: {
+        name: leave.employee?.name,
+        employeeCode: leave.employee?.employee_code,
+        role: leave.employee?.role
+      },
+      leaveTypeId: {
+        name: leave.leaveType?.name,
+        code: leave.leaveType?.code,
+        color: leave.leaveType?.color
+      },
+      startDate: leave.start_date,
+      endDate: leave.end_date,
+      totalDays: leave.total_days,
+      reason: leave.reason,
+      status: leave.status,
+      appliedDate: leave.applied_date,
+      approvalFlow: leave.approval_flow,
+      currentApprovalLevel: leave.current_approval_level,
+      emergencyContact: leave.emergency_contact,
+      handoverNotes: leave.handover_notes,
+      isHalfDay: leave.is_half_day,
+      halfDayType: leave.half_day_type,
+      documents: leave.documents
+    }));
+
+    res.json({
+      success: true,
+      count: formattedLeaves.length,
+      data: formattedLeaves
+    });
+
+  } catch (error) {
+    console.error('Error getting pending approvals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching pending approvals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Approve or reject leave
+const approveRejectLeave = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, comments } = req.body;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    // Validate input
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid action. Must be "approve" or "reject"'
+      });
+    }
+
+    if (action === 'reject' && !comments) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comments are required for rejection'
+      });
+    }
+
+    // Check if user has approval permissions
+    const approverRoles = [
+      'Super Admin',
+      'Admin',
+      'National Head',
+      'State Head',
+      'Zonal Manager',
+      'Area Manager',
+      'Manager'
+    ];
+
+    if (!approverRoles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to approve/reject leaves'
+      });
+    }
+
+    const { Leave } = req.app.get('models');
+    const leave = await Leave.findByPk(id, {
+      include: [
+        {
+          model: req.app.get('models').User,
+          as: 'employee',
+          attributes: ['id', 'name', 'employee_code']
+        }
+      ]
+    });
+
+    if (!leave) {
+      return res.status(404).json({
+        success: false,
+        message: 'Leave application not found'
+      });
+    }
+
+    if (leave.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Leave application is not in pending status'
+      });
+    }
+
+    // Update leave status
+    const updateData = {
+      status: action === 'approve' ? 'Approved' : 'Rejected',
+      updated_by: userId
+    };
+
+    if (action === 'approve') {
+      updateData.final_approval_date = new Date();
+    } else {
+      updateData.rejection_reason = comments;
+    }
+
+    // Update approval flow
+    const approvalFlow = leave.approval_flow || [];
+    approvalFlow.push({
+      approver_id: userId,
+      action: action,
+      comments: comments,
+      timestamp: new Date()
+    });
+    updateData.approval_flow = approvalFlow;
+
+    await leave.update(updateData);
+
+    res.json({
+      success: true,
+      message: `Leave application ${action}d successfully`,
+      data: {
+        id: leave.id,
+        status: updateData.status,
+        employee: leave.employee?.name
+      }
+    });
+
+  } catch (error) {
+    console.error('Error approving/rejecting leave:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while processing leave approval',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   getAllLeaves,
   getLeaveById,
@@ -400,5 +656,7 @@ module.exports = {
   getMyLeaves,
   applyLeave,
   cancelLeave,
-  getLeaveBalance
+  getLeaveBalance,
+  getPendingApprovals,
+  approveRejectLeave
 };

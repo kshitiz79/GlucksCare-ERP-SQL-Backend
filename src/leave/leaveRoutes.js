@@ -12,7 +12,9 @@ const {
   getMyLeaves,
   applyLeave,
   cancelLeave,
-  getLeaveBalance
+  getLeaveBalance,
+  getPendingApprovals,
+  approveRejectLeave
 } = require('./leaveController');
 
 // GET all leaves (admin)
@@ -24,8 +26,14 @@ router.get('/my-leaves', authMiddleware, getMyLeaves);
 // GET leave balance (user)
 router.get('/balance', authMiddleware, getLeaveBalance);
 
+// GET pending approvals (managers/admins)
+router.get('/pending-approvals', authMiddleware, getPendingApprovals);
+
 // POST apply for leave
 router.post('/apply', authMiddleware, applyLeave);
+
+// PUT approve/reject leave
+router.put('/:id/approve', authMiddleware, approveRejectLeave);
 
 // PUT cancel leave
 router.put('/:id/cancel', authMiddleware, cancelLeave);

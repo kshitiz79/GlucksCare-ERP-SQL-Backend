@@ -97,7 +97,7 @@ async function startServer() {
   const headOfficeRoutes = require('./src/headoffice/headOfficeRoutes');
   const stateRoutes = require('./src/state/stateRoutes');
   const doctorRoutes = require('./src/doctor/doctorRoutes');
-  const salesRoutes = require('./src/sales/salesRoutes');
+
   const attendanceRoutes = require('./src/attendance/attendanceRoutes');
   const leaveRoutes = require('./src/leave/leaveRoutes');
   const leaveTypeRoutes = require('./src/leaveType/leaveTypeRoutes');
@@ -145,7 +145,7 @@ async function startServer() {
   app.use('/api/headoffices', headOfficeRoutes);
   app.use('/api/states', stateRoutes);
   app.use('/api/doctors', doctorRoutes);
-  app.use('/api/sales', salesRoutes);
+
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/leaves', leaveRoutes);
   app.use('/api/leave-types', leaveTypeRoutes);

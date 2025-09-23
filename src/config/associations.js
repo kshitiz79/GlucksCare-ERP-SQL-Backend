@@ -10,9 +10,9 @@ module.exports = (db) => {
   db.User.belongsTo(db.Designation, { foreignKey: 'designation_id', as: 'designation' });
   db.User.belongsTo(db.EmploymentType, { foreignKey: 'employment_type_id' });
   db.User.hasMany(db.DoctorVisitHistory, { foreignKey: 'sales_rep_id' });
-  db.User.hasMany(db.SalesActivity, { foreignKey: 'user_id' });
+
   db.User.hasMany(db.SalesTarget, { foreignKey: 'user_id' });
-  db.User.hasMany(db.Order, { foreignKey: 'user_id' });
+
   db.User.hasMany(db.DoctorVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.ChemistVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.StockistVisit, { foreignKey: 'user_id' });
@@ -99,25 +99,20 @@ module.exports = (db) => {
   db.StockistAnnualTurnover.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'Stockist' });
 
   // Product associations
-  db.Product.hasMany(db.SalesActivity, { foreignKey: 'product_id' });
-  db.Product.hasMany(db.Order, { foreignKey: 'product_id' });
+
+
   db.Product.hasMany(db.DoctorVisit, { foreignKey: 'product_id' });
   db.Product.hasMany(db.VisitProductPromoted, { foreignKey: 'product_id' });
   db.Product.hasMany(db.VisitProductAgreed, { foreignKey: 'product_id' });
   db.Product.hasMany(db.VisitProductNotAgreed, { foreignKey: 'product_id' });
 
-  // SalesActivity associations
-  db.SalesActivity.belongsTo(db.User, { foreignKey: 'user_id' });
-  db.SalesActivity.belongsTo(db.Product, { foreignKey: 'product_id' });
+
 
   // SalesTarget associations
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'user_id', as: 'salesTargetUser' });
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'created_by', as: 'salesTargetCreator' });
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'updated_by', as: 'salesTargetUpdater' });
 
-  // Order associations
-  db.Order.belongsTo(db.User, { foreignKey: 'user_id' });
-  db.Order.belongsTo(db.Product, { foreignKey: 'product_id' });
 
   // DoctorVisit associations
   db.DoctorVisit.belongsTo(db.Doctor, { foreignKey: 'doctor_id' });

@@ -49,7 +49,7 @@ const Leave = require('../leave/Leave');
 const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
-const SalesActivity = require('../sales/SalesActivity');
+
 const Location = require('../location/Location');
 const Branch = require('../branch/Branch');
 const Department = require('../department/Department');
@@ -62,7 +62,7 @@ const Stockist = require('../stockist/Stockist');
 const StockistAnnualTurnover = require('../stockistAnnualTurnover/StockistAnnualTurnover');
 const Product = require('../product/Product');
 const SalesTarget = require('../salesTarget/SalesTarget');
-const Order = require('../order/Order');
+
 const DoctorVisit = require('../doctorVisit/DoctorVisit');
 const ChemistVisit = require('../chemistVisit/ChemistVisit');
 const StockistVisit = require('../stockistVisit/StockistVisit');
@@ -95,7 +95,7 @@ const models = {
     LeaveType: LeaveType(sequelize),
     Shift: Shift(sequelize),
     Doctor: Doctor(sequelize),
-    SalesActivity: SalesActivity(sequelize),
+
     Location: Location(sequelize),
     Branch: Branch(sequelize),
     Department: Department(sequelize),
@@ -108,7 +108,7 @@ const models = {
     StockistAnnualTurnover: StockistAnnualTurnover(sequelize),
     Product: Product(sequelize),
     SalesTarget: SalesTarget(sequelize),
-    Order: Order(sequelize),
+  
     DoctorVisit: DoctorVisit(sequelize),
     ChemistVisit: ChemistVisit(sequelize),
     StockistVisit: StockistVisit(sequelize),
