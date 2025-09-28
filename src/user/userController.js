@@ -25,7 +25,6 @@ const getAllUsers = async (req, res) => {
         mobileNumber: user.mobile_number,
         gender: user.gender,
         role: user.role,
-        headOffice: user.head_office_id,
         state: user.state_id,
         salaryAmount: user.salary_amount,
         address: user.address,
@@ -115,7 +114,6 @@ const getUserById = async (req, res) => {
       mobileNumber: user.mobile_number,
       gender: user.gender,
       role: user.role,
-      headOffice: user.head_office_id,
       state: user.state_id,
       salaryAmount: user.salary_amount,
       address: user.address,
@@ -190,7 +188,7 @@ const createUser = async (req, res) => {
     const userData = {};
     Object.keys(req.body).forEach(key => {
       // Skip relationship fields for now
-      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice'].includes(key)) return;
+      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state'].includes(key)) return;
 
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 

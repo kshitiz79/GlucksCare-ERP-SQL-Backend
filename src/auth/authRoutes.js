@@ -77,9 +77,10 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
             email,
             password_hash: password, // Will be hashed by the model hook
             mobile_number: mobileNumber || phone,
-            head_office_id: headOffice || null,
+            // Only set head_office_id if headOffices array is not provided
+            head_office_id: (headOffices && headOffices.length > 0) ? null : (headOffice || null),
             employee_code: employeeCode,
-               role, 
+            role, 
             gender,
             salary_type: salaryType,
             salary_amount: salaryAmount ? parseFloat(salaryAmount) : null,
@@ -95,6 +96,17 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
             email_verified_at: new Date()
         });
 
+        // Handle headOffices array if provided
+        if (headOffices && Array.isArray(headOffices) && headOffices.length > 0) {
+            // Create UserHeadOffice entries for each head office
+            const { UserHeadOffice } = require('../config/database');
+            const userHeadOfficeRecords = headOffices.map(headOfficeId => ({
+                user_id: user.id,
+                head_office_id: headOfficeId
+            }));
+            await UserHeadOffice.bulkCreate(userHeadOfficeRecords);
+        }
+
         // Generate JWT token
         const token = jwt.sign(
             { id: user.id, role: user.role }, 
@@ -102,16 +114,28 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
             { expiresIn: '60h' }
         );
 
-        // Populate headOffice for response
+        // Populate headOffices for response
         const populatedUser = await User.findByPk(user.id, {
             include: [
                 {
                     model: HeadOffice,
-                    as: 'headOffice',
+                    as: 'headOffices',
+                    through: { attributes: [] },
                     attributes: ['id', 'name']
                 }
             ]
         });
+
+        // Get all head offices for the user
+        let responseHeadOffices = [];
+        
+        if (populatedUser.headOffices && populatedUser.headOffices.length > 0) {
+            // User has multiple head offices through many-to-many relationship
+            responseHeadOffices = populatedUser.headOffices.map(ho => ({
+                id: ho.id,
+                name: ho.name
+            }));
+        }
 
         res.json({
             token,
@@ -120,7 +144,7 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
                 name: user.name,
                 email: user.email,
                 role: user.role,
-                headOffices: populatedUser.headOffice ? [populatedUser.headOffice] : []
+                headOffices: responseHeadOffices
             }
         });
     } catch (err) {

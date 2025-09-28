@@ -1,9 +1,19 @@
-const PayrollSetting = require('./PayrollSetting');
-
 // GET all payroll settings
 const getAllPayrollSettings = async (req, res) => {
   try {
-    const payrollSettings = await PayrollSetting.findAll();
+    // Get the PayrollSetting model from the request app
+    const PayrollSetting = req.app.get('models').PayrollSetting;
+    
+    // Support filtering by shift_id if provided
+    const filter = {};
+    if (req.query.shift_id) {
+      filter.shift_id = req.query.shift_id;
+    }
+    
+    const payrollSettings = await PayrollSetting.findAll({
+      where: filter
+    });
+    
     res.json({
       success: true,
       count: payrollSettings.length,
@@ -20,6 +30,9 @@ const getAllPayrollSettings = async (req, res) => {
 // GET payroll setting by ID
 const getPayrollSettingById = async (req, res) => {
   try {
+    // Get the PayrollSetting model from the request app
+    const PayrollSetting = req.app.get('models').PayrollSetting;
+    
     const payrollSetting = await PayrollSetting.findByPk(req.params.id);
     if (!payrollSetting) {
       return res.status(404).json({
@@ -42,6 +55,9 @@ const getPayrollSettingById = async (req, res) => {
 // CREATE a new payroll setting
 const createPayrollSetting = async (req, res) => {
   try {
+    // Get the PayrollSetting model from the request app
+    const PayrollSetting = req.app.get('models').PayrollSetting;
+    
     const payrollSetting = await PayrollSetting.create(req.body);
     res.status(201).json({
       success: true,
@@ -58,6 +74,9 @@ const createPayrollSetting = async (req, res) => {
 // UPDATE a payroll setting
 const updatePayrollSetting = async (req, res) => {
   try {
+    // Get the PayrollSetting model from the request app
+    const PayrollSetting = req.app.get('models').PayrollSetting;
+    
     const payrollSetting = await PayrollSetting.findByPk(req.params.id);
     if (!payrollSetting) {
       return res.status(404).json({
@@ -82,6 +101,9 @@ const updatePayrollSetting = async (req, res) => {
 // DELETE a payroll setting
 const deletePayrollSetting = async (req, res) => {
   try {
+    // Get the PayrollSetting model from the request app
+    const PayrollSetting = req.app.get('models').PayrollSetting;
+    
     const payrollSetting = await PayrollSetting.findByPk(req.params.id);
     if (!payrollSetting) {
       return res.status(404).json({

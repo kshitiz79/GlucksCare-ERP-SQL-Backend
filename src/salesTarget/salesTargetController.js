@@ -363,19 +363,10 @@ const updateSalesTarget = async (req, res) => {
   }
 };
 
-// DELETE a sales target
 const deleteSalesTarget = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    // Only Super Admin can delete targets
-    if (req.user.role !== 'Super Admin') {
-      await transaction.rollback();
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only Super Admin can delete targets'
-      });
-    }
-
+    // Find the sales target by ID
     const salesTarget = await sequelize.models.SalesTarget.findByPk(req.params.id, { transaction });
     if (!salesTarget) {
       await transaction.rollback();
@@ -385,6 +376,8 @@ const deleteSalesTarget = async (req, res) => {
       });
     }
 
+
+    // Delete the sales target
     await salesTarget.destroy({ transaction });
 
     // Commit transaction
