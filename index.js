@@ -138,6 +138,18 @@ async function startServer() {
   // Product routes
   const productRoutes = require('./src/product/productRoutes');
 
+
+// Add this with the other route imports (around line 95)
+const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
+
+// Add this with the other route mounts (around line 205)
+app.use('/api/dashboard', dashboardRoutes);
+
+
+
+
+
+
   // Mount routes
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
