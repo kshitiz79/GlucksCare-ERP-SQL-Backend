@@ -57,6 +57,57 @@ const getHeadOfficeById = async (req, res) => {
   }
 };
 
+// GET head offices by state for State Head users
+const getHeadOfficesByStateForStateHead = async (req, res) => {
+  try {
+    // Get the HeadOffice, State, and User models from app context
+    const { HeadOffice, State, User } = req.app.get('models');
+    
+    // Check if user is a State Head
+    if (req.user.role !== 'State Head') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only State Head users can access this endpoint.'
+      });
+    }
+    
+    // Get the state assigned to this State Head user
+    const stateHeadUser = await User.findByPk(req.user.id);
+    if (!stateHeadUser || !stateHeadUser.state_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'State Head user does not have a state assigned.'
+      });
+    }
+    
+    // Find all head offices belonging to this state
+    const headOffices = await HeadOffice.findAll({
+      where: {
+        stateId: stateHeadUser.state_id
+      },
+      include: [
+        {
+          model: State,
+          as: 'State',
+          attributes: ['id', 'name', 'code']
+        }
+      ]
+    });
+    
+    res.json({
+      success: true,
+      count: headOffices.length,
+      data: headOffices
+    });
+  } catch (error) {
+    console.error('Error fetching head offices by state:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // CREATE a new head office
 const createHeadOffice = async (req, res) => {
   try {
@@ -151,6 +202,7 @@ const deleteHeadOffice = async (req, res) => {
 module.exports = {
   getAllHeadOffices,
   getHeadOfficeById,
+  getHeadOfficesByStateForStateHead,
   createHeadOffice,
   updateHeadOffice,
   deleteHeadOffice

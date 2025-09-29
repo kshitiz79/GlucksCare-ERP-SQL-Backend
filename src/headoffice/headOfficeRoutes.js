@@ -2,9 +2,11 @@
 
 const express = require('express');
 const router = express.Router();
+const { authMiddleware } = require('../middleware/authMiddleware');
 const {
   getAllHeadOffices,
   getHeadOfficeById,
+  getHeadOfficesByStateForStateHead,
   createHeadOffice,
   updateHeadOffice,
   deleteHeadOffice
@@ -12,6 +14,9 @@ const {
 
 // GET all head offices
 router.get('/', getAllHeadOffices);
+
+// GET head offices by state for State Head users
+router.get('/by-state', authMiddleware, getHeadOfficesByStateForStateHead);
 
 // GET head office by ID
 router.get('/:id', getHeadOfficeById);
