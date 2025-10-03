@@ -16,7 +16,8 @@ const {
   forceDeleteUser,
   getMyHeadOffices,
   registerAdmin,
-  registerUser
+  registerUser,
+  getUsersByState
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -38,6 +39,9 @@ router.get('/for-shift-assignment', getAllUsers);
 
 // GET all users
 router.get('/', authMiddleware, getAllUsers);
+
+// GET users by state
+router.get('/state/:stateId', authMiddleware, getUsersByState);
 
 // GET users by role
 router.get('/role/:role', authMiddleware, getUsersByRole);
