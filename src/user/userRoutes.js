@@ -5,7 +5,6 @@ const router = express.Router();
 const {
   getAllUsers,
   getUsersByRole,
-  getUsersByState,
   getUserById,
   createUser,
   updateUser,
@@ -42,9 +41,6 @@ router.get('/', authMiddleware, getAllUsers);
 
 // GET users by role
 router.get('/role/:role', authMiddleware, getUsersByRole);
-
-// GET users by state
-router.get('/state/:stateId', authMiddleware, getUsersByState);
 
 // GET user by ID
 router.get('/:id', authMiddleware, getUserById);

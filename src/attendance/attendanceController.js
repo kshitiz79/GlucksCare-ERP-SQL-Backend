@@ -16,6 +16,43 @@ const getISTDateTime = () => {
   return new Date();
 };
 
+// Utility function to calculate breaks between punch sessions
+const calculateBreaks = (punchSessions) => {
+  const autoBreaks = [];
+  let totalBreakMinutes = 0;
+
+  // Only calculate breaks if there are multiple sessions
+  if (punchSessions.length > 1) {
+    // Loop through sessions to calculate breaks between them
+    for (let i = 1; i < punchSessions.length; i++) {
+      const previousSession = punchSessions[i - 1];
+      const currentSession = punchSessions[i];
+      
+      // Only calculate break if both sessions are complete (have punch in and punch out)
+      if (previousSession.punchOut && currentSession.punchIn) {
+        const breakStart = new Date(previousSession.punchOut);
+        const breakEnd = new Date(currentSession.punchIn);
+        const breakMinutes = (breakEnd - breakStart) / (1000 * 60);
+        
+        if (breakMinutes > 0) {
+          autoBreaks.push({
+            start: breakStart,
+            end: breakEnd,
+            duration: Math.floor(breakMinutes)
+          });
+          
+          totalBreakMinutes += Math.floor(breakMinutes);
+        }
+      }
+    }
+  }
+
+  return {
+    autoBreaks,
+    totalBreakMinutes: Math.floor(totalBreakMinutes)
+  };
+};
+
 // GET all attendance records
 const getAllAttendance = async (req, res) => {
   try {
@@ -224,7 +261,7 @@ const getWeeklyAttendance = async (req, res) => {
       weeklyData.push({
         day: weekDays[i],
         date: dateStr,
-        hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0,
+        hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0.0,
         hasShiftAssigned: !!attendance?.shift_id
       });
     }
@@ -270,7 +307,7 @@ const getMonthlyAttendance = async (req, res) => {
       monthlyData.push({
         day,
         date: dateStr,
-        hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0,
+        hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0.0,
         hasShiftAssigned: !!attendance?.shift_id
       });
     }
@@ -440,6 +477,13 @@ const togglePunch = async (req, res) => {
       }
     }
 
+    // Calculate break times between sessions
+    const { autoBreaks, totalBreakMinutes } = calculateBreaks(punchSessions);
+
+    // Add break information to update data
+    updateData.auto_breaks = autoBreaks;
+    updateData.total_break_minutes = totalBreakMinutes;
+
     // Ensure all numeric fields in updateData are integers
     if (updateData.total_working_minutes !== undefined) {
       updateData.total_working_minutes = Math.floor(updateData.total_working_minutes);
@@ -607,5 +651,6 @@ module.exports = {
   getWeeklyAttendance,
   getMonthlyAttendance,
   getAttendanceStats,
-  togglePunch
+  togglePunch,
+  calculateBreaks // Export for testing
 };

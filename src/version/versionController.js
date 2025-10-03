@@ -171,9 +171,6 @@ const setLatestAppVersion = async (req, res) => {
         message: 'Minimum required version format must be X.Y.Z (e.g., 1.2.3)'
       });
     }
-    
-    // Set minimumRequiredVersion to null if it's an empty string
-    const minRequiredVersion = minimumRequiredVersion || null;
 
     // Get the AppVersionConfig model from app context
     const { AppVersionConfig } = req.app.get('models');
@@ -183,7 +180,7 @@ const setLatestAppVersion = async (req, res) => {
       latest_version: latestVersion,
       release_notes: releaseNotes,
       force_update: forceUpdate || false,
-      minimum_required_version: minRequiredVersion,
+      minimum_required_version: minimumRequiredVersion,
       created_by: userId,
       updated_by: userId
     });
@@ -257,8 +254,143 @@ const getLatestAppVersion = async (req, res) => {
   }
 };
 
+// Import Sequelize for database operations
+const { Sequelize } = require('sequelize');
+
+// Get all users with their latest version status (One record per user) - Admin only
+const getAllVersionChecks = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      updateRequired,
+      updateType,
+      platform,
+      search,
+      startDate,
+      endDate
+    } = req.query;
+
+    // Get the Version and User models from app context
+    const { Version, User } = req.app.get('models');
+
+    // Calculate offset for pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build where conditions
+    let versionWhere = {};
+    let userWhere = {};
+
+    // Apply filters
+    if (updateRequired !== undefined) {
+      versionWhere.update_required = updateRequired === 'true';
+    }
+
+    if (updateType && updateType !== 'all') {
+      versionWhere.update_type = updateType;
+    }
+
+    // For PostgreSQL JSONB fields, we need to use the correct syntax
+    if (platform && platform !== 'all') {
+      versionWhere.device_info = {
+        ...versionWhere.device_info,
+        platform: platform
+      };
+    }
+
+    if (startDate || endDate) {
+      versionWhere.version_check_date = {};
+      if (startDate) versionWhere.version_check_date[Sequelize.Op.gte] = new Date(startDate);
+      if (endDate) versionWhere.version_check_date[Sequelize.Op.lte] = new Date(endDate);
+    }
+
+    // Apply search filter
+    if (search) {
+      userWhere = {
+        [Sequelize.Op.or]: [
+          { name: { [Sequelize.Op.iLike]: `%${search}%` } },
+          { email: { [Sequelize.Op.iLike]: `%${search}%` } },
+          { employee_code: { [Sequelize.Op.iLike]: `%${search}%` } }
+        ]
+      };
+    }
+
+    // Get versions with user data
+    const { count, rows: versions } = await Version.findAndCountAll({
+      where: versionWhere,
+      include: [{
+        model: User,
+        where: userWhere,
+        attributes: ['id', 'name', 'email', 'employee_code', 'department_id', 'role'],
+        required: Object.keys(userWhere).length > 0
+      }],
+      order: [['version_check_date', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    // Get statistics (simplified to avoid complex queries)
+    const allVersions = await Version.findAll({
+      include: [{
+        model: User,
+        required: false
+      }]
+    });
+
+    const statistics = {
+      totalUsers: allVersions.length,
+      updateRequired: allVersions.filter(v => v.update_required).length,
+      criticalUpdates: allVersions.filter(v => v.update_type === 'critical').length,
+      recommendedUpdates: allVersions.filter(v => v.update_type === 'recommended').length,
+      optionalUpdates: allVersions.filter(v => v.update_type === 'optional').length,
+      upToDate: allVersions.filter(v => v.update_type === 'none').length
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        versions: versions.map(version => ({
+          _id: version.id,
+          userId: version.User,
+          user: version.User,
+          currentVersion: version.current_version,
+          playStoreVersion: version.play_store_version,
+          updateRequired: version.update_required,
+          updateType: version.update_type,
+          forceUpdate: version.force_update,
+          deviceInfo: version.device_info,
+          buildNumber: version.build_number,
+          checkCount: version.check_count,
+          versionCheckDate: version.version_check_date,
+          lastCheckDate: version.last_check_date,
+          releaseNotes: version.release_notes,
+          createdAt: version.created_at,
+          updatedAt: version.updated_at
+        })),
+        statistics,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / parseInt(limit)),
+          totalRecords: count,
+          hasNext: page * parseInt(limit) < count,
+          hasPrev: parseInt(page) > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all version checks error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get version checks',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   checkAppVersion,
   setLatestAppVersion,
-  getLatestAppVersion
+  getLatestAppVersion,
+  getAllVersionChecks
 };

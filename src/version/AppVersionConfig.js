@@ -1,3 +1,4 @@
+// Sql-Backend/src/version/AppVersionConfig.js
 const { DataTypes } = require('sequelize');
 
 const AppVersionConfig = (sequelize) => {
@@ -26,8 +27,7 @@ const AppVersionConfig = (sequelize) => {
       type: DataTypes.STRING(20),
       validate: {
         is: /^\d+\.\d+\.\d+$/
-      },
-      allowNull: true
+      }
     },
     created_by: {
       type: DataTypes.UUID,

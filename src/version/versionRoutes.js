@@ -5,7 +5,8 @@ const router = express.Router();
 const {
   checkAppVersion,
   setLatestAppVersion,
-  getLatestAppVersion
+  getLatestAppVersion,
+  getAllVersionChecks
 } = require('./versionController');
 
 // Import authentication middleware
@@ -17,5 +18,6 @@ router.post('/check', authMiddleware, checkAppVersion); // Check app version
 // Admin routes
 router.post('/admin/set-latest-version', authMiddleware, setLatestAppVersion); // Set latest app version (Admin only)
 router.get('/admin/get-latest-version', authMiddleware, getLatestAppVersion); // Get latest app version (Admin only)
+router.get('/admin/users', authMiddleware, getAllVersionChecks); // Get all users with version status (Admin only)
 
 module.exports = router;

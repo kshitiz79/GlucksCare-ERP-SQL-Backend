@@ -205,7 +205,7 @@ app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/products', productRoutes);
 
   // Mount version routes
-  app.use('/api/versions', versionRoutes);
+  app.use('/api/version', versionRoutes);
 
   // Root endpoint
   app.get('/', (req, res) => {
