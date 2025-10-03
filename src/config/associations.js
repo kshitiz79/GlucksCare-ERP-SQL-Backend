@@ -17,9 +17,9 @@ module.exports = (db) => {
   db.User.hasMany(db.ChemistVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.StockistVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.Visit, { foreignKey: 'representative_id' });
-  db.User.hasMany(db.Location, { foreignKey: 'user_id' });
-  db.User.hasMany(db.LocationHistory, { foreignKey: 'user_id' });
-  db.User.hasMany(db.LocationEvent, { foreignKey: 'user_id' });
+  // db.User.hasMany(db.Location, { foreignKey: 'user_id' });
+  // db.User.hasMany(db.LocationHistory, { foreignKey: 'user_id' });
+  // db.User.hasMany(db.LocationEvent, { foreignKey: 'user_id' });
   db.User.hasMany(db.Attendance, { foreignKey: 'user_id' });
   db.User.hasMany(db.Leave, { foreignKey: 'employee_id' });
   db.User.hasMany(db.Expense, { foreignKey: 'user_id' });
@@ -28,6 +28,8 @@ module.exports = (db) => {
   db.User.hasMany(db.Holiday, { foreignKey: 'created_by', as: 'createdHolidays' });
   db.User.hasMany(db.Holiday, { foreignKey: 'updated_by', as: 'updatedHolidays' });
   db.User.hasMany(db.Version, { foreignKey: 'user_id' });
+  db.User.hasMany(db.AppVersionConfig, { foreignKey: 'created_by', as: 'createdAppVersionConfigs' });
+  db.User.hasMany(db.AppVersionConfig, { foreignKey: 'updated_by', as: 'updatedAppVersionConfigs' });
   db.User.hasMany(db.UserHeadOffice, { foreignKey: 'user_id' });
   db.User.hasMany(db.UserManager, { foreignKey: 'user_id' });
   db.User.hasMany(db.UserManager, { foreignKey: 'manager_id' });
@@ -146,13 +148,13 @@ module.exports = (db) => {
   db.VisitProductNotAgreed.belongsTo(db.Product, { foreignKey: 'product_id' });
 
   // Location associations
-  db.Location.belongsTo(db.User, { foreignKey: 'user_id' });
+  // db.Location.belongsTo(db.User, { foreignKey: 'user_id' });
 
-  // LocationHistory associations
-  db.LocationHistory.belongsTo(db.User, { foreignKey: 'user_id' });
+  // // LocationHistory associations
+  // db.LocationHistory.belongsTo(db.User, { foreignKey: 'user_id' });
 
-  // LocationEvent associations
-  db.LocationEvent.belongsTo(db.User, { foreignKey: 'user_id' });
+  // // LocationEvent associations
+  // db.LocationEvent.belongsTo(db.User, { foreignKey: 'user_id' });
 
   // Shift associations
   db.Shift.hasMany(db.Attendance, { foreignKey: 'shift_id' });
@@ -207,6 +209,10 @@ module.exports = (db) => {
 
   // Version associations
   db.Version.belongsTo(db.User, { foreignKey: 'user_id' });
+
+  // AppVersionConfig associations
+  db.AppVersionConfig.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+  db.AppVersionConfig.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
 
   // PdfFile associations
   db.PdfFile.belongsTo(db.User, { foreignKey: 'uploaded_by', as: 'uploader' });

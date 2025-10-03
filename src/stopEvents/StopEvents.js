@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
-const Location = (sequelize) => {
-  return sequelize.define('Location', {
+const StopEvents = (sequelize) => {
+  return sequelize.define('StopEvents', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -20,23 +20,34 @@ const Location = (sequelize) => {
       type: DataTypes.DECIMAL(11, 8),
       allowNull: false
     },
-    timestamp: {
+    start_time: {
       type: DataTypes.DATE,
-      defaultValue: DataTypes.NOW,
       allowNull: false
     },
-    accuracy: {
-      type: DataTypes.FLOAT,
+    end_time: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    duration: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0
+    },
+    stop_type: {
+      type: DataTypes.ENUM('break', 'visit', 'meeting', 'lunch', 'other'),
+      defaultValue: 'other'
+    },
+    metadata: {
+      type: DataTypes.JSONB,
       allowNull: true
     }
   }, {
-    tableName: 'locations',
+    tableName: 'stop_events',
     timestamps: true,
     underscored: true,
     indexes: [
-      { fields: ['user_id', 'timestamp'] }
+      { fields: ['user_id', 'start_time'] }
     ]
   });
 };
 
-module.exports = Location;
+module.exports = StopEvents;

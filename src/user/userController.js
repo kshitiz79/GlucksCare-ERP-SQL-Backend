@@ -1,3 +1,306 @@
+// GET users by state
+const getUsersByState = async (req, res) => {
+  try {
+    const { stateId } = req.params;
+    
+    // Validate stateId parameter
+    if (!stateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'State ID parameter is required'
+      });
+    }
+    
+    // Get the User and HeadOffice models from app context
+    const { User, HeadOffice, State } = req.app.get('models');
+    
+    // Find users directly assigned to this state or assigned to head offices in this state
+    const users = await User.findAll({
+      where: {
+        state_id: stateId
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] } // Don't include junction table attributes
+        }
+      ]
+    });
+
+    // Also find users assigned to head offices in this state
+    const headOfficesInState = await HeadOffice.findAll({
+      where: {
+        stateId: stateId
+      }
+    });
+
+    const headOfficeIds = headOfficesInState.map(ho => ho.id);
+
+    // Find users assigned to these head offices through the many-to-many relationship
+    if (headOfficeIds.length > 0) {
+      const usersInHeadOffices = await User.findAll({
+        include: [
+          {
+            model: HeadOffice,
+            as: 'headOffices',
+            through: { attributes: [] },
+            where: {
+              id: headOfficeIds
+            }
+          }
+        ]
+      });
+
+      // Merge the two user lists, avoiding duplicates
+      const allUsers = [...users];
+      const existingUserIds = new Set(users.map(u => u.id));
+      
+      usersInHeadOffices.forEach(user => {
+        if (!existingUserIds.has(user.id)) {
+          allUsers.push(user);
+        }
+      });
+
+      // Transform users to match MongoDB format
+      const transformedUsers = allUsers.map(user => {
+        // Convert snake_case to camelCase
+        const transformedUser = {
+          _id: user.id,
+          id: user.id,
+          employeeCode: user.employee_code,
+          name: user.name,
+          email: user.email,
+          mobileNumber: user.mobile_number,
+          gender: user.gender,
+          role: user.role,
+          state: user.state_id,
+          salaryAmount: user.salary_amount,
+          address: user.address,
+          dateOfBirth: user.date_of_birth,
+          dateOfJoining: user.date_of_joining,
+          bankDetails: user.bank_details,
+          legalDocuments: user.legal_documents,
+          emergencyContact: user.emergency_contact,
+          reference: user.reference,
+          isActive: user.is_active,
+          emailVerified: user.email_verified,
+          otp: user.otp,
+          otpExpire: user.otp_expire,
+          createdAt: user.created_at,
+          updatedAt: user.updated_at,
+          branch: user.branch_id,
+          department: user.department_id,
+          employmentType: user.employment_type_id
+        };
+
+        // Add headOffices array if exists
+        if (user.headOffices) {
+          transformedUser.headOffices = user.headOffices.map(ho => ({
+            id: ho.id,
+            name: ho.name,
+            stateId: ho.state_id,
+            pincode: ho.pincode,
+            isActive: ho.is_active,
+            createdAt: ho.created_at,
+            updatedAt: ho.updated_at
+          }));
+        }
+
+        return transformedUser;
+      });
+
+      res.json({
+        success: true,
+        data: transformedUsers,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          totalCount: transformedUsers.length,
+          limit: transformedUsers.length,
+          hasNext: false,
+          hasPrev: false
+        },
+        filters: {
+          stateId: stateId
+        }
+      });
+    } else {
+      // Transform users to match MongoDB format
+      const transformedUsers = users.map(user => {
+        // Convert snake_case to camelCase
+        const transformedUser = {
+          _id: user.id,
+          id: user.id,
+          employeeCode: user.employee_code,
+          name: user.name,
+          email: user.email,
+          mobileNumber: user.mobile_number,
+          gender: user.gender,
+          role: user.role,
+          state: user.state_id,
+          salaryAmount: user.salary_amount,
+          address: user.address,
+          dateOfBirth: user.date_of_birth,
+          dateOfJoining: user.date_of_joining,
+          bankDetails: user.bank_details,
+          legalDocuments: user.legal_documents,
+          emergencyContact: user.emergency_contact,
+          reference: user.reference,
+          isActive: user.is_active,
+          emailVerified: user.email_verified,
+          otp: user.otp,
+          otpExpire: user.otp_expire,
+          createdAt: user.created_at,
+          updatedAt: user.updated_at,
+          branch: user.branch_id,
+          department: user.department_id,
+          employmentType: user.employment_type_id
+        };
+
+        // Add headOffices array if exists
+        if (user.headOffices) {
+          transformedUser.headOffices = user.headOffices.map(ho => ({
+            id: ho.id,
+            name: ho.name,
+            stateId: ho.state_id,
+            pincode: ho.pincode,
+            isActive: ho.is_active,
+            createdAt: ho.created_at,
+            updatedAt: ho.updated_at
+          }));
+        }
+
+        return transformedUser;
+      });
+
+      res.json({
+        success: true,
+        data: transformedUsers,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          totalCount: transformedUsers.length,
+          limit: transformedUsers.length,
+          hasNext: false,
+          hasPrev: false
+        },
+        filters: {
+          stateId: stateId
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching users by state:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// GET users by role
+const getUsersByRole = async (req, res) => {
+  try {
+    const { role } = req.params;
+    
+    // Validate role parameter
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Role parameter is required'
+      });
+    }
+    
+    // Get the User model from app context
+    const { User, HeadOffice } = req.app.get('models');
+    
+    // Find users with the specified role
+    const users = await User.findAll({
+      where: {
+        role: role
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] } // Don't include junction table attributes
+        }
+      ]
+    });
+
+    // Transform users to match MongoDB format
+    const transformedUsers = users.map(user => {
+      // Convert snake_case to camelCase
+      const transformedUser = {
+        _id: user.id,
+        id: user.id,
+        employeeCode: user.employee_code,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobile_number,
+        gender: user.gender,
+        role: user.role,
+        state: user.state_id, // This should be the state ID
+        salaryAmount: user.salary_amount,
+        address: user.address,
+        dateOfBirth: user.date_of_birth,
+        dateOfJoining: user.date_of_joining,
+        bankDetails: user.bank_details,
+        legalDocuments: user.legal_documents,
+        emergencyContact: user.emergency_contact,
+        reference: user.reference,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        otp: user.otp,
+        otpExpire: user.otp_expire,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        branch: user.branch_id,
+        department: user.department_id,
+        employmentType: user.employment_type_id
+      };
+
+      // Add headOffices array if exists (many-to-many relationship)
+      if (user.headOffices) {
+        transformedUser.headOffices = user.headOffices.map(ho => ({
+          id: ho.id,
+          name: ho.name,
+          stateId: ho.state_id,
+          pincode: ho.pincode,
+          isActive: ho.is_active,
+          createdAt: ho.created_at,
+          updatedAt: ho.updated_at
+        }));
+      }
+
+      return transformedUser;
+    });
+
+    res.json({
+      success: true,
+      data: transformedUsers,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        totalCount: transformedUsers.length,
+        limit: transformedUsers.length,
+        hasNext: false,
+        hasPrev: false
+      },
+      filters: {
+        role: role
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching users by role:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // GET all users
 const getAllUsers = async (req, res) => {
   try {
@@ -1220,6 +1523,8 @@ const registerUser = async (req, res) => {
 
 module.exports = {
   getAllUsers,
+  getUsersByRole,
+  getUsersByState,
   getUserById,
   createUser,
   updateUser,

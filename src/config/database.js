@@ -50,7 +50,7 @@ const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
 
-const Location = require('../location/Location');
+// const Location = require('../location/Location');
 const Branch = require('../branch/Branch');
 const Department = require('../department/Department');
 const Designation = require('../designation/Designation');
@@ -70,8 +70,8 @@ const Visit = require('../visit/Visit');
 const VisitProductPromoted = require('../visitProductPromoted/VisitProductPromoted');
 const VisitProductAgreed = require('../visitProductAgreed/VisitProductAgreed');
 const VisitProductNotAgreed = require('../visitProductNotAgreed/VisitProductNotAgreed');
-const LocationHistory = require('../locationHistory/LocationHistory');
-const LocationEvent = require('../locationEvent/LocationEvent');
+// const LocationHistory = require('../locationHistory/LocationHistory');
+// const LocationEvent = require('../locationEvent/LocationEvent');
 const UserShift = require('../userShift/UserShift');
 const Holiday = require('../holiday/Holiday');
 const Expense = require('../expencse/Expense');
@@ -83,6 +83,7 @@ const Ticket = require('../ticket/Ticket');
 const UserHeadOffice = require('../userHeadOffice/UserHeadOffice');
 const UserManager = require('../userManager/UserManager');
 const Version = require('../version/Version');
+const AppVersionConfig = require('../version/AppVersionConfig');
 const PdfFile = require('../pdf/PdfFile');
 
 // Initialize models
@@ -96,7 +97,7 @@ const models = {
     Shift: Shift(sequelize),
     Doctor: Doctor(sequelize),
 
-    Location: Location(sequelize),
+    // Location: Location(sequelize),
     Branch: Branch(sequelize),
     Department: Department(sequelize),
     Designation: Designation(sequelize),
@@ -116,8 +117,8 @@ const models = {
     VisitProductPromoted: VisitProductPromoted(sequelize),
     VisitProductAgreed: VisitProductAgreed(sequelize),
     VisitProductNotAgreed: VisitProductNotAgreed(sequelize),
-    LocationHistory: LocationHistory(sequelize),
-    LocationEvent: LocationEvent(sequelize),
+    // LocationHistory: LocationHistory(sequelize),
+    // LocationEvent: LocationEvent(sequelize),
     UserShift: UserShift(sequelize),
     Holiday: Holiday(sequelize),
     Expense: Expense(sequelize),
@@ -129,6 +130,7 @@ const models = {
     UserHeadOffice: UserHeadOffice(sequelize),
     UserManager: UserManager(sequelize),
     Version: Version(sequelize),
+    AppVersionConfig: AppVersionConfig(sequelize),
     PdfFile: PdfFile(sequelize)
 };
 

@@ -9,10 +9,11 @@ const LocationHistory = (sequelize) => {
     },
     user_id: {
       type: DataTypes.UUID,
-      allowNull: false
+      allowNull: false,
+      references: { model: 'users', key: 'id' }
     },
-    coordinates: {
-      type: DataTypes.JSONB,
+    polyline: {
+      type: DataTypes.TEXT, // Mapbox/Google encoded polyline
       allowNull: false
     },
     start_time: {
@@ -24,23 +25,24 @@ const LocationHistory = (sequelize) => {
       allowNull: false
     },
     distance: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.FLOAT, // Meters
       defaultValue: 0
     },
     duration: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER, // Seconds
       defaultValue: 0
     },
-    polyline: {
-      type: DataTypes.TEXT
-    },
     metadata: {
-      type: DataTypes.JSONB
+      type: DataTypes.JSONB, // e.g., { shift: "morning", area: "Terminal 1" }
+      allowNull: true
     }
   }, {
     tableName: 'location_history',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    indexes: [
+      { fields: ['user_id', 'start_time'] } // For dashboard queries
+    ]
   });
 };
 
