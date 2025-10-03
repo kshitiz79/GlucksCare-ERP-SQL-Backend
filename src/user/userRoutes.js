@@ -17,7 +17,8 @@ const {
   getMyHeadOffices,
   registerAdmin,
   registerUser,
-  getUsersByState
+  getUsersByState,
+  getMyState
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -33,6 +34,9 @@ router.post('/register-user', registerUser);
 
 // GET current user's assigned head offices (must be defined before :id route)
 router.get('/my-head-offices', authMiddleware, getMyHeadOffices);
+
+// GET current State Head user's assigned state
+router.get('/my-state', authMiddleware, getMyState);
 
 // GET users for shift assignment (no auth required for internal API calls)
 router.get('/for-shift-assignment', getAllUsers);

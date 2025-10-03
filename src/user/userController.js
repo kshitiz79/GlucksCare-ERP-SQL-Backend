@@ -1365,6 +1365,58 @@ const forceDeleteUser = async (req, res) => {
   return deleteUser(req, res);
 };
 
+// GET state information for State Head user
+const getMyState = async (req, res) => {
+  try {
+    // Get the User and State models from app context
+    const { User, State } = req.app.get('models');
+    
+    // Check if user is a State Head
+    if (req.user.role !== 'State Head') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only State Head users can access this endpoint.'
+      });
+    }
+    
+    // Get the state assigned to this State Head user
+    const stateHeadUser = await User.findByPk(req.user.id);
+    if (!stateHeadUser || !stateHeadUser.state_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'State Head user does not have a state assigned.'
+      });
+    }
+    
+    // Find the state information
+    const state = await State.findByPk(stateHeadUser.state_id);
+    if (!state) {
+      return res.status(404).json({
+        success: false,
+        message: 'Assigned state not found.'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        id: state.id,
+        name: state.name,
+        code: state.code,
+        country: state.country,
+        createdAt: state.created_at,
+        updatedAt: state.updated_at
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching state for State Head:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // REGISTER ADMIN (no auth required - for initial setup)
 const registerAdmin = async (req, res) => {
   try {
@@ -1524,12 +1576,10 @@ const registerUser = async (req, res) => {
 module.exports = {
   getAllUsers,
   getUsersByRole,
-  getUsersByState,
   getUserById,
   createUser,
   updateUser,
   updateUserPassword,
-  deleteUser,
   checkUserDependencies,
   getUserConstraints,
   softDeleteUser,
@@ -1537,5 +1587,7 @@ module.exports = {
   forceDeleteUser,
   getMyHeadOffices,
   registerAdmin,
-  registerUser
+  registerUser,
+  getUsersByState,
+  getMyState
 };
