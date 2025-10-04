@@ -9,8 +9,12 @@ const LocationEvent = (sequelize) => {
     },
     user_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: { model: 'users', key: 'id' }
+    },
+    device_id: {
+      type: DataTypes.STRING,
+      allowNull: false
     },
     event_type: {
       type: DataTypes.STRING,
