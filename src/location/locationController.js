@@ -1,8 +1,9 @@
-const Location = require('./Location');
+// src/location/locationController.js
 
 // GET all locations
 const getAllLocations = async (req, res) => {
   try {
+    const { Location } = req.app.get('models');
     const locations = await Location.findAll();
     res.json({
       success: true,
@@ -20,6 +21,7 @@ const getAllLocations = async (req, res) => {
 // GET location by ID
 const getLocationById = async (req, res) => {
   try {
+    const { Location } = req.app.get('models');
     const location = await Location.findByPk(req.params.id);
     if (!location) {
       return res.status(404).json({
@@ -42,6 +44,7 @@ const getLocationById = async (req, res) => {
 // CREATE a new location
 const createLocation = async (req, res) => {
   try {
+    const { Location } = req.app.get('models');
     const location = await Location.create(req.body);
     res.status(201).json({
       success: true,
@@ -58,6 +61,7 @@ const createLocation = async (req, res) => {
 // UPDATE a location
 const updateLocation = async (req, res) => {
   try {
+    const { Location } = req.app.get('models');
     const location = await Location.findByPk(req.params.id);
     if (!location) {
       return res.status(404).json({
@@ -82,6 +86,7 @@ const updateLocation = async (req, res) => {
 // DELETE a location
 const deleteLocation = async (req, res) => {
   try {
+    const { Location } = req.app.get('models');
     const location = await Location.findByPk(req.params.id);
     if (!location) {
       return res.status(404).json({

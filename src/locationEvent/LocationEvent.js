@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
-const Location = (sequelize) => {
-  return sequelize.define('Location', {
+const LocationEvent = (sequelize) => {
+  return sequelize.define('LocationEvent', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -12,43 +12,36 @@ const Location = (sequelize) => {
       allowNull: false,
       references: { model: 'users', key: 'id' }
     },
-    device_id: {
+    event_type: {
       type: DataTypes.STRING,
-      allowNull: true
+      allowNull: false
     },
     latitude: {
       type: DataTypes.DECIMAL(10, 8),
-      allowNull: false
+      allowNull: true
     },
     longitude: {
       type: DataTypes.DECIMAL(11, 8),
-      allowNull: false
+      allowNull: true
     },
     timestamp: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
       allowNull: false
     },
-    accuracy: {
-      type: DataTypes.FLOAT,
-      allowNull: true
-    },
-    battery_level: {
-      type: DataTypes.INTEGER,
-      allowNull: true
-    },
-    network_type: {
-      type: DataTypes.STRING,
+    metadata: {
+      type: DataTypes.JSONB,
       allowNull: true
     }
   }, {
-    tableName: 'locations',
+    tableName: 'location_events',
     timestamps: true,
     underscored: true,
     indexes: [
-      { fields: ['user_id', 'timestamp'] }
+      { fields: ['user_id', 'timestamp'] },
+      { fields: ['event_type'] }
     ]
   });
 };
 
-module.exports = Location;
+module.exports = LocationEvent;

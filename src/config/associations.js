@@ -17,9 +17,9 @@ module.exports = (db) => {
   db.User.hasMany(db.ChemistVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.StockistVisit, { foreignKey: 'user_id' });
   db.User.hasMany(db.Visit, { foreignKey: 'representative_id' });
-  // db.User.hasMany(db.Location, { foreignKey: 'user_id' });
-  // db.User.hasMany(db.LocationHistory, { foreignKey: 'user_id' });
-  // db.User.hasMany(db.LocationEvent, { foreignKey: 'user_id' });
+  db.User.hasMany(db.Location, { foreignKey: 'user_id' });
+  db.User.hasMany(db.LocationHistory, { foreignKey: 'user_id' });
+  db.User.hasMany(db.LocationEvent, { foreignKey: 'user_id' });
   db.User.hasMany(db.Attendance, { foreignKey: 'user_id' });
   db.User.hasMany(db.Leave, { foreignKey: 'employee_id' });
   db.User.hasMany(db.Expense, { foreignKey: 'user_id' });
@@ -148,13 +148,16 @@ module.exports = (db) => {
   db.VisitProductNotAgreed.belongsTo(db.Product, { foreignKey: 'product_id' });
 
   // Location associations
-  // db.Location.belongsTo(db.User, { foreignKey: 'user_id' });
+  db.Location.belongsTo(db.User, { foreignKey: 'user_id' });
 
-  // // LocationHistory associations
-  // db.LocationHistory.belongsTo(db.User, { foreignKey: 'user_id' });
+  // LocationHistory associations
+  db.LocationHistory.belongsTo(db.User, { foreignKey: 'user_id' });
 
-  // // LocationEvent associations
-  // db.LocationEvent.belongsTo(db.User, { foreignKey: 'user_id' });
+  // LocationEvent associations
+  db.LocationEvent.belongsTo(db.User, { foreignKey: 'user_id' });
+
+  // StopEvents associations
+  db.StopEvents.belongsTo(db.User, { foreignKey: 'user_id' });
 
   // Shift associations
   db.Shift.hasMany(db.Attendance, { foreignKey: 'shift_id' });

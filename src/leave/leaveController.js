@@ -149,6 +149,40 @@ const applyLeave = async (req, res) => {
       handoverNotes
     } = req.body;
 
+    // Validate required fields
+    if (!leaveTypeId || !startDate || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Leave type, start date, and reason are required'
+      });
+    }
+
+    // Validate half day type
+    if (isHalfDay && (!halfDayType || !['First Half', 'Second Half'].includes(halfDayType))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Half day type must be either "First Half" or "Second Half"'
+      });
+    }
+
+    // For half day leaves, end date should be the same as start date
+    const effectiveEndDate = isHalfDay ? startDate : endDate;
+
+    // Validate date range for full day leaves
+    if (!isHalfDay && !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'End date is required for full day leaves'
+      });
+    }
+
+    if (!isHalfDay && new Date(endDate) < new Date(startDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'End date must be after start date'
+      });
+    }
+
     // Calculate total days
     let totalDays = 1;
     if (isHalfDay) {
@@ -164,11 +198,11 @@ const applyLeave = async (req, res) => {
       employee_id: userId,
       leave_type_id: leaveTypeId,
       start_date: startDate,
-      end_date: isHalfDay ? startDate : endDate,
+      end_date: effectiveEndDate,
       total_days: totalDays,
       reason,
       is_half_day: isHalfDay,
-      half_day_type: halfDayType,
+      half_day_type: isHalfDay ? halfDayType : null, // Ensure null for full day leaves
       emergency_contact: emergencyContact,
       handover_notes: handoverNotes,
       status: 'Pending',
@@ -184,6 +218,7 @@ const applyLeave = async (req, res) => {
       data: leave
     });
   } catch (error) {
+    console.error('Error applying for leave:', error);
     res.status(400).json({
       success: false,
       message: error.message

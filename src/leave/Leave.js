@@ -81,7 +81,19 @@ const Leave = (sequelize) => {
       defaultValue: false
     },
     half_day_type: {
-      type: DataTypes.ENUM('First Half', 'Second Half')
+      type: DataTypes.ENUM('First Half', 'Second Half'),
+      allowNull: true, // Allow null values
+      validate: {
+        // Custom validator to ensure half_day_type is only set when is_half_day is true
+        isValidHalfDayType(value) {
+          if (this.is_half_day && !value) {
+            throw new Error('half_day_type is required when is_half_day is true');
+          }
+          if (!this.is_half_day && value) {
+            throw new Error('half_day_type must be null when is_half_day is false');
+          }
+        }
+      }
     },
     compensatory_off_date: {
       type: DataTypes.DATE
@@ -114,7 +126,19 @@ const Leave = (sequelize) => {
   }, {
     tableName: 'leaves',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    // Add indexes for better query performance
+    indexes: [
+      {
+        fields: ['employee_id']
+      },
+      {
+        fields: ['leave_type_id']
+      },
+      {
+        fields: ['status']
+      }
+    ]
   });
 };
 

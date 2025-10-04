@@ -50,7 +50,7 @@ const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
 
-// const Location = require('../location/Location');
+const Location = require('../location/Location');
 const Branch = require('../branch/Branch');
 const Department = require('../department/Department');
 const Designation = require('../designation/Designation');
@@ -63,6 +63,7 @@ const StockistAnnualTurnover = require('../stockistAnnualTurnover/StockistAnnual
 const Product = require('../product/Product');
 const SalesTarget = require('../salesTarget/SalesTarget');
 
+const StopEvents = require('../stopEvents/StopEvents');
 const DoctorVisit = require('../doctorVisit/DoctorVisit');
 const ChemistVisit = require('../chemistVisit/ChemistVisit');
 const StockistVisit = require('../stockistVisit/StockistVisit');
@@ -70,8 +71,8 @@ const Visit = require('../visit/Visit');
 const VisitProductPromoted = require('../visitProductPromoted/VisitProductPromoted');
 const VisitProductAgreed = require('../visitProductAgreed/VisitProductAgreed');
 const VisitProductNotAgreed = require('../visitProductNotAgreed/VisitProductNotAgreed');
-// const LocationHistory = require('../locationHistory/LocationHistory');
-// const LocationEvent = require('../locationEvent/LocationEvent');
+const LocationHistory = require('../locationHistory/LocationHistory');
+const LocationEvent = require('../locationEvent/LocationEvent');
 const UserShift = require('../userShift/UserShift');
 const Holiday = require('../holiday/Holiday');
 const Expense = require('../expencse/Expense');
@@ -97,7 +98,7 @@ const models = {
     Shift: Shift(sequelize),
     Doctor: Doctor(sequelize),
 
-    // Location: Location(sequelize),
+    Location: Location(sequelize),
     Branch: Branch(sequelize),
     Department: Department(sequelize),
     Designation: Designation(sequelize),
@@ -110,6 +111,7 @@ const models = {
     Product: Product(sequelize),
     SalesTarget: SalesTarget(sequelize),
   
+    StopEvents: StopEvents(sequelize),
     DoctorVisit: DoctorVisit(sequelize),
     ChemistVisit: ChemistVisit(sequelize),
     StockistVisit: StockistVisit(sequelize),
@@ -117,8 +119,8 @@ const models = {
     VisitProductPromoted: VisitProductPromoted(sequelize),
     VisitProductAgreed: VisitProductAgreed(sequelize),
     VisitProductNotAgreed: VisitProductNotAgreed(sequelize),
-    // LocationHistory: LocationHistory(sequelize),
-    // LocationEvent: LocationEvent(sequelize),
+    LocationHistory: LocationHistory(sequelize),
+    LocationEvent: LocationEvent(sequelize),
     UserShift: UserShift(sequelize),
     Holiday: Holiday(sequelize),
     Expense: Expense(sequelize),

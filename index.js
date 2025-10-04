@@ -102,25 +102,10 @@ async function startServer() {
   const leaveRoutes = require('./src/leave/leaveRoutes');
   const leaveTypeRoutes = require('./src/leaveType/leaveTypeRoutes');
   const shiftRoutes = require('./src/shift/shiftRoutes');
-//   const locationRoutes = require('./src/location/locationRoutes');
-    
-  // New routes
-  const branchRoutes = require('./src/branch/branchRoutes');
-  const departmentRoutes = require('./src/department/departmentRoutes');
-  const designationRoutes = require('./src/designation/designationRoutes');
-  const employmentTypeRoutes = require('./src/employmentType/employmentTypeRoutes');
-  const doctorVisitHistoryRoutes = require('./src/doctorVisitHistory/doctorVisitHistoryRoutes');
-  const chemistAnnualTurnoverRoutes = require('./src/chemistAnnualTurnover/chemistAnnualTurnoverRoutes');
-  const stockistAnnualTurnoverRoutes = require('./src/stockistAnnualTurnover/stockistAnnualTurnoverRoutes');
-  const salesTargetRoutes = require('./src/salesTarget/salesTargetRoutes');
-  const doctorVisitRoutes = require('./src/doctorVisit/doctorVisitRoutes');
-  const chemistVisitRoutes = require('./src/chemistVisit/chemistVisitRoutes');
-  const stockistVisitRoutes = require('./src/stockistVisit/stockistVisitRoutes');
-  const visitProductPromotedRoutes = require('./src/visitProductPromoted/visitProductPromotedRoutes');
-  const visitProductAgreedRoutes = require('./src/visitProductAgreed/visitProductAgreedRoutes');
-  const visitProductNotAgreedRoutes = require('./src/visitProductNotAgreed/visitProductNotAgreedRoutes');
-//   const locationHistoryRoutes = require('./src/locationHistory/locationHistoryRoutes');
-//   const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
+  const locationRoutes = require('./src/location/locationRoutes');
+  const locationHistoryRoutes = require('./src/locationHistory/locationHistoryRoutes');
+  const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
+  const stopEventsRoutes = require('./src/stopEvents/stopEventsRoutes');
   const expenseRoutes = require('./src/expencse/expenseRoutes');
   const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
   const payrollSettingRoutes = require('./src/payrollSetting/payrollSettingRoutes');
@@ -140,6 +125,23 @@ async function startServer() {
 
 // Version routes
   const versionRoutes = require('./src/version/versionRoutes');
+  
+// New routes
+  const branchRoutes = require('./src/branch/branchRoutes');
+  const departmentRoutes = require('./src/department/departmentRoutes');
+  const designationRoutes = require('./src/designation/designationRoutes');
+  const employmentTypeRoutes = require('./src/employmentType/employmentTypeRoutes');
+  const doctorVisitHistoryRoutes = require('./src/doctorVisitHistory/doctorVisitHistoryRoutes');
+  const chemistAnnualTurnoverRoutes = require('./src/chemistAnnualTurnover/chemistAnnualTurnoverRoutes');
+  const stockistAnnualTurnoverRoutes = require('./src/stockistAnnualTurnover/stockistAnnualTurnoverRoutes');
+  const salesTargetRoutes = require('./src/salesTarget/salesTargetRoutes');
+  const doctorVisitRoutes = require('./src/doctorVisit/doctorVisitRoutes');
+  const chemistVisitRoutes = require('./src/chemistVisit/chemistVisitRoutes');
+  const stockistVisitRoutes = require('./src/stockistVisit/stockistVisitRoutes');
+  const visitProductPromotedRoutes = require('./src/visitProductPromoted/visitProductPromotedRoutes');
+  const visitProductAgreedRoutes = require('./src/visitProductAgreed/visitProductAgreedRoutes');
+  const visitProductNotAgreedRoutes = require('./src/visitProductNotAgreed/visitProductNotAgreedRoutes');
+  // const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
 
 // Add this with the other route imports (around line 95)
 const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
@@ -164,8 +166,11 @@ app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/leaves', leaveRoutes);
   app.use('/api/leave-types', leaveTypeRoutes);
   app.use('/api/shifts', shiftRoutes);
-//   app.use('/api/locations', locationRoutes);
-    
+  app.use('/api/locations', locationRoutes);
+  app.use('/api/location-histories', locationHistoryRoutes);
+  app.use('/api/location-events', locationEventRoutes);
+  app.use('/api/stop-events', stopEventsRoutes);
+  
   // New route mounts
   app.use('/api/branches', branchRoutes);
   app.use('/api/departments', departmentRoutes);
@@ -181,11 +186,6 @@ app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/visit-products-promoted', visitProductPromotedRoutes);
   app.use('/api/visit-products-agreed', visitProductAgreedRoutes);
   app.use('/api/visit-products-not-agreed', visitProductNotAgreedRoutes);
-
-
-
-//   app.use('/api/location-histories', locationHistoryRoutes);
-//   app.use('/api/location-events', locationEventRoutes);
 
   app.use('/api/expenses', expenseRoutes);
   app.use('/api/expense-settings', expenseSettingRoutes);
@@ -253,45 +253,45 @@ app.use('/api/dashboard', dashboardRoutes);
   });
 
   // Socket.IO connection handling
-//   io.on('connection', (socket) => {
-//       console.log('👤 Client connected:', socket.id);
+  io.on('connection', (socket) => {
+      console.log('👤 Client connected:', socket.id);
 
-//       // Join user-specific room for attendance updates
-//       socket.on('join-user-room', (userId) => {
-//           socket.join(`user-${userId}`);
-//           console.log(`👤 User ${userId} joined their room`);
-//       });
+      // Join user-specific room for attendance updates
+      socket.on('join-user-room', (userId) => {
+          socket.join(`user-${userId}`);
+          console.log(`👤 User ${userId} joined their room`);
+      });
 
-//       // GPS Tracking - Join location tracking room
-//       socket.on('join-location-tracking', (data) => {
-//           const { userId, userType } = data;
+      // GPS Tracking - Join location tracking room
+      socket.on('join-location-tracking', (data) => {
+          const { userId, userType } = data;
 
-//           if (userType === 'admin') {
-//               socket.join('admin-location-tracking');
-//               console.log('👨‍💼 Admin client joined location tracking');
-//           } else if (userId) {
-//               socket.join(`user-location-${userId}`);
-//               console.log(`📍 User ${userId} joined location tracking`);
-//           }
-//       });
+          if (userType === 'admin') {
+              socket.join('admin-location-tracking');
+              console.log('👨‍💼 Admin client joined location tracking');
+          } else if (userId) {
+              socket.join(`user-location-${userId}`);
+              console.log(`📍 User ${userId} joined location tracking`);
+          }
+      });
 
-//       // GPS Tracking - Handle real-time location updates
-//       socket.on('location-update', (data) => {
-//           const { userId } = data;
-//           if (userId) {
-//               // Broadcast to admin clients
-//               io.to('admin-location-tracking').emit('user-location-update', {
-//                   userId,
-//                   ...data,
-//                   timestamp: new Date().toISOString()
-//               });
-//           }
-//       });
+      // GPS Tracking - Handle real-time location updates
+      socket.on('location-update', (data) => {
+          const { userId } = data;
+          if (userId) {
+              // Broadcast to admin clients
+              io.to('admin-location-tracking').emit('user-location-update', {
+                  userId,
+                  ...data,
+                  timestamp: new Date().toISOString()
+              });
+          }
+      });
 
-//       socket.on('disconnect', () => {
-//           console.log('👤 Client disconnected:', socket.id);
-//       });
-//   });
+      socket.on('disconnect', () => {
+          console.log('👤 Client disconnected:', socket.id);
+      });
+  });
 }
 
 // Handle application termination

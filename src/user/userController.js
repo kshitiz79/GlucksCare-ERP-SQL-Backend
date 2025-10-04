@@ -138,7 +138,7 @@ const getUsersByState = async (req, res) => {
           mobileNumber: user.mobile_number,
           gender: user.gender,
           role: user.role,
-          state: user.state_id,
+          state: user.state_id, // This should be the state ID
           salaryAmount: user.salary_amount,
           address: user.address,
           dateOfBirth: user.date_of_birth,

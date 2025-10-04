@@ -1,8 +1,9 @@
-const LocationHistory = require('./LocationHistory');
+// src/locationHistory/locationHistoryController.js
 
 // GET all location histories
 const getAllLocationHistories = async (req, res) => {
   try {
+    const { LocationHistory } = req.app.get('models');
     const locationHistories = await LocationHistory.findAll();
     res.json({
       success: true,
@@ -20,6 +21,7 @@ const getAllLocationHistories = async (req, res) => {
 // GET location history by ID
 const getLocationHistoryById = async (req, res) => {
   try {
+    const { LocationHistory } = req.app.get('models');
     const locationHistory = await LocationHistory.findByPk(req.params.id);
     if (!locationHistory) {
       return res.status(404).json({
@@ -42,6 +44,7 @@ const getLocationHistoryById = async (req, res) => {
 // CREATE a new location history
 const createLocationHistory = async (req, res) => {
   try {
+    const { LocationHistory } = req.app.get('models');
     const locationHistory = await LocationHistory.create(req.body);
     res.status(201).json({
       success: true,
@@ -58,6 +61,7 @@ const createLocationHistory = async (req, res) => {
 // UPDATE a location history
 const updateLocationHistory = async (req, res) => {
   try {
+    const { LocationHistory } = req.app.get('models');
     const locationHistory = await LocationHistory.findByPk(req.params.id);
     if (!locationHistory) {
       return res.status(404).json({
@@ -82,6 +86,7 @@ const updateLocationHistory = async (req, res) => {
 // DELETE a location history
 const deleteLocationHistory = async (req, res) => {
   try {
+    const { LocationHistory } = req.app.get('models');
     const locationHistory = await LocationHistory.findByPk(req.params.id);
     if (!locationHistory) {
       return res.status(404).json({
