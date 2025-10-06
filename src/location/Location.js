@@ -33,6 +33,11 @@ const Location = (sequelize) => {
       type: DataTypes.FLOAT,
       allowNull: true
     },
+    speed: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      comment: 'Speed in meters per second'
+    },
     battery_level: {
       type: DataTypes.INTEGER,
       allowNull: true

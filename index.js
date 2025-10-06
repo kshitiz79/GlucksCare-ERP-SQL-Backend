@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 // Load environment variables
 dotenv.config();
@@ -26,7 +27,9 @@ const io = new Server(server, {
             'https://api.gluckscare.com' // Add this for production frontend
         ],
         methods: ['GET', 'POST'],
-        credentials: true
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        transports: ['websocket', 'polling']
     }
 });
 
@@ -93,6 +96,38 @@ async function startServer() {
   // Set models and sequelize in app for access in controllers
   app.set('models', models);
   app.set('sequelize', sequelize);
+
+  // Add Socket.IO authentication middleware (after models are available)
+  io.use(async (socket, next) => {
+    try {
+      // Get token from socket handshake
+      const token = socket.handshake.auth?.token;
+      
+      if (!token) {
+        return next(new Error('Authentication error: No token provided'));
+      }
+
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Get user from database (using the sequelize instance)
+      const User = models.User;
+      const user = await User.findByPk(decoded.id, {
+        attributes: { exclude: ['password'] }
+      });
+
+      if (!user) {
+        return next(new Error('Authentication error: User not found'));
+      }
+
+      // Add user to socket
+      socket.user = user;
+      next();
+    } catch (error) {
+      console.error('Socket.IO authentication error:', error);
+      next(new Error('Authentication error: Invalid token'));
+    }
+  });
 
   // Import and mount routes after database connection
   const authRoutes = require('./src/auth/authRoutes');
@@ -296,6 +331,7 @@ app.use('/api/dashboard', dashboardRoutes);
           console.log('👤 Client disconnected:', socket.id);
       });
   });
+
 }
 
 // Handle application termination
