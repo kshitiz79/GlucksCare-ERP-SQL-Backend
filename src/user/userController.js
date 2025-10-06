@@ -1,3 +1,12 @@
+// Helper function to check if user is online (last location within 15 minutes)
+const isUserOnline = (lastTimestamp) => {
+  if (!lastTimestamp) return false;
+  const now = new Date();
+  const lastUpdate = new Date(lastTimestamp);
+  const diffMinutes = (now - lastUpdate) / (1000 * 60);
+  return diffMinutes <= 15; // Consider online if updated within 15 minutes
+};
+
 // GET users by state
 const getUsersByState = async (req, res) => {
   try {
@@ -305,7 +314,9 @@ const getUsersByRole = async (req, res) => {
 const getAllUsers = async (req, res) => {
   try {
     // Get the User model from app context
-    const { User, HeadOffice } = req.app.get('models');
+    const { User, HeadOffice, Location } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    
     const users = await User.findAll({
       include: [
         {
@@ -314,6 +325,42 @@ const getAllUsers = async (req, res) => {
           through: { attributes: [] } // Don't include junction table attributes
         }
       ]
+    });
+    
+    // Get latest location for each user
+    const userIds = users.map(u => u.id);
+    const latestLocations = await Location.findAll({
+      attributes: [
+        'user_id',
+        [sequelize.fn('MAX', sequelize.col('timestamp')), 'latest_timestamp']
+      ],
+      where: {
+        user_id: userIds
+      },
+      group: ['user_id']
+    });
+    
+    // Get full location details for latest timestamps
+    const locationDetails = await Location.findAll({
+      where: {
+        user_id: userIds
+      },
+      order: [['timestamp', 'DESC']]
+    });
+    
+    // Create a map of user_id to latest location
+    const locationMap = {};
+    locationDetails.forEach(loc => {
+      if (!locationMap[loc.user_id]) {
+        locationMap[loc.user_id] = {
+          latitude: parseFloat(loc.latitude),
+          longitude: parseFloat(loc.longitude),
+          timestamp: loc.timestamp,
+          accuracy: loc.accuracy,
+          battery_level: loc.battery_level,
+          network_type: loc.network_type
+        };
+      }
     });
 
     // Transform users to match MongoDB format
@@ -345,7 +392,10 @@ const getAllUsers = async (req, res) => {
         updatedAt: user.updated_at,
         branch: user.branch_id,
         department: user.department_id,
-        employmentType: user.employment_type_id
+        employmentType: user.employment_type_id,
+        // Add last_location from locationMap
+        last_location: locationMap[user.id] || null,
+        is_online: locationMap[user.id] ? isUserOnline(locationMap[user.id].timestamp) : false
       };
 
       // Add headOffices array if exists
