@@ -314,8 +314,11 @@ const getUsersByRole = async (req, res) => {
 const getAllUsers = async (req, res) => {
   try {
     // Get the User model from app context
-    const { User, HeadOffice, Location } = req.app.get('models');
+    const models = req.app.get('models');
+    const { User, HeadOffice, Location } = models;
     const sequelize = req.app.get('sequelize');
+    
+    console.log('Fetching all users with location data...');
     
     const users = await User.findAll({
       include: [
@@ -327,41 +330,48 @@ const getAllUsers = async (req, res) => {
       ]
     });
     
-    // Get latest location for each user
-    const userIds = users.map(u => u.id);
-    const latestLocations = await Location.findAll({
-      attributes: [
-        'user_id',
-        [sequelize.fn('MAX', sequelize.col('timestamp')), 'latest_timestamp']
-      ],
-      where: {
-        user_id: userIds
-      },
-      group: ['user_id']
-    });
-    
-    // Get full location details for latest timestamps
-    const locationDetails = await Location.findAll({
-      where: {
-        user_id: userIds
-      },
-      order: [['timestamp', 'DESC']]
-    });
+    console.log(`Found ${users.length} users`);
     
     // Create a map of user_id to latest location
     const locationMap = {};
-    locationDetails.forEach(loc => {
-      if (!locationMap[loc.user_id]) {
-        locationMap[loc.user_id] = {
-          latitude: parseFloat(loc.latitude),
-          longitude: parseFloat(loc.longitude),
-          timestamp: loc.timestamp,
-          accuracy: loc.accuracy,
-          battery_level: loc.battery_level,
-          network_type: loc.network_type
-        };
+    
+    // Only fetch locations if Location model exists
+    if (Location && users.length > 0) {
+      try {
+        const userIds = users.map(u => u.id);
+        
+        // Get full location details for latest timestamps
+        const locationDetails = await Location.findAll({
+          where: {
+            user_id: userIds
+          },
+          order: [['timestamp', 'DESC']]
+        });
+        
+        console.log(`Found ${locationDetails.length} location records`);
+        
+        // Map locations to users (only keep latest per user)
+        locationDetails.forEach(loc => {
+          if (!locationMap[loc.user_id]) {
+            locationMap[loc.user_id] = {
+              latitude: parseFloat(loc.latitude),
+              longitude: parseFloat(loc.longitude),
+              timestamp: loc.timestamp,
+              accuracy: loc.accuracy,
+              battery_level: loc.battery_level,
+              network_type: loc.network_type
+            };
+          }
+        });
+        
+        console.log(`Mapped locations for ${Object.keys(locationMap).length} users`);
+      } catch (locationError) {
+        console.error('Error fetching locations:', locationError.message);
+        // Continue without location data
       }
-    });
+    } else {
+      console.warn('Location model not available or no users found');
+    }
 
     // Transform users to match MongoDB format
     const transformedUsers = users.map(user => {
