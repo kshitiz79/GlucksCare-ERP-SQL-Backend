@@ -22,7 +22,8 @@ const io = new Server(server, {
             'http://localhost:3000',
             'http://localhost:5051', // Add this for development
             'https://gluckscare.com',
-            'https://sales-rep-visite.gluckscare.com'
+            'https://sales-rep-visite.gluckscare.com',
+            'https://api.gluckscare.com' // Add this for production frontend
         ],
         methods: ['GET', 'POST'],
         credentials: true
@@ -43,6 +44,7 @@ const allowedOrigins = [
     'http://localhost:5051', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
+    'https://api.gluckscare.com' // Add this for production frontend
 ];
 
 app.use(cors({
