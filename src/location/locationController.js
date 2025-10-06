@@ -4,16 +4,40 @@
 const getAllLocations = async (req, res) => {
   try {
     const { Location } = req.app.get('models');
-    const locations = await Location.findAll();
+    
+    console.log('Fetching locations with query params:', req.query);
+    
+    // Support filtering by user_id if provided
+    const whereClause = {};
+    if (req.query.user_id) {
+      whereClause.user_id = req.query.user_id;
+    }
+    
+    const options = {
+      where: whereClause
+    };
+    
+    // Add limit if specified
+    if (req.query.limit) {
+      options.limit = parseInt(req.query.limit);
+    }
+    
+    console.log('Location query options:', options);
+    
+    const locations = await Location.findAll(options);
+    
+    console.log('Found locations:', locations.length);
+    
     res.json({
       success: true,
       count: locations.length,
       data: locations
     });
   } catch (error) {
+    console.error('Error fetching locations:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to fetch locations: ' + error.message
     });
   }
 };
