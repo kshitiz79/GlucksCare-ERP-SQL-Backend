@@ -44,13 +44,66 @@ const getLocationEventById = async (req, res) => {
 // CREATE a new location event
 const createLocationEvent = async (req, res) => {
   try {
-    const { LocationEvent } = req.app.get('models');
+    const { LocationEvent, Location, User } = req.app.get('models');
+    const { 
+      user_id, 
+      device_id, 
+      event_type, 
+      latitude, 
+      longitude, 
+      timestamp, 
+      metadata 
+    } = req.body;
+
+    console.log('Received location event:', req.body);
+
+    // Validate required fields
+    if (!user_id || !device_id || !latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: user_id, device_id, latitude, longitude'
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findByPk(user_id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Create location event
     const locationEvent = await LocationEvent.create(req.body);
+
+    // Also create location record for tracking
+    const locationData = {
+      user_id,
+      device_id,
+      latitude,
+      longitude,
+      timestamp: timestamp || new Date(),
+      accuracy: metadata?.accuracy || null,
+      battery_level: metadata?.battery_level || null,
+      network_type: metadata?.network_type || null,
+      speed: metadata?.speed || null
+    };
+
+    const location = await Location.create(locationData);
+
+    console.log('Location event and location created successfully');
+
     res.status(201).json({
       success: true,
-      data: locationEvent
+      message: 'Location event received and processed',
+      data: {
+        locationEvent,
+        location
+      }
     });
   } catch (error) {
+    console.error('Error creating location event:', error);
     res.status(400).json({
       success: false,
       message: error.message
