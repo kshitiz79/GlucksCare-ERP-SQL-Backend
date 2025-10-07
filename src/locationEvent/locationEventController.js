@@ -94,6 +94,27 @@ const createLocationEvent = async (req, res) => {
 
     console.log('Location event and location created successfully');
 
+    // Emit real-time update via WebSocket to all connected admins
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('user-location-update', {
+        userId: user_id,
+        lat: parseFloat(latitude),
+        lng: parseFloat(longitude),
+        speed: metadata?.speed || 0,
+        accuracy: metadata?.accuracy || 0,
+        timestamp: timestamp || new Date().toISOString(),
+        batteryLevel: metadata?.battery_level || null,
+        networkType: metadata?.network_type || null,
+        user: {
+          name: user.name,
+          email: user.email,
+          role: user.role
+        }
+      });
+      console.log('WebSocket location update emitted for user:', user_id);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Location event received and processed',
