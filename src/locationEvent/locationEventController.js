@@ -57,21 +57,24 @@ const createLocationEvent = async (req, res) => {
 
     console.log('Received location event:', req.body);
 
-    // Validate required fields
-    if (!user_id || !device_id || !latitude || !longitude) {
+    // Validate required fields (user_id is now optional)
+    if (!device_id || !latitude || !longitude) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: user_id, device_id, latitude, longitude'
+        message: 'Missing required fields: device_id, latitude, longitude'
       });
     }
 
-    // Check if user exists
-    const user = await User.findByPk(user_id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    // Check if user exists (only if user_id is provided)
+    let user = null;
+    if (user_id) {
+      user = await User.findByPk(user_id);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
     }
 
     // Create location event
@@ -106,13 +109,13 @@ const createLocationEvent = async (req, res) => {
         timestamp: timestamp || new Date().toISOString(),
         batteryLevel: metadata?.battery_level || null,
         networkType: metadata?.network_type || null,
-        user: {
+        user: user ? {
           name: user.name,
           email: user.email,
           role: user.role
-        }
+        } : null
       });
-      console.log('WebSocket location update emitted for user:', user_id);
+      console.log('WebSocket location update emitted for user:', user_id || 'anonymous');
     }
 
     res.status(201).json({
