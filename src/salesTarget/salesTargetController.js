@@ -1,6 +1,170 @@
 const { sequelize } = require('../config/database');
 const { Op } = require('sequelize');
 
+// Helper function to get subordinate user IDs based on hierarchy
+const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
+  try {
+    const user = await sequelize.models.User.findByPk(userId, {
+      attributes: ['id', 'role', 'state_id']
+    });
+
+    if (!user) {
+      console.log(`User ${userId} not found`);
+      return [];
+    }
+
+    let subordinateIds = [];
+
+    switch (role) {
+      case 'National Head':
+        // Gets all users below National Head (everyone except Super Admin, Admin, Opps Team, National Head)
+        const allUsers = await sequelize.models.User.findAll({
+          where: {
+            role: { [Op.in]: ['State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'] },
+            id: { [Op.ne]: userId }
+          },
+          attributes: ['id']
+        });
+        subordinateIds = allUsers.map(u => u.id);
+        console.log(`National Head ${userId} has ${subordinateIds.length} subordinates`);
+        break;
+
+      case 'State Head':
+        // Gets all users in head offices that belong to this state
+        if (user.state_id) {
+          // Find all users whose head offices belong to this state
+          const stateUsers = await sequelize.query(`
+            SELECT DISTINCT u.id
+            FROM users u
+            INNER JOIN user_head_offices uho ON u.id = uho.user_id
+            INNER JOIN head_offices ho ON uho.head_office_id = ho.id
+            WHERE ho.state_id = :stateId
+            AND u.role IN ('Zonal Manager', 'Area Manager', 'Manager', 'User')
+            AND u.id != :userId
+          `, {
+            replacements: { stateId: user.state_id, userId },
+            type: sequelize.QueryTypes.SELECT
+          });
+          subordinateIds = (stateUsers || []).map(u => u.id);
+          console.log(`State Head ${userId} (state: ${user.state_id}) has ${subordinateIds.length} subordinates`);
+        } else {
+          console.log(`State Head ${userId} has no state_id assigned - will aggregate all users`);
+          // If no state assigned, aggregate all lower-level users
+          const allLowerUsers = await sequelize.models.User.findAll({
+            where: {
+              role: { [Op.in]: ['Zonal Manager', 'Area Manager', 'Manager', 'User'] },
+              id: { [Op.ne]: userId }
+            },
+            attributes: ['id']
+          });
+          subordinateIds = allLowerUsers.map(u => u.id);
+        }
+        break;
+
+      case 'Zonal Manager':
+        // Gets Area Managers assigned to this Zonal Manager
+        const zonalManagerAreas = await sequelize.models.ZonalManagerAreaManager.findAll({
+          where: { zonal_manager_id: userId },
+          attributes: ['area_manager_id']
+        });
+        const areaManagerIds = zonalManagerAreas.map(zm => zm.area_manager_id);
+        console.log(`Zonal Manager ${userId} has ${areaManagerIds.length} area managers assigned`);
+        
+        // Get Managers and Users under these Area Managers
+        if (areaManagerIds.length > 0) {
+          const areaManagerSubordinates = await sequelize.models.AreaManagerManager.findAll({
+            where: { area_manager_id: { [Op.in]: areaManagerIds } },
+            attributes: ['manager_id']
+          });
+          const managerIds = areaManagerSubordinates.map(am => am.manager_id);
+          
+          // Get Users under these Managers using raw query to avoid association issues
+          if (managerIds.length > 0) {
+            const managerUsers = await sequelize.query(`
+              SELECT DISTINCT u.id
+              FROM users u
+              INNER JOIN user_head_offices uho ON u.id = uho.user_id
+              WHERE u.role = 'User'
+              AND uho.head_office_id IN (
+                SELECT head_office_id 
+                FROM user_head_offices 
+                WHERE user_id IN (:managerIds)
+              )
+            `, {
+              replacements: { managerIds },
+              type: sequelize.QueryTypes.SELECT
+            });
+            
+            subordinateIds = [...areaManagerIds, ...managerIds, ...(managerUsers || []).map(u => u.id)];
+            console.log(`Zonal Manager ${userId} total subordinates: ${subordinateIds.length}`);
+          } else {
+            subordinateIds = areaManagerIds;
+          }
+        }
+        break;
+
+      case 'Area Manager':
+        // Gets Managers assigned to this Area Manager
+        const areaManagerManagers = await sequelize.models.AreaManagerManager.findAll({
+          where: { area_manager_id: userId },
+          attributes: ['manager_id']
+        });
+        const managerIdsForArea = areaManagerManagers.map(am => am.manager_id);
+        console.log(`Area Manager ${userId} has ${managerIdsForArea.length} managers assigned`);
+        
+        // Get Users under these Managers using raw query
+        if (managerIdsForArea.length > 0) {
+          const usersUnderManagers = await sequelize.query(`
+            SELECT DISTINCT u.id
+            FROM users u
+            INNER JOIN user_head_offices uho ON u.id = uho.user_id
+            WHERE u.role = 'User'
+            AND uho.head_office_id IN (
+              SELECT head_office_id 
+              FROM user_head_offices 
+              WHERE user_id IN (:managerIds)
+            )
+          `, {
+            replacements: { managerIds: managerIdsForArea },
+            type: sequelize.QueryTypes.SELECT
+          });
+          
+          subordinateIds = [...managerIdsForArea, ...(usersUnderManagers || []).map(u => u.id)];
+          console.log(`Area Manager ${userId} total subordinates: ${subordinateIds.length}`);
+        }
+        break;
+
+      case 'Manager':
+        // Gets Users in the same head office using raw query
+        const headOfficeUsers = await sequelize.query(`
+          SELECT DISTINCT u.id
+          FROM users u
+          INNER JOIN user_head_offices uho ON u.id = uho.user_id
+          WHERE u.role = 'User'
+          AND uho.head_office_id IN (
+            SELECT head_office_id 
+            FROM user_head_offices 
+            WHERE user_id = :userId
+          )
+        `, {
+          replacements: { userId },
+          type: sequelize.QueryTypes.SELECT
+        });
+        subordinateIds = (headOfficeUsers || []).map(u => u.id);
+        console.log(`Manager ${userId} has ${subordinateIds.length} users in same head office`);
+        break;
+
+      default:
+        subordinateIds = [];
+    }
+
+    return subordinateIds;
+  } catch (error) {
+    console.error('Error in getSubordinateUserIds:', error);
+    return [];
+  }
+};
+
 // GET all sales targets with filtering and pagination
 const getAllSalesTargets = async (req, res) => {
   try {
@@ -49,25 +213,64 @@ const getAllSalesTargets = async (req, res) => {
       offset: offset
     });
 
-    // Transform data to match frontend expectations
-    const transformedTargets = targets.map(target => {
+    // Calculate aggregated targets for hierarchical roles
+    const transformedTargets = await Promise.all(targets.map(async (target) => {
       const plainTarget = target.toJSON();
+      const userRole = plainTarget.salesTargetUser?.role;
+      
+      let aggregatedTarget = parseFloat(plainTarget.target_amount) || 0;
+      let aggregatedAchieved = parseFloat(plainTarget.achieved_amount) || 0;
+      
+      // Only aggregate for hierarchical roles
+      if (['Manager', 'Area Manager', 'Zonal Manager', 'State Head', 'National Head'].includes(userRole)) {
+        const subordinateIds = await getSubordinateUserIds(
+          plainTarget.user_id,
+          userRole,
+          plainTarget.target_month,
+          plainTarget.target_year
+        );
+        
+        if (subordinateIds.length > 0) {
+          const subordinateTargets = await sequelize.models.SalesTarget.findAll({
+            where: {
+              user_id: { [Op.in]: subordinateIds },
+              target_month: plainTarget.target_month,
+              target_year: plainTarget.target_year
+            },
+            attributes: ['target_amount', 'achieved_amount']
+          });
+          
+          const subordinateTargetSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.target_amount || 0), 0);
+          const subordinateAchievedSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.achieved_amount || 0), 0);
+          
+          aggregatedTarget += subordinateTargetSum;
+          aggregatedAchieved += subordinateAchievedSum;
+        }
+      }
+      
+      const aggregatedPercentage = aggregatedTarget > 0 ? Math.round((aggregatedAchieved / aggregatedTarget) * 100) : 0;
+      
       return {
         ...plainTarget,
         _id: plainTarget.id,
         userId: plainTarget.salesTargetUser ? {
           _id: plainTarget.salesTargetUser.id,
           name: plainTarget.salesTargetUser.name,
-          employeeCode: plainTarget.salesTargetUser.employee_code
+          employeeCode: plainTarget.salesTargetUser.employee_code,
+          role: plainTarget.salesTargetUser.role
         } : null,
         targetAmount: plainTarget.target_amount,
         targetMonth: plainTarget.target_month,
         targetYear: plainTarget.target_year,
         completionDeadline: plainTarget.completion_deadline,
         achievedAmount: plainTarget.achieved_amount,
-        achievementPercentage: plainTarget.achievement_percentage
+        achievementPercentage: plainTarget.achievement_percentage,
+        // Add aggregated values
+        aggregatedTargetAmount: aggregatedTarget,
+        aggregatedAchievedAmount: aggregatedAchieved,
+        aggregatedPercentage: aggregatedPercentage
       };
-    });
+    }));
 
     res.json({
       success: true,
@@ -125,7 +328,8 @@ const getSalesTargetById = async (req, res) => {
       userId: plainTarget.salesTargetUser ? {
         _id: plainTarget.salesTargetUser.id,
         name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code
+        employeeCode: plainTarget.salesTargetUser.employee_code,
+        role: plainTarget.salesTargetUser.role
       } : null,
       targetAmount: plainTarget.target_amount,
       targetMonth: plainTarget.target_month,
@@ -237,7 +441,8 @@ const createSalesTarget = async (req, res) => {
       userId: plainTarget.salesTargetUser ? {
         _id: plainTarget.salesTargetUser.id,
         name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code
+        employeeCode: plainTarget.salesTargetUser.employee_code,
+        role: plainTarget.salesTargetUser.role
       } : null,
       targetAmount: plainTarget.target_amount,
       targetMonth: plainTarget.target_month,
@@ -338,7 +543,8 @@ const updateSalesTarget = async (req, res) => {
       userId: plainTarget.salesTargetUser ? {
         _id: plainTarget.salesTargetUser.id,
         name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code
+        employeeCode: plainTarget.salesTargetUser.employee_code,
+        role: plainTarget.salesTargetUser.role
       } : null,
       targetAmount: plainTarget.target_amount,
       targetMonth: plainTarget.target_month,
@@ -439,7 +645,8 @@ const getTargetsByUser = async (req, res) => {
         userId: plainTarget.salesTargetUser ? {
           _id: plainTarget.salesTargetUser.id,
           name: plainTarget.salesTargetUser.name,
-          employeeCode: plainTarget.salesTargetUser.employee_code
+          employeeCode: plainTarget.salesTargetUser.employee_code,
+          role: plainTarget.salesTargetUser.role
         } : null,
         targetAmount: plainTarget.target_amount,
         targetMonth: plainTarget.target_month,
@@ -607,7 +814,8 @@ const updateTargetAchievement = async (req, res) => {
       userId: plainTarget.salesTargetUser ? {
         _id: plainTarget.salesTargetUser.id,
         name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code
+        employeeCode: plainTarget.salesTargetUser.employee_code,
+        role: plainTarget.salesTargetUser.role
       } : null,
       targetAmount: plainTarget.target_amount,
       targetMonth: plainTarget.target_month,
