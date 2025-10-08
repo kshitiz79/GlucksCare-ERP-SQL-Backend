@@ -18,7 +18,8 @@ const {
   registerAdmin,
   registerUser,
   getUsersByState,
-  getMyState
+  getMyState,
+  updateUserStatus
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -61,6 +62,9 @@ router.put('/:id', authMiddleware, updateUser);
 
 // UPDATE user password
 router.put('/:id/password', authMiddleware, updateUserPassword);
+
+// UPDATE user status (activate/deactivate)
+router.patch('/:id/status', authMiddleware, updateUserStatus);
 
 // CHECK user dependencies before deletion
 router.get('/:id/dependencies', authMiddleware, checkUserDependencies);

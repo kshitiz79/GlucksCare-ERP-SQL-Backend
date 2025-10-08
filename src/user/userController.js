@@ -11,7 +11,7 @@ const isUserOnline = (lastTimestamp) => {
 const getUsersByState = async (req, res) => {
   try {
     const { stateId } = req.params;
-    
+
     // Validate stateId parameter
     if (!stateId) {
       return res.status(400).json({
@@ -19,10 +19,10 @@ const getUsersByState = async (req, res) => {
         message: 'State ID parameter is required'
       });
     }
-    
+
     // Get the User and HeadOffice models from app context
     const { User, HeadOffice, State } = req.app.get('models');
-    
+
     // Find users directly assigned to this state or assigned to head offices in this state
     const users = await User.findAll({
       where: {
@@ -64,7 +64,7 @@ const getUsersByState = async (req, res) => {
       // Merge the two user lists, avoiding duplicates
       const allUsers = [...users];
       const existingUserIds = new Set(users.map(u => u.id));
-      
+
       usersInHeadOffices.forEach(user => {
         if (!existingUserIds.has(user.id)) {
           allUsers.push(user);
@@ -212,7 +212,7 @@ const getUsersByState = async (req, res) => {
 const getUsersByRole = async (req, res) => {
   try {
     const { role } = req.params;
-    
+
     // Validate role parameter
     if (!role) {
       return res.status(400).json({
@@ -220,10 +220,10 @@ const getUsersByRole = async (req, res) => {
         message: 'Role parameter is required'
       });
     }
-    
+
     // Get the User model from app context
     const { User, HeadOffice } = req.app.get('models');
-    
+
     // Find users with the specified role
     const users = await User.findAll({
       where: {
@@ -317,9 +317,9 @@ const getAllUsers = async (req, res) => {
     const models = req.app.get('models');
     const { User, HeadOffice, Location } = models;
     const sequelize = req.app.get('sequelize');
-    
+
     console.log('Fetching all users with location data...');
-    
+
     const users = await User.findAll({
       include: [
         {
@@ -329,17 +329,17 @@ const getAllUsers = async (req, res) => {
         }
       ]
     });
-    
+
     console.log(`Found ${users.length} users`);
-    
+
     // Create a map of user_id to latest location
     const locationMap = {};
-    
+
     // Only fetch locations if Location model exists
     if (Location && users.length > 0) {
       try {
         const userIds = users.map(u => u.id);
-        
+
         // Get full location details for latest timestamps
         const locationDetails = await Location.findAll({
           where: {
@@ -347,9 +347,9 @@ const getAllUsers = async (req, res) => {
           },
           order: [['timestamp', 'DESC']]
         });
-        
+
         console.log(`Found ${locationDetails.length} location records`);
-        
+
         // Map locations to users (only keep latest per user)
         locationDetails.forEach(loc => {
           if (!locationMap[loc.user_id]) {
@@ -363,7 +363,7 @@ const getAllUsers = async (req, res) => {
             };
           }
         });
-        
+
         console.log(`Mapped locations for ${Object.keys(locationMap).length} users`);
       } catch (locationError) {
         console.error('Error fetching locations:', locationError.message);
@@ -1430,7 +1430,7 @@ const getMyState = async (req, res) => {
   try {
     // Get the User and State models from app context
     const { User, State } = req.app.get('models');
-    
+
     // Check if user is a State Head
     if (req.user.role !== 'State Head') {
       return res.status(403).json({
@@ -1438,7 +1438,7 @@ const getMyState = async (req, res) => {
         message: 'Access denied. Only State Head users can access this endpoint.'
       });
     }
-    
+
     // Get the state assigned to this State Head user
     const stateHeadUser = await User.findByPk(req.user.id);
     if (!stateHeadUser || !stateHeadUser.state_id) {
@@ -1447,7 +1447,7 @@ const getMyState = async (req, res) => {
         message: 'State Head user does not have a state assigned.'
       });
     }
-    
+
     // Find the state information
     const state = await State.findByPk(stateHeadUser.state_id);
     if (!state) {
@@ -1456,7 +1456,7 @@ const getMyState = async (req, res) => {
         message: 'Assigned state not found.'
       });
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -1633,6 +1633,64 @@ const registerUser = async (req, res) => {
   }
 };
 
+// UPDATE user status (activate/deactivate)
+const updateUserStatus = async (req, res) => {
+  try {
+    const { User } = req.app.get('models');
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    // Validate input
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'isActive must be a boolean value'
+      });
+    }
+
+    // Find user
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update status
+    user.is_active = isActive;
+    await user.save();
+
+    // Transform user to match MongoDB format
+    const transformedUser = {
+      _id: user.id,
+      id: user.id,
+      employeeCode: user.employee_code,
+      name: user.name,
+      email: user.email,
+      mobileNumber: user.mobile_number,
+      gender: user.gender,
+      role: user.role,
+      isActive: user.is_active,
+      emailVerified: user.email_verified,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at
+    };
+
+    res.json({
+      success: true,
+      message: `User ${isActive ? 'activated' : 'deactivated'} successfully`,
+      data: transformedUser
+    });
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUsersByRole,
@@ -1649,5 +1707,6 @@ module.exports = {
   registerAdmin,
   registerUser,
   getUsersByState,
-  getMyState
+  getMyState,
+  updateUserStatus
 };
