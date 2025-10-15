@@ -111,6 +111,14 @@ const checkAppVersion = async (req, res) => {
 
     await versionCheck.save();
 
+    // Automatically cleanup old version records for this user (keep only last 2)
+    try {
+      await cleanupOldVersions(userId);
+    } catch (cleanupError) {
+      console.error('Auto cleanup failed:', cleanupError);
+      // Don't fail the main request if cleanup fails
+    }
+
     const response = {
       success: true,
       data: {
@@ -257,6 +265,77 @@ const getLatestAppVersion = async (req, res) => {
 // Import Sequelize for database operations
 const { Sequelize } = require('sequelize');
 
+// Cleanup old version records - keep only last 2 per user
+const cleanupOldVersions = async (userId = null) => {
+  try {
+    const { Version } = require('../models'); // Adjust path as needed
+    
+    let whereClause = {};
+    if (userId) {
+      whereClause.user_id = userId;
+    }
+
+    // Get all users who have version records
+    const usersWithVersions = await Version.findAll({
+      attributes: ['user_id'],
+      where: whereClause,
+      group: ['user_id'],
+      raw: true
+    });
+
+    let totalDeleted = 0;
+
+    // For each user, keep only the last 2 records
+    for (const userRecord of usersWithVersions) {
+      const userVersions = await Version.findAll({
+        where: { user_id: userRecord.user_id },
+        order: [['created_at', 'DESC']],
+        raw: true
+      });
+
+      // If user has more than 2 records, delete the older ones
+      if (userVersions.length > 2) {
+        const recordsToKeep = userVersions.slice(0, 2);
+        const recordsToDelete = userVersions.slice(2);
+        
+        const idsToDelete = recordsToDelete.map(record => record.id);
+        
+        const deletedCount = await Version.destroy({
+          where: {
+            id: {
+              [Sequelize.Op.in]: idsToDelete
+            }
+          }
+        });
+
+        totalDeleted += deletedCount;
+        
+        console.log(`Cleaned up ${deletedCount} old version records for user ${userRecord.user_id}`);
+      }
+    }
+
+    console.log(`Total cleanup: Deleted ${totalDeleted} old version records`);
+    return totalDeleted;
+
+  } catch (error) {
+    console.error('Cleanup old versions error:', error);
+    throw error;
+  }
+};
+
+// Scheduled cleanup function (can be called by cron job)
+const scheduledVersionCleanup = async () => {
+  try {
+    console.log('Starting scheduled version cleanup...');
+    const deletedCount = await cleanupOldVersions();
+    console.log(`Scheduled cleanup completed. Deleted ${deletedCount} records.`);
+    return { success: true, deletedCount };
+  } catch (error) {
+    console.error('Scheduled cleanup failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Get all users with their latest version status (One record per user) - Admin only
 const getAllVersionChecks = async (req, res) => {
   try {
@@ -388,9 +467,91 @@ const getAllVersionChecks = async (req, res) => {
   }
 };
 
+// Manual cleanup endpoint (Admin only)
+const manualVersionCleanup = async (req, res) => {
+  try {
+    const { userId } = req.query; // Optional: cleanup for specific user
+    
+    console.log('Starting manual version cleanup...');
+    const deletedCount = await cleanupOldVersions(userId);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        deletedRecords: deletedCount,
+        message: userId ? 
+          `Cleaned up old version records for user ${userId}` : 
+          'Cleaned up old version records for all users'
+      },
+      message: `Successfully deleted ${deletedCount} old version records`
+    });
+
+  } catch (error) {
+    console.error('Manual cleanup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cleanup old version records',
+      error: error.message
+    });
+  }
+};
+
+// Get cleanup statistics (Admin only)
+const getCleanupStats = async (req, res) => {
+  try {
+    const { Version } = req.app.get('models');
+    
+    // Get statistics about version records
+    const stats = await Version.findAll({
+      attributes: [
+        'user_id',
+        [Sequelize.fn('COUNT', Sequelize.col('id')), 'record_count'],
+        [Sequelize.fn('MIN', Sequelize.col('created_at')), 'oldest_record'],
+        [Sequelize.fn('MAX', Sequelize.col('created_at')), 'newest_record']
+      ],
+      group: ['user_id'],
+      order: [[Sequelize.fn('COUNT', Sequelize.col('id')), 'DESC']],
+      raw: true
+    });
+
+    const totalRecords = await Version.count();
+    const usersWithMultipleRecords = stats.filter(stat => stat.record_count > 2);
+    const recordsToCleanup = usersWithMultipleRecords.reduce((sum, stat) => 
+      sum + (stat.record_count - 2), 0
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalRecords,
+        totalUsers: stats.length,
+        usersWithMultipleRecords: usersWithMultipleRecords.length,
+        recordsToCleanup,
+        userStats: stats.slice(0, 10), // Top 10 users with most records
+        cleanupRecommendation: recordsToCleanup > 0 ? 
+          `${recordsToCleanup} records can be cleaned up` : 
+          'No cleanup needed'
+      },
+      message: 'Cleanup statistics retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('Get cleanup stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cleanup statistics',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   checkAppVersion,
   setLatestAppVersion,
   getLatestAppVersion,
-  getAllVersionChecks
+  getAllVersionChecks,
+  cleanupOldVersions,
+  scheduledVersionCleanup,
+  manualVersionCleanup,
+  getCleanupStats
 };

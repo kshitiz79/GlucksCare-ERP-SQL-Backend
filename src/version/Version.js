@@ -94,7 +94,21 @@ const Version = (sequelize) => {
     timestamps: true,
     underscored: true,
     createdAt: 'created_at',
-    updatedAt: 'updated_at'
+    updatedAt: 'updated_at',
+    indexes: [
+      {
+        name: 'idx_versions_user_created',
+        fields: ['user_id', 'created_at']
+      },
+      {
+        name: 'idx_versions_user_id',
+        fields: ['user_id']
+      },
+      {
+        name: 'idx_versions_created_at',
+        fields: ['created_at']
+      }
+    ]
   });
 };
 

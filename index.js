@@ -188,6 +188,10 @@ const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
 // Add this with the other route mounts (around line 205)
 app.use('/api/dashboard', dashboardRoutes);
 
+// Web dashboard routes (optimized for web frontend)
+const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
+app.use('/api/web-dashboard', webDashboardRoutes);
+
 
 
 
