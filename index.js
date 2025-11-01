@@ -23,6 +23,7 @@ const io = new Server(server, {
             'http://localhost:3000',
             'http://localhost:5051', // Add this for development
             'https://gluckscare.com',
+            'https://test.gluckscare.com', // Add test domain
             'https://sales-rep-visite.gluckscare.com',
             'https://api.gluckscare.com' // Add this for production frontend
         ],
@@ -46,6 +47,7 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5051', // Add this for development
     'https://gluckscare.com',
+    'https://test.gluckscare.com', // Add test domain
     'https://sales-rep-visite.gluckscare.com',
     'https://api.gluckscare.com' // Add this for production frontend
 ];
@@ -55,12 +57,16 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
+            console.log('CORS blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+    preflightContinue: false,
+    optionsSuccessStatus: 200
 }));
 
 // Initialize database connection
@@ -257,6 +263,18 @@ app.use('/api/mock-data', mockDataRoutes);
 
   // Mount version routes
   app.use('/api/version', versionRoutes);
+
+  // Handle preflight requests manually
+  app.options('*', (req, res) => {
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(200);
+  });
 
   // Root endpoint
   app.get('/', (req, res) => {
