@@ -14,30 +14,7 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Socket.IO setup
-const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins, // Use the same allowed origins array
-        methods: ['GET', 'POST'],
-        credentials: true,
-        allowedHeaders: ['Content-Type', 'Authorization'],
-        transports: ['websocket', 'polling']
-    }
-});
-
-// Make io accessible throughout the app
-app.set('io', io);
-
-// --- Middleware ---
-app.use(express.json({ limit: '25mb' }));
-app.use(helmet());
-
-// Debug middleware to log requests
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
-  next();
-});
-
+// --- CORS Configuration (MUST be first) ---
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
@@ -53,21 +30,48 @@ const allowedOrigins = [
     'https://app.gluckscare.com'
 ];
 
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.log('CORS blocked origin:', origin);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-    preflightContinue: false,
-    optionsSuccessStatus: 200
+// Socket.IO setup (after allowedOrigins is defined)
+const io = new Server(server, {
+    cors: {
+        origin: allowedOrigins, // Use the same allowed origins array
+        methods: ['GET', 'POST'],
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        transports: ['websocket', 'polling']
+    }
+});
+
+// Make io accessible throughout the app
+app.set('io', io);
+
+// Manual CORS middleware (more reliable than cors package for complex scenarios)
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Set CORS headers for all requests
+    if (!origin || allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+    }
+    
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400');
+    
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+        console.log('Preflight request from origin:', origin);
+        return res.sendStatus(200);
+    }
+    
+    console.log(`${req.method} ${req.path} - Origin: ${origin || 'none'}`);
+    next();
+});
+
+// --- Other Middleware ---
+app.use(express.json({ limit: '25mb' }));
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
 // Initialize database connection
@@ -265,23 +269,7 @@ app.use('/api/mock-data', mockDataRoutes);
   // Mount version routes
   app.use('/api/version', versionRoutes);
 
-  // Handle preflight requests manually
-  app.options('*', (req, res) => {
-    const origin = req.headers.origin;
-    console.log('Preflight request from origin:', origin);
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin || '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Max-Age', '86400'); // 24 hours
-      res.sendStatus(200);
-    } else {
-      console.log('CORS preflight blocked for origin:', origin);
-      res.sendStatus(403);
-    }
-  });
+
 
   // CORS test endpoint
   app.get('/cors-test', (req, res) => {
