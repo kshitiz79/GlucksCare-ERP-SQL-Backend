@@ -77,16 +77,23 @@ const createLocationEvent = async (req, res) => {
       }
     }
 
-    // Create location event
-    const locationEvent = await LocationEvent.create(req.body);
+    // Always use current Indian time for consistency
+    const currentIndianTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+    
+    // Create location event with current Indian time
+    const locationEventData = {
+      ...req.body,
+      timestamp: currentIndianTime
+    };
+    const locationEvent = await LocationEvent.create(locationEventData);
 
-    // Also create location record for tracking
+    // Also create location record for tracking with current Indian time
     const locationData = {
       user_id,
       device_id,
       latitude,
       longitude,
-      timestamp: timestamp || new Date(),
+      timestamp: currentIndianTime,
       accuracy: metadata?.accuracy || null,
       battery_level: metadata?.battery_level || null,
       network_type: metadata?.network_type || null,
@@ -106,7 +113,7 @@ const createLocationEvent = async (req, res) => {
         lng: parseFloat(longitude),
         speed: metadata?.speed || 0,
         accuracy: metadata?.accuracy || 0,
-        timestamp: timestamp || new Date().toISOString(),
+        timestamp: currentIndianTime.toISOString(),
         batteryLevel: metadata?.battery_level || null,
         networkType: metadata?.network_type || null,
         user: user ? {
@@ -115,7 +122,7 @@ const createLocationEvent = async (req, res) => {
           role: user.role
         } : null
       });
-      console.log('WebSocket location update emitted for user:', user_id || 'anonymous');
+      console.log('WebSocket location update emitted for user:', user_id || 'anonymous', 'at', currentIndianTime.toLocaleString());
     }
 
     res.status(201).json({
