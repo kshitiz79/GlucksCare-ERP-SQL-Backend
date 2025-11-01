@@ -3,11 +3,17 @@
 const express = require('express');
 const router = express.Router();
 const MockLocationGenerator = require('./mockLocationGenerator');
-const AutoLocationSimulator = require('./autoLocationSimulator');
 
-// Create instances
+// Create a single instance of the mock generator
 const mockGenerator = new MockLocationGenerator();
-const autoSimulator = new AutoLocationSimulator();
+
+// Middleware to inject dependencies into mock generator
+router.use((req, res, next) => {
+  const models = req.app.get('models');
+  const io = req.app.get('io');
+  mockGenerator.setDependencies(models, io);
+  next();
+});
 
 // Start mock data generation
 router.post('/start', async (req, res) => {

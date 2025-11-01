@@ -26,10 +26,10 @@ async function testCleanup() {
     // Test 3: Check how many location records exist
     console.log('\nTest 3: Checking current location data...');
     const { Location, LocationEvent } = models;
-    
+
     const locationCount = await Location.count();
     const eventCount = await LocationEvent.count();
-    
+
     console.log(`Current data: ${locationCount} locations, ${eventCount} events`);
 
     // Test 4: Show data older than 24 hours

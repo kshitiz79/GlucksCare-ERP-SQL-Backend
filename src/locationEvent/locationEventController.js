@@ -77,23 +77,16 @@ const createLocationEvent = async (req, res) => {
       }
     }
 
-    // Always use current Indian time for consistency
-    const currentIndianTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
-    
-    // Create location event with current time
-    const locationEventData = {
-      ...req.body,
-      timestamp: currentIndianTime
-    };
-    const locationEvent = await LocationEvent.create(locationEventData);
+    // Create location event
+    const locationEvent = await LocationEvent.create(req.body);
 
-    // Also create location record for tracking with current time
+    // Also create location record for tracking
     const locationData = {
       user_id,
       device_id,
       latitude,
       longitude,
-      timestamp: currentIndianTime,
+      timestamp: timestamp || new Date(),
       accuracy: metadata?.accuracy || null,
       battery_level: metadata?.battery_level || null,
       network_type: metadata?.network_type || null,
