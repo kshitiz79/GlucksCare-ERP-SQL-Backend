@@ -192,9 +192,7 @@ app.use('/api/dashboard', dashboardRoutes);
 const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
 app.use('/api/web-dashboard', webDashboardRoutes);
 
-// Mock data routes for testing
-const mockDataRoutes = require('./src/utils/mockDataRoutes');
-app.use('/api/mock-data', mockDataRoutes);
+
 
 
 
