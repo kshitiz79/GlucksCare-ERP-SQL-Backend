@@ -20,6 +20,7 @@
     "@aws-sdk/client-s3": "^3.883.0",
     "@aws-sdk/s3-request-presigner": "^3.883.0",
     "aws-sdk": "^2.1692.0",
+    "axios": "^1.13.1",
     "backblaze-b2": "^0.9.12",
     "bcryptjs": "^3.0.2",
     "bull": "^4.16.5",

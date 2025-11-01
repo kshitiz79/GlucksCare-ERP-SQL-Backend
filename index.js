@@ -97,6 +97,10 @@ async function startServer() {
   app.set('models', models);
   app.set('sequelize', sequelize);
 
+  // Initialize auto-start services (location simulation and cleanup)
+  const autoStartService = require('./src/utils/autoStartService');
+  await autoStartService.initialize(models, sequelize);
+
   // Add Socket.IO authentication middleware (after models are available)
   io.use(async (socket, next) => {
     try {
@@ -191,6 +195,10 @@ app.use('/api/dashboard', dashboardRoutes);
 // Web dashboard routes (optimized for web frontend)
 const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
 app.use('/api/web-dashboard', webDashboardRoutes);
+
+// Mock data routes for testing
+const mockDataRoutes = require('./src/utils/mockDataRoutes');
+app.use('/api/mock-data', mockDataRoutes);
 
 
 

@@ -323,18 +323,7 @@ const cleanupOldVersions = async (userId = null) => {
   }
 };
 
-// Scheduled cleanup function (can be called by cron job)
-const scheduledVersionCleanup = async () => {
-  try {
-    console.log('Starting scheduled version cleanup...');
-    const deletedCount = await cleanupOldVersions();
-    console.log(`Scheduled cleanup completed. Deleted ${deletedCount} records.`);
-    return { success: true, deletedCount };
-  } catch (error) {
-    console.error('Scheduled cleanup failed:', error);
-    return { success: false, error: error.message };
-  }
-};
+
 
 // Get all users with their latest version status (One record per user) - Admin only
 const getAllVersionChecks = async (req, res) => {
@@ -551,7 +540,6 @@ module.exports = {
   getLatestAppVersion,
   getAllVersionChecks,
   cleanupOldVersions,
-  scheduledVersionCleanup,
   manualVersionCleanup,
   getCleanupStats
 };
