@@ -113,7 +113,7 @@ const createLocationEvent = async (req, res) => {
         lng: parseFloat(longitude),
         speed: metadata?.speed || 0,
         accuracy: metadata?.accuracy || 0,
-        timestamp: currentIndianTime.toISOString(),
+        timestamp: timestamp || new Date().toISOString(),
         batteryLevel: metadata?.battery_level || null,
         networkType: metadata?.network_type || null,
         user: user ? {
@@ -122,7 +122,7 @@ const createLocationEvent = async (req, res) => {
           role: user.role
         } : null
       });
-      console.log('WebSocket location update emitted for user:', user_id || 'anonymous', 'at', currentIndianTime.toLocaleString());
+      console.log('WebSocket location update emitted for user:', user_id || 'anonymous');
     }
 
     res.status(201).json({

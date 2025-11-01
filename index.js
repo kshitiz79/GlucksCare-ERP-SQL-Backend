@@ -14,26 +14,18 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS Configuration (MUST be first) ---
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:3000',
-    'http://localhost:5051', // Add this for development
-    'https://gluckscare.com',
-    'https://www.gluckscare.com', // Add www subdomain
-    'https://test.gluckscare.com', // Add test domain
-    'https://sales-rep-visite.gluckscare.com',
-    'https://api.gluckscare.com', // Add this for production frontend
-    // Add any other subdomains that might be used
-    'https://admin.gluckscare.com',
-    'https://app.gluckscare.com'
-];
-
-// Socket.IO setup (after allowedOrigins is defined)
+// Socket.IO setup
 const io = new Server(server, {
     cors: {
-        origin: allowedOrigins, // Use the same allowed origins array
+        origin: [
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:3000',
+            'http://localhost:5051', // Add this for development
+            'https://gluckscare.com',
+            'https://sales-rep-visite.gluckscare.com',
+            'https://api.gluckscare.com' // Add this for production frontend
+        ],
         methods: ['GET', 'POST'],
         credentials: true,
         allowedHeaders: ['Content-Type', 'Authorization'],
@@ -44,34 +36,31 @@ const io = new Server(server, {
 // Make io accessible throughout the app
 app.set('io', io);
 
-// Manual CORS middleware (more reliable than cors package for complex scenarios)
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    
-    // Set CORS headers for all requests
-    if (!origin || allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin || '*');
-    }
-    
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Max-Age', '86400');
-    
-    // Handle preflight requests
-    if (req.method === 'OPTIONS') {
-        console.log('Preflight request from origin:', origin);
-        return res.sendStatus(200);
-    }
-    
-    console.log(`${req.method} ${req.path} - Origin: ${origin || 'none'}`);
-    next();
-});
-
-// --- Other Middleware ---
+// --- Middleware ---
 app.use(express.json({ limit: '25mb' }));
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }
+app.use(helmet());
+
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'http://localhost:5051', // Add this for development
+    'https://gluckscare.com',
+    'https://sales-rep-visite.gluckscare.com',
+    'https://api.gluckscare.com' // Add this for production frontend
+];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Initialize database connection
@@ -109,8 +98,9 @@ async function startServer() {
   app.set('sequelize', sequelize);
 
   // Initialize auto-start services (location simulation and cleanup)
-  const autoStartService = require('./src/utils/autoStartService');
-  await autoStartService.initialize(models, sequelize);
+  // TODO: Temporarily commented out until files are recreated
+  // const autoStartService = require('./src/utils/autoStartService');
+  // await autoStartService.initialize(models, sequelize);
 
   // Add Socket.IO authentication middleware (after models are available)
   io.use(async (socket, next) => {
@@ -208,8 +198,9 @@ const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
 app.use('/api/web-dashboard', webDashboardRoutes);
 
 // Mock data routes for testing
-const mockDataRoutes = require('./src/utils/mockDataRoutes');
-app.use('/api/mock-data', mockDataRoutes);
+// TODO: Temporarily commented out until missing files are recreated
+// const mockDataRoutes = require('./src/utils/mockDataRoutes');
+// app.use('/api/mock-data', mockDataRoutes);
 
 
 
@@ -268,18 +259,6 @@ app.use('/api/mock-data', mockDataRoutes);
 
   // Mount version routes
   app.use('/api/version', versionRoutes);
-
-
-
-  // CORS test endpoint
-  app.get('/cors-test', (req, res) => {
-    res.json({
-      message: 'CORS test successful',
-      origin: req.headers.origin,
-      timestamp: new Date().toISOString(),
-      allowedOrigins: allowedOrigins
-    });
-  });
 
   // Root endpoint
   app.get('/', (req, res) => {
