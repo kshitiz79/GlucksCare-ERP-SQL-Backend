@@ -165,7 +165,7 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
 // LOGIN
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, device_id } = req.body;
     
     // Validate input
     if (!email || !password) {
@@ -214,6 +214,41 @@ router.post('/login', async (req, res) => {
     }
 
     console.log('Login successful for user:', email, 'Role:', user.role);
+    
+    // Handle device registration if device_id is provided
+    if (device_id) {
+      try {
+        const { UserDevice } = require('../config/database');
+        
+        // Check if device already exists
+        let userDevice = await UserDevice.findOne({
+          where: { device_id }
+        });
+        
+        if (userDevice) {
+          // Update existing device mapping
+          await userDevice.update({
+            user_id: user.id,
+            last_login: new Date(),
+            is_active: true
+          });
+          console.log('📱 Updated existing device mapping:', device_id, 'for user:', user.id);
+        } else {
+          // Create new device mapping
+          await UserDevice.create({
+            user_id: user.id,
+            device_id: device_id,
+            device_type: 'mobile', // Default to mobile
+            last_login: new Date(),
+            is_active: true
+          });
+          console.log('📱 Created new device mapping:', device_id, 'for user:', user.id);
+        }
+      } catch (deviceError) {
+        console.error('Device registration error:', deviceError);
+        // Don't fail login if device registration fails
+      }
+    }
     
     const token = jwt.sign(
       { id: user.id, role: user.role }, 

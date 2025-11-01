@@ -65,15 +65,58 @@ const createLocationEvent = async (req, res) => {
       });
     }
 
-    // Check if user exists (only if user_id is provided)
+    // Find user by user_id or device_id
     let user = null;
+    let actualUserId = user_id;
+    
     if (user_id) {
+      // If user_id is provided, find user directly
       user = await User.findByPk(user_id);
       if (!user) {
         return res.status(404).json({
           success: false,
           message: 'User not found'
         });
+      }
+    } else if (device_id) {
+      // If only device_id is provided, try to find user from device mapping
+      const { UserDevice } = req.app.get('models');
+      
+      const userDevice = await UserDevice.findOne({
+        where: { 
+          device_id,
+          is_active: true 
+        },
+        include: [{
+          model: User,
+          attributes: ['id', 'name', 'email', 'role']
+        }]
+      });
+      
+      if (userDevice && userDevice.User) {
+        user = userDevice.User;
+        actualUserId = user.id;
+        console.log(`📱 Found user from device mapping: ${user.name} (${user.id})`);
+      } else {
+        // Fallback: try to find user from previous location records
+        const previousLocation = await Location.findOne({
+          where: { device_id },
+          include: [{
+            model: User,
+            attributes: ['id', 'name', 'email', 'role']
+          }],
+          order: [['timestamp', 'DESC']]
+        });
+        
+        if (previousLocation && previousLocation.User) {
+          user = previousLocation.User;
+          actualUserId = user.id;
+          console.log(`📱 Found user from previous location: ${user.name} (${user.id})`);
+        } else {
+          // If no user found, create a record without user_id
+          console.log(`⚠️ No user found for device_id: ${device_id}, storing location without user mapping`);
+          actualUserId = null;
+        }
       }
     }
 
@@ -89,7 +132,7 @@ const createLocationEvent = async (req, res) => {
 
     // Also create location record for tracking with current Indian time
     const locationData = {
-      user_id,
+      user_id: actualUserId,
       device_id,
       latitude,
       longitude,
@@ -108,7 +151,8 @@ const createLocationEvent = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       io.emit('user-location-update', {
-        userId: user_id,
+        userId: actualUserId,
+        deviceId: device_id,
         lat: parseFloat(latitude),
         lng: parseFloat(longitude),
         speed: metadata?.speed || 0,
@@ -120,9 +164,13 @@ const createLocationEvent = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role
-        } : null
+        } : {
+          name: `Device ${device_id}`,
+          email: 'unknown@device.com',
+          role: 'Mobile User'
+        }
       });
-      console.log('WebSocket location update emitted for user:', user_id || 'anonymous', 'at', currentIndianTime.toLocaleString());
+      console.log('WebSocket location update emitted for device:', device_id, 'user:', actualUserId || 'unknown', 'at', currentIndianTime.toLocaleString());
     }
 
     res.status(201).json({

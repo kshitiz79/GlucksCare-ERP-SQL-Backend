@@ -86,6 +86,7 @@ const UserManager = require('../userManager/UserManager');
 const Version = require('../version/Version');
 const AppVersionConfig = require('../version/AppVersionConfig');
 const PdfFile = require('../pdf/PdfFile');
+const UserDevice = require('../userDevice/UserDevice');
 
 // Initialize models
 const models = {
@@ -133,7 +134,8 @@ const models = {
     UserManager: UserManager(sequelize),
     Version: Version(sequelize),
     AppVersionConfig: AppVersionConfig(sequelize),
-    PdfFile: PdfFile(sequelize)
+    PdfFile: PdfFile(sequelize),
+    UserDevice: UserDevice(sequelize)
 };
 
 // Set up hooks

@@ -35,6 +35,7 @@ module.exports = (db) => {
   db.User.hasMany(db.UserManager, { foreignKey: 'manager_id' });
   db.User.hasMany(db.UserShift, { foreignKey: 'user_id' });
   db.User.hasMany(db.PdfFile, { foreignKey: 'uploaded_by', as: 'uploadedFiles' });
+  db.User.hasMany(db.UserDevice, { foreignKey: 'user_id' });
 
   // Many-to-many relationship with HeadOffice
   db.User.belongsToMany(db.HeadOffice, {
@@ -219,6 +220,9 @@ module.exports = (db) => {
 
   // PdfFile associations
   db.PdfFile.belongsTo(db.User, { foreignKey: 'uploaded_by', as: 'uploader' });
+
+  // UserDevice associations
+  db.UserDevice.belongsTo(db.User, { foreignKey: 'user_id' });
 
   return db;
 };
