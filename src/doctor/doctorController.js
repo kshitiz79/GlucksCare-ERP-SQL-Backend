@@ -374,6 +374,167 @@ const getMyDoctors = async (req, res) => {
   }
 };
 
+// CREATE multiple doctors at once (Bulk Creation)
+const createBulkDoctors = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    if (!models || !models.Doctor || !models.HeadOffice) {
+      throw new Error('Required models are not available');
+    }
+    const { Doctor, HeadOffice } = models;
+    
+    // Validate request body
+    if (!req.body.doctors || !Array.isArray(req.body.doctors)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain a "doctors" array'
+      });
+    }
+    
+    const doctorsData = req.body.doctors;
+    
+    if (doctorsData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Doctors array cannot be empty'
+      });
+    }
+    
+    if (doctorsData.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot create more than 100 doctors at once'
+      });
+    }
+    
+    console.log(`Creating ${doctorsData.length} doctors in bulk...`);
+    
+    // Process and validate each doctor data
+    const processedDoctors = [];
+    const errors = [];
+    
+    for (let i = 0; i < doctorsData.length; i++) {
+      const doctorData = { ...doctorsData[i] };
+      
+      try {
+        // Handle head office ID field conversion
+        if (doctorData.headOfficeId) {
+          // Keep as is
+        } else if (doctorData.head_office_id) {
+          doctorData.headOfficeId = doctorData.head_office_id;
+          delete doctorData.head_office_id;
+        } else if (doctorData.headOffice) {
+          doctorData.headOfficeId = doctorData.headOffice;
+          delete doctorData.headOffice;
+        }
+        
+        // Validate required fields
+        if (!doctorData.name) {
+          errors.push(`Doctor ${i + 1}: Name is required`);
+          continue;
+        }
+        
+        if (!doctorData.headOfficeId) {
+          errors.push(`Doctor ${i + 1}: Head Office ID is required`);
+          continue;
+        }
+        
+        // Add index for tracking
+        doctorData._index = i + 1;
+        processedDoctors.push(doctorData);
+        
+      } catch (error) {
+        errors.push(`Doctor ${i + 1}: ${error.message}`);
+      }
+    }
+    
+    // If there are validation errors, return them
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors found',
+        errors: errors,
+        validDoctors: processedDoctors.length,
+        totalDoctors: doctorsData.length
+      });
+    }
+    
+    // Create doctors in bulk using transaction
+    const sequelize = req.app.get('sequelize');
+    const transaction = await sequelize.transaction();
+    
+    try {
+      // Remove _index before creating
+      const cleanDoctorsData = processedDoctors.map(doctor => {
+        const { _index, ...cleanData } = doctor;
+        return cleanData;
+      });
+      
+      // Bulk create doctors
+      const createdDoctors = await Doctor.bulkCreate(cleanDoctorsData, {
+        transaction,
+        returning: true, // Return created records
+        validate: true   // Validate each record
+      });
+      
+      await transaction.commit();
+      
+      console.log(`Successfully created ${createdDoctors.length} doctors`);
+      
+      // Fetch created doctors with associations
+      const doctorIds = createdDoctors.map(doctor => doctor.id);
+      const doctorsWithAssociations = await Doctor.findAll({
+        where: {
+          id: { [require('sequelize').Op.in]: doctorIds }
+        },
+        include: [{
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        }]
+      });
+      
+      // Transform the response to match the MongoDB format
+      const transformedDoctors = doctorsWithAssociations.map(doctor => {
+        const doctorObj = doctor.toJSON();
+        return {
+          ...doctorObj,
+          headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+          _id: doctorObj.id,
+          createdAt: doctorObj.created_at,
+          updatedAt: doctorObj.updated_at,
+          // Remove the nested objects
+          HeadOffice: undefined
+        };
+      });
+      
+      res.status(201).json({
+        success: true,
+        message: `Successfully created ${createdDoctors.length} doctors`,
+        count: createdDoctors.length,
+        data: transformedDoctors
+      });
+      
+    } catch (createError) {
+      await transaction.rollback();
+      console.error('Bulk create error:', createError);
+      
+      res.status(400).json({
+        success: false,
+        message: 'Failed to create doctors',
+        error: createError.message
+      });
+    }
+    
+  } catch (error) {
+    console.error('Bulk create doctors error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllDoctors,
   getDoctorById,
@@ -381,5 +542,6 @@ module.exports = {
   updateDoctor,
   deleteDoctor,
   getDoctorsByHeadOffice,
-  getMyDoctors
+  getMyDoctors,
+  createBulkDoctors
 };

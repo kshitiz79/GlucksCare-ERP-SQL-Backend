@@ -7,7 +7,8 @@ const {
   updateDoctor,
   deleteDoctor,
   getDoctorsByHeadOffice,
-  getMyDoctors
+  getMyDoctors,
+  createBulkDoctors
 } = require('./doctorController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -23,6 +24,9 @@ router.get('/my-doctors', authMiddleware, getMyDoctors);
 
 // GET doctor by ID
 router.get('/:id', authMiddleware, getDoctorById);
+
+// CREATE multiple doctors at once (Bulk Creation)
+router.post('/bulk', authMiddleware, createBulkDoctors);
 
 // CREATE a new doctor
 router.post('/', authMiddleware, createDoctor);
