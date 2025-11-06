@@ -224,5 +224,15 @@ module.exports = (db) => {
   // UserDevice associations
   db.UserDevice.belongsTo(db.User, { foreignKey: 'user_id' });
 
+  // InvoiceTracking associations
+  db.InvoiceTracking.belongsTo(db.Stockist, { foreignKey: 'stockist_id' });
+  db.InvoiceTracking.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+  db.InvoiceTracking.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
+  
+  // Reverse associations
+  db.Stockist.hasMany(db.InvoiceTracking, { foreignKey: 'stockist_id' });
+  db.User.hasMany(db.InvoiceTracking, { foreignKey: 'created_by', as: 'createdInvoices' });
+  db.User.hasMany(db.InvoiceTracking, { foreignKey: 'updated_by', as: 'updatedInvoices' });
+
   return db;
 };

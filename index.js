@@ -192,6 +192,10 @@ app.use('/api/dashboard', dashboardRoutes);
 const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
 app.use('/api/web-dashboard', webDashboardRoutes);
 
+// Invoice tracking routes
+const invoiceTrackingRoutes = require('./src/invoiceTracking/invoiceTrackingRoutes');
+app.use('/api/invoice-tracking', invoiceTrackingRoutes);
+
 
 
 
