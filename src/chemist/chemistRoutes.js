@@ -7,7 +7,8 @@ const {
   updateChemist,
   deleteChemist,
   getChemistsByHeadOffice,
-  getMyChemists
+  getMyChemists,
+  createBulkChemists
 } = require('./chemistController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -26,6 +27,9 @@ router.get('/:id', authMiddleware, getChemistById);
 
 // CREATE a new chemist
 router.post('/', authMiddleware, createChemist);
+
+// CREATE bulk chemists
+router.post('/bulk', authMiddleware, createBulkChemists);
 
 // UPDATE a chemist
 router.put('/:id', authMiddleware, updateChemist);

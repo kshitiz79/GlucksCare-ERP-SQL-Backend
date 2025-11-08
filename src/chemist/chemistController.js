@@ -547,6 +547,158 @@ const getMyChemists = async (req, res) => {
   }
 };
 
+// Bulk create chemists
+const createBulkChemists = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    if (!models || !models.Chemist || !models.HeadOffice) {
+      throw new Error('Required models are not available');
+    }
+    const { Chemist, HeadOffice } = models;
+
+    // Validate request body
+    if (!req.body.chemists || !Array.isArray(req.body.chemists)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain a "chemists" array'
+      });
+    }
+
+    const chemistsData = req.body.chemists;
+    if (chemistsData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Chemists array cannot be empty'
+      });
+    }
+
+    if (chemistsData.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot create more than 100 chemists at once'
+      });
+    }
+
+    console.log(`Creating ${chemistsData.length} chemists in bulk...`);
+
+    // Process and validate each chemist data
+    const processedChemists = [];
+    const errors = [];
+
+    for (let i = 0; i < chemistsData.length; i++) {
+      const chemistData = { ...chemistsData[i] };
+      try {
+        // Handle head office ID field conversion
+        if (chemistData.headOfficeId) {
+          chemistData.head_office_id = chemistData.headOfficeId;
+          delete chemistData.headOfficeId;
+        } else if (chemistData.head_office_id) {
+          // Keep as is
+        } else if (chemistData.headOffice) {
+          chemistData.head_office_id = chemistData.headOffice;
+          delete chemistData.headOffice;
+        }
+
+        // Validate required fields
+        if (!chemistData.name) {
+          errors.push(`Chemist ${i + 1}: Name is required`);
+          continue;
+        }
+        if (!chemistData.head_office_id) {
+          errors.push(`Chemist ${i + 1}: Head Office ID is required`);
+          continue;
+        }
+
+        // Add index for tracking
+        chemistData._index = i + 1;
+        processedChemists.push(chemistData);
+      } catch (error) {
+        errors.push(`Chemist ${i + 1}: ${error.message}`);
+      }
+    }
+
+    // If there are validation errors, return them
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors found',
+        errors: errors,
+        validChemists: processedChemists.length,
+        totalChemists: chemistsData.length
+      });
+    }
+
+    // Create chemists in bulk using transaction
+    const sequelize = req.app.get('sequelize');
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Remove _index before creating
+      const cleanChemistsData = processedChemists.map(chemist => {
+        const { _index, ...cleanData } = chemist;
+        return cleanData;
+      });
+
+      // Bulk create chemists
+      const createdChemists = await Chemist.bulkCreate(cleanChemistsData, {
+        transaction,
+        returning: true,
+        validate: true
+      });
+
+      await transaction.commit();
+      console.log(`Successfully created ${createdChemists.length} chemists`);
+
+      // Fetch created chemists with associations
+      const chemistIds = createdChemists.map(chemist => chemist.id);
+      const chemistsWithAssociations = await Chemist.findAll({
+        where: {
+          id: { [require('sequelize').Op.in]: chemistIds }
+        },
+        include: [{
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        }]
+      });
+
+      // Transform the response
+      const transformedChemists = chemistsWithAssociations.map(chemist => {
+        const chemistObj = chemist.toJSON();
+        return {
+          ...chemistObj,
+          headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+          _id: chemistObj.id,
+          createdAt: chemistObj.created_at,
+          updatedAt: chemistObj.updated_at,
+          HeadOffice: undefined
+        };
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully created ${createdChemists.length} chemists`,
+        count: createdChemists.length,
+        data: transformedChemists
+      });
+    } catch (createError) {
+      await transaction.rollback();
+      console.error('Bulk create error:', createError);
+      res.status(400).json({
+        success: false,
+        message: 'Failed to create chemists',
+        error: createError.message
+      });
+    }
+  } catch (error) {
+    console.error('Bulk create chemists error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllChemists,
   getChemistById,
@@ -554,5 +706,6 @@ module.exports = {
   updateChemist,
   deleteChemist,
   getChemistsByHeadOffice,
-  getMyChemists
+  getMyChemists,
+  createBulkChemists
 };

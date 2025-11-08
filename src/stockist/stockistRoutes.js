@@ -7,7 +7,8 @@ const {
   updateStockist,
   deleteStockist,
   getStockistsByHeadOffice,
-  getMyStockists
+  getMyStockists,
+  createBulkStockists
 } = require('./stockistController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -26,6 +27,9 @@ router.get('/:id', authMiddleware, getStockistById);
 
 // CREATE a new stockist
 router.post('/', authMiddleware, createStockist);
+
+// CREATE bulk stockists
+router.post('/bulk', authMiddleware, createBulkStockists);
 
 // UPDATE a stockist
 router.put('/:id', authMiddleware, updateStockist);

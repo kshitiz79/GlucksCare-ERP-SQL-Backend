@@ -544,6 +544,158 @@ const getMyStockists = async (req, res) => {
   }
 };
 
+// Bulk create stockists
+const createBulkStockists = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    if (!models || !models.Stockist || !models.HeadOffice) {
+      throw new Error('Required models are not available');
+    }
+    const { Stockist, HeadOffice } = models;
+
+    // Validate request body
+    if (!req.body.stockists || !Array.isArray(req.body.stockists)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain a "stockists" array'
+      });
+    }
+
+    const stockistsData = req.body.stockists;
+    if (stockistsData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stockists array cannot be empty'
+      });
+    }
+
+    if (stockistsData.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot create more than 100 stockists at once'
+      });
+    }
+
+    console.log(`Creating ${stockistsData.length} stockists in bulk...`);
+
+    // Process and validate each stockist data
+    const processedStockists = [];
+    const errors = [];
+
+    for (let i = 0; i < stockistsData.length; i++) {
+      const stockistData = { ...stockistsData[i] };
+      try {
+        // Handle head office ID field conversion
+        if (stockistData.headOfficeId) {
+          stockistData.head_office_id = stockistData.headOfficeId;
+          delete stockistData.headOfficeId;
+        } else if (stockistData.head_office_id) {
+          // Keep as is
+        } else if (stockistData.headOffice) {
+          stockistData.head_office_id = stockistData.headOffice;
+          delete stockistData.headOffice;
+        }
+
+        // Validate required fields
+        if (!stockistData.firm_name) {
+          errors.push(`Stockist ${i + 1}: Firm name is required`);
+          continue;
+        }
+        if (!stockistData.head_office_id) {
+          errors.push(`Stockist ${i + 1}: Head Office ID is required`);
+          continue;
+        }
+
+        // Add index for tracking
+        stockistData._index = i + 1;
+        processedStockists.push(stockistData);
+      } catch (error) {
+        errors.push(`Stockist ${i + 1}: ${error.message}`);
+      }
+    }
+
+    // If there are validation errors, return them
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors found',
+        errors: errors,
+        validStockists: processedStockists.length,
+        totalStockists: stockistsData.length
+      });
+    }
+
+    // Create stockists in bulk using transaction
+    const sequelize = req.app.get('sequelize');
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Remove _index before creating
+      const cleanStockistsData = processedStockists.map(stockist => {
+        const { _index, ...cleanData } = stockist;
+        return cleanData;
+      });
+
+      // Bulk create stockists
+      const createdStockists = await Stockist.bulkCreate(cleanStockistsData, {
+        transaction,
+        returning: true,
+        validate: true
+      });
+
+      await transaction.commit();
+      console.log(`Successfully created ${createdStockists.length} stockists`);
+
+      // Fetch created stockists with associations
+      const stockistIds = createdStockists.map(stockist => stockist.id);
+      const stockistsWithAssociations = await Stockist.findAll({
+        where: {
+          id: { [require('sequelize').Op.in]: stockistIds }
+        },
+        include: [{
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        }]
+      });
+
+      // Transform the response
+      const transformedStockists = stockistsWithAssociations.map(stockist => {
+        const stockistObj = stockist.toJSON();
+        return {
+          ...stockistObj,
+          headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+          _id: stockistObj.id,
+          createdAt: stockistObj.created_at,
+          updatedAt: stockistObj.updated_at,
+          HeadOffice: undefined
+        };
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully created ${createdStockists.length} stockists`,
+        count: createdStockists.length,
+        data: transformedStockists
+      });
+    } catch (createError) {
+      await transaction.rollback();
+      console.error('Bulk create error:', createError);
+      res.status(400).json({
+        success: false,
+        message: 'Failed to create stockists',
+        error: createError.message
+      });
+    }
+  } catch (error) {
+    console.error('Bulk create stockists error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllStockists,
   getStockistById,
@@ -551,5 +703,6 @@ module.exports = {
   updateStockist,
   deleteStockist,
   getStockistsByHeadOffice,
-  getMyStockists
+  getMyStockists,
+  createBulkStockists
 };
