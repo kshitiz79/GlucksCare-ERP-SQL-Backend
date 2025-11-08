@@ -7,6 +7,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
+
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -520,8 +521,8 @@ const getStockistsForDropdown = async (req, res) => {
 };
 
 // at top of invoiceTrackingController.js ensure these are available
-const { GetObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+
+
 // s3Client is already required earlier as: const s3Client = require('../config/b2Config');
 
 const getInvoiceSignedUrl = async (req, res) => {
