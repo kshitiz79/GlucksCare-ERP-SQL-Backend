@@ -11,7 +11,8 @@ const {
   createInvoiceTracking,
   updateInvoiceTracking,
   deleteInvoiceTracking,
-  getStockistsForDropdown
+  getStockistsForDropdown,
+  getInvoiceSignedUrl
 } = require('./invoiceTrackingController');
 
 // Apply authentication middleware to all routes
@@ -21,6 +22,7 @@ router.use(authMiddleware);
 router.get('/', getAllInvoiceTracking);
 router.get('/user', getUserInvoiceTracking);
 router.get('/stockists', getStockistsForDropdown);
+router.get('/:id/signed-url', getInvoiceSignedUrl); // Must be before /:id
 router.get('/:id', getInvoiceTrackingById);
 
 // POST routes
@@ -31,5 +33,6 @@ router.put('/:id', upload.single('invoice_image'), updateInvoiceTracking);
 
 // DELETE routes
 router.delete('/:id', deleteInvoiceTracking);
+
 
 module.exports = router;

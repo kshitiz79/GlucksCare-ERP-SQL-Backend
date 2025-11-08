@@ -1,8 +1,11 @@
 // src/invoiceTracking/invoiceTrackingController.js
 
-const cloudinary = require('../config/cloudinary');
+const { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const s3Client = require('../config/b2Config');
 const multer = require('multer');
-const { Readable } = require('stream');
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -12,37 +15,76 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // 10MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    if (file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'), false);
+      cb(new Error('Only PDF files are allowed'), false);
     }
   }
 });
 
 // Helper function to upload image to Cloudinary
-const uploadToCloudinary = (buffer, filename) => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'invoice_tracking',
-        public_id: `invoice_${Date.now()}_${filename}`,
-        resource_type: 'image'
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(result);
-        }
-      }
-    );
-    
-    const readableStream = new Readable();
-    readableStream.push(buffer);
-    readableStream.push(null);
-    readableStream.pipe(stream);
-  });
+// hardened uploadToB2
+const uploadToB2 = async (buffer, originalFilename, mimetype = 'application/pdf') => {
+  if (!buffer || !(buffer instanceof Buffer)) {
+    throw new Error('uploadToB2: invalid buffer provided');
+  }
+  if (!originalFilename || typeof originalFilename !== 'string') {
+    originalFilename = `file_${Date.now()}.pdf`;
+  }
+
+  try {
+    const fileExtension = path.extname(originalFilename) || '.pdf';
+    const fileName = `invoice_${Date.now()}_${uuidv4()}${fileExtension}`;
+
+    const uploadParams = {
+      Bucket: process.env.B2_S3_BUCKET_NAME,
+      Key: fileName,
+      Body: buffer,
+      ContentType: mimetype || 'application/pdf',
+      Metadata: { 'original-name': originalFilename }
+    };
+
+    await s3Client.send(new PutObjectCommand(uploadParams));
+
+    // Build public URL robustly.
+    // Prefer an explicit PUBLIC_URL env var first (recommended), else derive from endpoint.
+    let publicUrl;
+    if (process.env.B2_PUBLIC_URL) {
+      // allow user to set full public URL like https://f001.backblazeb2.com
+      publicUrl = `${process.env.B2_PUBLIC_URL.replace(/\/$/, '')}/${process.env.B2_S3_BUCKET_NAME}/${encodeURIComponent(fileName)}`;
+    } else if (process.env.B2_S3_ENDPOINT) {
+      // normalize endpoint and avoid calling replace on undefined
+      const rawEndpoint = process.env.B2_S3_ENDPOINT;
+      // ensure no trailing slash
+      const endpointNoSlash = rawEndpoint.replace(/\/+$/,'');
+      // If endpoint includes the scheme, keep it; otherwise default to https
+      const hasScheme = /^https?:\/\//i.test(endpointNoSlash);
+      const base = hasScheme ? endpointNoSlash : `https://${endpointNoSlash}`;
+      publicUrl = `${base}/${process.env.B2_S3_BUCKET_NAME}/${encodeURIComponent(fileName)}`;
+    } else {
+      // fallback to a path-like return (no URL)
+      publicUrl = null;
+      console.warn('uploadToB2: no B2_PUBLIC_URL or B2_S3_ENDPOINT configured - public URL cannot be constructed');
+    }
+
+    return { secure_url: publicUrl, public_id: fileName };
+  } catch (error) {
+    console.error('B2 upload error:', error);
+    // throw a new Error with context (preserve stack)
+    throw error;
+  }
+};
+
+
+const deleteFromB2 = async (fileKey) => {
+  try {
+    const deleteParams = { Bucket: process.env.B2_S3_BUCKET_NAME, Key: fileKey };
+    await s3Client.send(new DeleteObjectCommand(deleteParams));
+  } catch (error) {
+    console.error('B2 delete error:', error);
+    throw error;
+  }
 };
 
 // GET all invoice tracking records
@@ -262,7 +304,7 @@ const createInvoiceTracking = async (req, res) => {
     // Handle image upload if provided
     if (req.file) {
       try {
-        const uploadResult = await uploadToCloudinary(
+        const uploadResult = await uploadToB2(
           req.file.buffer,
           req.file.originalname
         );
@@ -371,11 +413,11 @@ const updateInvoiceTracking = async (req, res) => {
       try {
         // Delete old image if exists
         if (invoiceTracking.invoice_image_public_id) {
-          await cloudinary.uploader.destroy(invoiceTracking.invoice_image_public_id);
+          await deleteFromB2(invoiceTracking.invoice_image_public_id);
         }
 
         // Upload new image
-        const uploadResult = await uploadToCloudinary(
+        const uploadResult = await uploadToB2(
           req.file.buffer,
           req.file.originalname
         );
@@ -433,7 +475,7 @@ const deleteInvoiceTracking = async (req, res) => {
     // Delete image from Cloudinary if exists
     if (invoiceTracking.invoice_image_public_id) {
       try {
-        await cloudinary.uploader.destroy(invoiceTracking.invoice_image_public_id);
+        await deleteFromB2(invoiceTracking.invoice_image_public_id);
       } catch (deleteError) {
         console.error('Error deleting image from Cloudinary:', deleteError);
       }
@@ -477,6 +519,50 @@ const getStockistsForDropdown = async (req, res) => {
   }
 };
 
+// at top of invoiceTrackingController.js ensure these are available
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+// s3Client is already required earlier as: const s3Client = require('../config/b2Config');
+
+const getInvoiceSignedUrl = async (req, res) => {
+  try {
+    const { InvoiceTracking } = req.app.get('models');
+    const { id } = req.params;
+
+    const record = await InvoiceTracking.findByPk(id);
+    if (!record || !record.invoice_image_public_id) {
+      return res.status(404).json({ success: false, message: 'Invoice file not found' });
+    }
+
+    const key = record.invoice_image_public_id; // this is the Key you saved on upload
+    if (!key) {
+      return res.status(500).json({ success: false, message: 'File key missing' });
+    }
+
+    const getObjectParams = {
+      Bucket: process.env.B2_S3_BUCKET_NAME,
+      Key: key
+    };
+
+    const command = new GetObjectCommand(getObjectParams);
+
+    // 15 minutes validity (adjust as needed)
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+
+    // very small sanity check
+    if (!signedUrl || typeof signedUrl !== 'string') {
+      console.error('Invalid signedUrl generated:', signedUrl);
+      return res.status(500).json({ success: false, message: 'Failed to generate signed URL' });
+    }
+
+    return res.json({ success: true, url: signedUrl });
+  } catch (err) {
+    console.error('Error generating invoice signed url:', err);
+    res.status(500).json({ success: false, message: 'Could not create download URL' });
+  }
+};
+
+
 module.exports = {
   upload,
   getAllInvoiceTracking,
@@ -485,5 +571,6 @@ module.exports = {
   createInvoiceTracking,
   updateInvoiceTracking,
   deleteInvoiceTracking,
-  getStockistsForDropdown
+  getStockistsForDropdown,
+  getInvoiceSignedUrl
 };
