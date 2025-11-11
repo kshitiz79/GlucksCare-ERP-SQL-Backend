@@ -11,7 +11,9 @@ const {
   rejectExpense,
   getExpenseSettings,
   updateExpenseSettings,
-  uploadBillImage
+  uploadBillImage,
+  finalizeMonthPayment,
+  getPaymentSummary
 } = require('./expenseController');
 
 // GET expense settings
@@ -43,5 +45,11 @@ router.put('/:id/approve', approveExpense);
 
 // REJECT an expense
 router.put('/:id/reject', rejectExpense);
+
+// FINALIZE payment for a month
+router.post('/finalize-payment', finalizeMonthPayment);
+
+// GET payment summary by month
+router.get('/payment-summary', getPaymentSummary);
 
 module.exports = router;

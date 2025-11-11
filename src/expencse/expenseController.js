@@ -547,6 +547,161 @@ const uploadBillImage = async (req, res) => {
   }
 };
 
+// Finalize payment for a month (mark all approved expenses as paid)
+const finalizeMonthPayment = async (req, res) => {
+  try {
+    const { Expense } = req.app.get('models');
+    const { userId, monthYear, transactionId } = req.body; // monthYear format: "YYYY-MM"
+
+    if (!userId || !monthYear || !transactionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId, monthYear, and transactionId are required'
+      });
+    }
+
+    // Validate monthYear format
+    if (!/^\d{4}-\d{2}$/.test(monthYear)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid monthYear format. Use YYYY-MM'
+      });
+    }
+
+    // Find all approved and unpaid expenses for the user in that month
+    const [year, month] = monthYear.split('-');
+    const startDate = `${year}-${month}-01`;
+    const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+
+    const expenses = await Expense.findAll({
+      where: {
+        user_id: userId,
+        status: 'approved',
+        payment_status: 'unpaid',
+        date: {
+          [require('sequelize').Op.between]: [startDate, endDate]
+        }
+      }
+    });
+
+    if (expenses.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No unpaid approved expenses found for this month'
+      });
+    }
+
+    // Update all expenses to paid
+    const expenseIds = expenses.map(exp => exp.id);
+    await Expense.update(
+      {
+        payment_status: 'paid',
+        payment_date: new Date(),
+        payment_month_year: monthYear,
+        transaction_id: transactionId
+      },
+      {
+        where: {
+          id: expenseIds
+        }
+      }
+    );
+
+    const totalAmount = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
+
+    res.json({
+      success: true,
+      message: `Payment finalized for ${expenses.length} expenses`,
+      data: {
+        count: expenses.length,
+        totalAmount: totalAmount,
+        monthYear: monthYear,
+        paidDate: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Finalize payment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get payment summary by month
+const getPaymentSummary = async (req, res) => {
+  try {
+    const { Expense } = req.app.get('models');
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId is required'
+      });
+    }
+
+    const expenses = await Expense.findAll({
+      where: {
+        user_id: userId,
+        status: 'approved'
+      },
+      order: [['date', 'DESC']]
+    });
+
+    // Group by month
+    const summary = {};
+    expenses.forEach(expense => {
+      const date = new Date(expense.date);
+      const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!summary[monthYear]) {
+        summary[monthYear] = {
+          monthYear,
+          totalAmount: 0,
+          paidAmount: 0,
+          unpaidAmount: 0,
+          paidCount: 0,
+          unpaidCount: 0,
+          paymentStatus: 'unpaid',
+          paymentDate: null
+        };
+      }
+
+      const amount = parseFloat(expense.amount);
+      summary[monthYear].totalAmount += amount;
+
+      if (expense.payment_status === 'paid') {
+        summary[monthYear].paidAmount += amount;
+        summary[monthYear].paidCount += 1;
+        summary[monthYear].paymentDate = expense.payment_date;
+        if (summary[monthYear].unpaidCount === 0) {
+          summary[monthYear].paymentStatus = 'paid';
+        } else {
+          summary[monthYear].paymentStatus = 'partial';
+        }
+      } else {
+        summary[monthYear].unpaidAmount += amount;
+        summary[monthYear].unpaidCount += 1;
+        if (summary[monthYear].paidCount > 0) {
+          summary[monthYear].paymentStatus = 'partial';
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: Object.values(summary).sort((a, b) => b.monthYear.localeCompare(a.monthYear))
+    });
+  } catch (error) {
+    console.error('Get payment summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllExpenses,
   getExpenseById,
@@ -557,5 +712,7 @@ module.exports = {
   rejectExpense,
   getExpenseSettings,
   updateExpenseSettings,
-  uploadBillImage
+  uploadBillImage,
+  finalizeMonthPayment,
+  getPaymentSummary
 };

@@ -59,6 +59,19 @@ const Expense = (sequelize) => {
     edit_count: {
       type: DataTypes.INTEGER,
       defaultValue: 0
+    },
+    payment_status: {
+      type: DataTypes.ENUM('unpaid', 'paid'),
+      defaultValue: 'unpaid'
+    },
+    payment_date: {
+      type: DataTypes.DATE
+    },
+    payment_month_year: {
+      type: DataTypes.STRING(7)
+    },
+    transaction_id: {
+      type: DataTypes.STRING(100)
     }
   }, {
     tableName: 'expenses',
