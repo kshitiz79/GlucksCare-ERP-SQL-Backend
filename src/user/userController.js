@@ -278,7 +278,7 @@ const getUsersByRole = async (req, res) => {
   }
 };
 
-// GET all users
+// GET all users (including deactivated - for admin user management page)
 const getAllUsers = async (req, res) => {
   try {
     // Get the User model from app context
@@ -290,15 +290,19 @@ const getAllUsers = async (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const limit = parseInt(req.query.limit || '50', 10);
     const offset = (page - 1) * limit;
+    
+    // Check if we should include deactivated users (default: true for backward compatibility)
+    const includeDeactivated = req.query.includeDeactivated !== 'false';
 
-    console.log(`Fetching users - page: ${page}, limit: ${limit}`);
+    console.log(`Fetching users - page: ${page}, limit: ${limit}, includeDeactivated: ${includeDeactivated}`);
     const t0 = Date.now();
+
+    // Build where clause
+    const whereClause = includeDeactivated ? {} : { is_active: true };
 
     // Fetch users with pagination
     const { rows: users, count: totalUsers } = await User.findAndCountAll({
-      where: {
-        is_active: true
-      },
+      where: whereClause,
       include: [
         {
           model: HeadOffice,
