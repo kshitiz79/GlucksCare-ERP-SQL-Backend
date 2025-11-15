@@ -1,248 +1,189 @@
-// src/location/locationController.js
+// Location Controller for Live Location Tracking
 
-// GET all locations
-const getAllLocations = async (req, res) => {
+// GET all users with their latest location
+const getUsersWithLocation = async (req, res) => {
   try {
-    const { Location } = req.app.get('models');
-
-    console.log('Fetching locations with query params:', req.query);
-
-    // Support filtering by user_id if provided
-    const whereClause = {};
-    if (req.query.user_id) {
-      whereClause.user_id = req.query.user_id;
-    }
-
-    const options = {
-      where: whereClause
-    };
-
-    // Add limit if specified
-    if (req.query.limit) {
-      options.limit = parseInt(req.query.limit);
-    }
-
-    console.log('Location query options:', options);
-
-    const locations = await Location.findAll(options);
-
-    console.log('Found locations:', locations.length);
-
-    res.json({
-      success: true,
-      count: locations.length,
-      data: locations
-    });
-  } catch (error) {
-    console.error('Error fetching locations:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch locations: ' + error.message
-    });
-  }
-};
-
-// GET location by ID
-const getLocationById = async (req, res) => {
-  try {
-    const { Location } = req.app.get('models');
-    const location = await Location.findByPk(req.params.id);
-    if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: 'Location record not found'
-      });
-    }
-    res.json({
-      success: true,
-      data: location
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// CREATE a new location
-const createLocation = async (req, res) => {
-  try {
-    const { Location } = req.app.get('models');
-    const location = await Location.create(req.body);
-    res.status(201).json({
-      success: true,
-      data: location
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// UPDATE a location
-const updateLocation = async (req, res) => {
-  try {
-    const { Location } = req.app.get('models');
-    const location = await Location.findByPk(req.params.id);
-    if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: 'Location record not found'
-      });
-    }
-
-    await location.update(req.body);
-    res.json({
-      success: true,
-      data: location
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// DELETE a location
-const deleteLocation = async (req, res) => {
-  try {
-    const { Location } = req.app.get('models');
-    const location = await Location.findByPk(req.params.id);
-    if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: 'Location record not found'
-      });
-    }
-
-    await location.destroy();
-    res.json({
-      success: true,
-      message: 'Location record deleted successfully'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// GET user location history with pagination and time range
-const getUserLocationHistory = async (req, res) => {
-  try {
-    const { Location } = req.app.get('models');
+    const models = req.app.get('models');
+    const { User, Location } = models;
     const sequelize = req.app.get('sequelize');
-    const { Op } = sequelize.Sequelize;
-    const { userId } = req.params;
-    const { startDate, endDate, limit = 500, offset = 0, sort = 'desc' } = req.query;
 
-    console.log('Fetching user location history:', {
-      userId,
-      startDate,
-      endDate,
-      limit,
-      offset,
-      sort
+    console.log('Fetching users with latest locations...');
+    const t0 = Date.now();
+
+    // Get all active users
+    const users = await User.findAll({
+      where: {
+        is_active: true
+      },
+      attributes: ['id', 'name', 'email', 'role', 'employee_code'],
+      order: [['name', 'ASC']]
     });
 
-    // Build where clause
-    const whereClause = {
-      user_id: userId
-    };
+    const t1 = Date.now();
+    console.log(`Found ${users.length} active users in ${t1 - t0}ms`);
 
-    // Add time range filter if provided
-    if (startDate && endDate) {
-      whereClause.timestamp = {
-        [Op.between]: [new Date(startDate), new Date(endDate)]
-      };
-    } else if (startDate) {
-      whereClause.timestamp = {
-        [Op.gte]: new Date(startDate)
-      };
-    } else if (endDate) {
-      whereClause.timestamp = {
-        [Op.lte]: new Date(endDate)
-      };
+    if (!Location || users.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'No users or location model not available'
+      });
     }
 
-    // Query options
-    const options = {
-      where: whereClause,
-      limit: Math.min(parseInt(limit), 1000), // Max 1000 points
-      offset: parseInt(offset),
-      order: [['timestamp', sort.toUpperCase()]],
-      // Removed 'speed' as it doesn't exist in database yet
-      attributes: ['id', 'user_id', 'latitude', 'longitude', 'timestamp', 'accuracy', 'battery_level', 'network_type']
+    const userIds = users.map(u => u.id);
+
+    // OPTIMIZED: Get last 2 locations per user for showing movement/direction
+    // Use bind parameter with proper array handling
+    const latestLocations = await sequelize.query(
+      `
+      SELECT * FROM (
+        SELECT 
+          user_id, 
+          latitude, 
+          longitude, 
+          timestamp, 
+          accuracy, 
+          battery_level, 
+          network_type,
+          created_at,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp DESC) as rn
+        FROM locations
+        WHERE user_id = ANY($1::uuid[])
+      ) ranked
+      WHERE rn <= 2
+      ORDER BY user_id, timestamp DESC
+      `,
+      {
+        bind: [userIds],
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    const t2 = Date.now();
+    console.log(`Found ${latestLocations.length} location records (last 2 per user) in ${t2 - t1}ms`);
+
+    // Create a map of user_id to locations array (last 2)
+    const locationMap = {};
+    latestLocations.forEach(loc => {
+      if (!locationMap[loc.user_id]) {
+        locationMap[loc.user_id] = [];
+      }
+      locationMap[loc.user_id].push({
+        latitude: parseFloat(loc.latitude),
+        longitude: parseFloat(loc.longitude),
+        timestamp: loc.timestamp,
+        accuracy: loc.accuracy,
+        battery_level: loc.battery_level,
+        network_type: loc.network_type,
+        created_at: loc.created_at
+      });
+    });
+
+    // Helper function to check if user is online (last location within 15 minutes)
+    const isUserOnline = (timestamp) => {
+      if (!timestamp) return false;
+      const now = new Date();
+      const lastUpdate = new Date(timestamp);
+      const diffMinutes = (now - lastUpdate) / (1000 * 60);
+      return diffMinutes <= 15;
     };
 
-    console.log('Query options:', JSON.stringify(options, null, 2));
+    // Combine users with their locations
+    const usersWithLocation = users
+      .filter(user => locationMap[user.id] && locationMap[user.id].length > 0) // Only include users with location data
+      .map(user => {
+        const locations = locationMap[user.id];
+        const latestLocation = locations[0]; // Most recent
+        const previousLocation = locations[1] || null; // Second most recent (if exists)
+        
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          employee_code: user.employee_code,
+          last_location: latestLocation,
+          previous_location: previousLocation, // For showing movement/direction
+          is_online: isUserOnline(latestLocation.timestamp)
+        };
+      });
 
-    // Fetch locations
-    const locations = await Location.findAll(options);
-
-    // Get total count for pagination
-    const totalCount = await Location.count({ where: whereClause });
-
-    console.log(`Found ${locations.length} locations out of ${totalCount} total`);
+    const t3 = Date.now();
+    console.log(`Total processing time: ${t3 - t0}ms`);
 
     res.json({
       success: true,
-      data: {
-        locations,
-        pagination: {
-          total: totalCount,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          hasMore: (parseInt(offset) + locations.length) < totalCount
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching user location history:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error name:', error.name);
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user location history: ' + error.message,
-      error: process.env.NODE_ENV === 'development' ? {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      } : undefined
-    });
-  }
-};
-
-// Test endpoint to verify route is working
-const testUserHistory = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    res.json({
-      success: true,
-      message: 'User history endpoint is working',
-      userId: userId,
+      data: usersWithLocation,
+      count: usersWithLocation.length,
       timestamp: new Date().toISOString()
     });
+
   } catch (error) {
+    console.error('Error fetching users with location:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message || 'Failed to fetch users with location'
+    });
+  }
+};
+
+// GET location history for a specific user
+const getUserLocationHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate, limit = 100 } = req.query;
+
+    const models = req.app.get('models');
+    const { Location } = models;
+
+    if (!Location) {
+      return res.status(404).json({
+        success: false,
+        message: 'Location model not available'
+      });
+    }
+
+    const whereClause = { user_id: userId };
+
+    // Add date filters if provided
+    if (startDate || endDate) {
+      whereClause.timestamp = {};
+      if (startDate) whereClause.timestamp.$gte = new Date(startDate);
+      if (endDate) whereClause.timestamp.$lte = new Date(endDate);
+    }
+
+    const locations = await Location.findAll({
+      where: whereClause,
+      order: [['timestamp', 'DESC']],
+      limit: parseInt(limit),
+      attributes: [
+        'id',
+        'latitude',
+        'longitude',
+        'timestamp',
+        'accuracy',
+        'battery_level',
+        'network_type',
+        'created_at'
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: locations,
+      count: locations.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching location history:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch location history'
     });
   }
 };
 
 module.exports = {
-  getAllLocations,
-  getLocationById,
-  createLocation,
-  updateLocation,
-  deleteLocation,
-  getUserLocationHistory,
-  testUserHistory
+  getUsersWithLocation,
+  getUserLocationHistory
 };

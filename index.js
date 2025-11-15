@@ -220,6 +220,10 @@ app.use('/api/invoice-tracking', invoiceTrackingRoutes);
   app.use('/api/location-events', locationEventRoutes);
   app.use('/api/stop-events', stopEventsRoutes);
   
+  // Live location tracking routes
+  const liveLocationRoutes = require('./src/location/locationRoutes');
+  app.use('/api/live-location', liveLocationRoutes);
+  
   // New route mounts
   app.use('/api/branches', branchRoutes);
   app.use('/api/departments', departmentRoutes);
