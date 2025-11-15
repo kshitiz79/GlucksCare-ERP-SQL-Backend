@@ -53,6 +53,9 @@ const getWebDashboardData = async (req, res) => {
 
             // Users by role
             sequelize.models.User.findAll({
+                where: {
+                    is_active: true
+                },
                 attributes: [
                     'role',
                     [sequelize.fn('COUNT', sequelize.col('id')), 'count']

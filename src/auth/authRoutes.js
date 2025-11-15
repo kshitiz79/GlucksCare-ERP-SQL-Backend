@@ -185,7 +185,10 @@ router.post('/login', async (req, res) => {
     
     // Find user with all assigned head offices
     const user = await User.findOne({ 
-      where: { email },
+      where: { 
+        email,
+        is_active: true
+      },
       include: [
         {
           model: HeadOffice,
@@ -197,7 +200,7 @@ router.post('/login', async (req, res) => {
     });
     
     if (!user) {
-      console.log('User not found for email:', email);
+      console.log('User not found or inactive for email:', email);
       return res.status(400).json({ msg: 'Invalid credentials' });
     }
 

@@ -21,7 +21,8 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
         const allUsers = await sequelize.models.User.findAll({
           where: {
             role: { [Op.in]: ['State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'] },
-            id: { [Op.ne]: userId }
+            id: { [Op.ne]: userId },
+            is_active: true
           },
           attributes: ['id']
         });
@@ -41,6 +42,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
             WHERE ho.state_id = :stateId
             AND u.role IN ('Zonal Manager', 'Area Manager', 'Manager', 'User')
             AND u.id != :userId
+            AND u.is_active = true
           `, {
             replacements: { stateId: user.state_id, userId },
             type: sequelize.QueryTypes.SELECT
@@ -53,7 +55,8 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
           const allLowerUsers = await sequelize.models.User.findAll({
             where: {
               role: { [Op.in]: ['Zonal Manager', 'Area Manager', 'Manager', 'User'] },
-              id: { [Op.ne]: userId }
+              id: { [Op.ne]: userId },
+              is_active: true
             },
             attributes: ['id']
           });

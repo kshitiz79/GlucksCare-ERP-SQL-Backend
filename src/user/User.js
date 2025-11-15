@@ -136,7 +136,7 @@ const User = (sequelize) => {
       type: DataTypes.STRING(10)
     },
     otp_expire: {
-      type: DataTypes.DATE
+      type: DataTypes.DATE 
     },
     email_verified: {
       type: DataTypes.BOOLEAN,

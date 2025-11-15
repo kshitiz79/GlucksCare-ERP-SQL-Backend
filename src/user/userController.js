@@ -22,57 +22,70 @@ const getUsersByState = async (req, res) => {
 
     // Get the User and HeadOffice models from app context
     const { User, HeadOffice, State } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
 
-    // Find users directly assigned to this state or assigned to head offices in this state
-    const users = await User.findAll({
-      where: {
-        state_id: stateId
-      },
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] } // Don't include junction table attributes
-        }
-      ]
-    });
+    const t0 = Date.now();
 
-    // Also find users assigned to head offices in this state
-    const headOfficesInState = await HeadOffice.findAll({
-      where: {
-        stateId: stateId
+    // OPTIMIZED: Use a single query with OR condition
+    const users = await sequelize.query(
+      `
+      SELECT DISTINCT u.*
+      FROM users u
+      LEFT JOIN user_head_offices uho ON u.id = uho.user_id
+      LEFT JOIN head_offices ho ON uho.head_office_id = ho.id
+      WHERE u.is_active = true
+        AND (u.state_id = :stateId OR ho.state_id = :stateId)
+      ORDER BY u.created_at DESC
+      `,
+      {
+        replacements: { stateId },
+        type: sequelize.QueryTypes.SELECT
       }
-    });
+    );
 
-    const headOfficeIds = headOfficesInState.map(ho => ho.id);
+    const t1 = Date.now();
+    console.log(`Found ${users.length} users by state in ${t1 - t0}ms`);
 
-    // Find users assigned to these head offices through the many-to-many relationship
-    if (headOfficeIds.length > 0) {
-      const usersInHeadOffices = await User.findAll({
-        include: [
-          {
-            model: HeadOffice,
-            as: 'headOffices',
-            through: { attributes: [] },
-            where: {
-              id: headOfficeIds
-            }
-          }
-        ]
-      });
+    // Fetch head offices for these users
+    const userIds = users.map(u => u.id);
+    let headOfficesMap = {};
 
-      // Merge the two user lists, avoiding duplicates
-      const allUsers = [...users];
-      const existingUserIds = new Set(users.map(u => u.id));
-
-      usersInHeadOffices.forEach(user => {
-        if (!existingUserIds.has(user.id)) {
-          allUsers.push(user);
+    if (userIds.length > 0) {
+      const headOfficesData = await sequelize.query(
+        `
+        SELECT uho.user_id, ho.*
+        FROM user_head_offices uho
+        JOIN head_offices ho ON uho.head_office_id = ho.id
+        WHERE uho.user_id = ANY(:userIds)
+        `,
+        {
+          replacements: { userIds },
+          type: sequelize.QueryTypes.SELECT
         }
-      });
+      );
 
-      // Transform users to match MongoDB format
-      const transformedUsers = allUsers.map(user => {
+      // Group head offices by user_id
+      headOfficesData.forEach(row => {
+        if (!headOfficesMap[row.user_id]) {
+          headOfficesMap[row.user_id] = [];
+        }
+        headOfficesMap[row.user_id].push({
+          id: row.id,
+          name: row.name,
+          stateId: row.state_id,
+          pincode: row.pincode,
+          isActive: row.is_active,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        });
+      });
+    }
+
+    const t2 = Date.now();
+    console.log(`Fetched head offices in ${t2 - t1}ms, total: ${t2 - t0}ms`);
+
+    // Transform users to match MongoDB format
+    const transformedUsers = users.map(user => {
         // Convert snake_case to camelCase
         const transformedUser = {
           _id: user.id,
@@ -103,102 +116,27 @@ const getUsersByState = async (req, res) => {
           employmentType: user.employment_type_id
         };
 
-        // Add headOffices array if exists
-        if (user.headOffices) {
-          transformedUser.headOffices = user.headOffices.map(ho => ({
-            id: ho.id,
-            name: ho.name,
-            stateId: ho.state_id,
-            pincode: ho.pincode,
-            isActive: ho.is_active,
-            createdAt: ho.created_at,
-            updatedAt: ho.updated_at
-          }));
-        }
+        // Add headOffices array from map
+        transformedUser.headOffices = headOfficesMap[user.id] || [];
 
         return transformedUser;
       });
 
-      res.json({
-        success: true,
-        data: transformedUsers,
-        pagination: {
-          currentPage: 1,
-          totalPages: 1,
-          totalCount: transformedUsers.length,
-          limit: transformedUsers.length,
-          hasNext: false,
-          hasPrev: false
-        },
-        filters: {
-          stateId: stateId
-        }
-      });
-    } else {
-      // Transform users to match MongoDB format
-      const transformedUsers = users.map(user => {
-        // Convert snake_case to camelCase
-        const transformedUser = {
-          _id: user.id,
-          id: user.id,
-          employeeCode: user.employee_code,
-          name: user.name,
-          email: user.email,
-          mobileNumber: user.mobile_number,
-          gender: user.gender,
-          role: user.role,
-          state: user.state_id, // This should be the state ID
-          salaryAmount: user.salary_amount,
-          address: user.address,
-          dateOfBirth: user.date_of_birth,
-          dateOfJoining: user.date_of_joining,
-          bankDetails: user.bank_details,
-          legalDocuments: user.legal_documents,
-          emergencyContact: user.emergency_contact,
-          reference: user.reference,
-          isActive: user.is_active,
-          emailVerified: user.email_verified,
-          otp: user.otp,
-          otpExpire: user.otp_expire,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
-          branch: user.branch_id,
-          department: user.department_id,
-          employmentType: user.employment_type_id
-        };
-
-        // Add headOffices array if exists
-        if (user.headOffices) {
-          transformedUser.headOffices = user.headOffices.map(ho => ({
-            id: ho.id,
-            name: ho.name,
-            stateId: ho.state_id,
-            pincode: ho.pincode,
-            isActive: ho.is_active,
-            createdAt: ho.created_at,
-            updatedAt: ho.updated_at
-          }));
-        }
-
-        return transformedUser;
-      });
-
-      res.json({
-        success: true,
-        data: transformedUsers,
-        pagination: {
-          currentPage: 1,
-          totalPages: 1,
-          totalCount: transformedUsers.length,
-          limit: transformedUsers.length,
-          hasNext: false,
-          hasPrev: false
-        },
-        filters: {
-          stateId: stateId
-        }
-      });
-    }
+    res.json({
+      success: true,
+      data: transformedUsers,
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        totalCount: transformedUsers.length,
+        limit: transformedUsers.length,
+        hasNext: false,
+        hasPrev: false
+      },
+      filters: {
+        stateId: stateId
+      }
+    });
   } catch (error) {
     console.error('Error fetching users by state:', error);
     res.status(500).json({
@@ -223,20 +161,60 @@ const getUsersByRole = async (req, res) => {
 
     // Get the User model from app context
     const { User, HeadOffice } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+
+    const t0 = Date.now();
 
     // Find users with the specified role
     const users = await User.findAll({
       where: {
-        role: role
+        role: role,
+        is_active: true
       },
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] } // Don't include junction table attributes
-        }
-      ]
+      attributes: { exclude: ['password_hash'] }, // Don't send password
+      order: [['created_at', 'DESC']]
     });
+
+    const t1 = Date.now();
+    console.log(`Found ${users.length} users by role in ${t1 - t0}ms`);
+
+    // Fetch head offices for these users in a separate optimized query
+    const userIds = users.map(u => u.id);
+    let headOfficesMap = {};
+
+    if (userIds.length > 0) {
+      const headOfficesData = await sequelize.query(
+        `
+        SELECT uho.user_id, ho.*
+        FROM user_head_offices uho
+        JOIN head_offices ho ON uho.head_office_id = ho.id
+        WHERE uho.user_id = ANY(:userIds)
+        `,
+        {
+          replacements: { userIds },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+
+      // Group head offices by user_id
+      headOfficesData.forEach(row => {
+        if (!headOfficesMap[row.user_id]) {
+          headOfficesMap[row.user_id] = [];
+        }
+        headOfficesMap[row.user_id].push({
+          id: row.id,
+          name: row.name,
+          stateId: row.state_id,
+          pincode: row.pincode,
+          isActive: row.is_active,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        });
+      });
+    }
+
+    const t2 = Date.now();
+    console.log(`Fetched head offices in ${t2 - t1}ms, total: ${t2 - t0}ms`);
 
     // Transform users to match MongoDB format
     const transformedUsers = users.map(user => {
@@ -270,18 +248,8 @@ const getUsersByRole = async (req, res) => {
         employmentType: user.employment_type_id
       };
 
-      // Add headOffices array if exists (many-to-many relationship)
-      if (user.headOffices) {
-        transformedUser.headOffices = user.headOffices.map(ho => ({
-          id: ho.id,
-          name: ho.name,
-          stateId: ho.state_id,
-          pincode: ho.pincode,
-          isActive: ho.is_active,
-          createdAt: ho.created_at,
-          updatedAt: ho.updated_at
-        }));
-      }
+      // Add headOffices array from map
+      transformedUser.headOffices = headOfficesMap[user.id] || [];
 
       return transformedUser;
     });
@@ -318,19 +286,33 @@ const getAllUsers = async (req, res) => {
     const { User, HeadOffice, Location } = models;
     const sequelize = req.app.get('sequelize');
 
-    console.log('Fetching all users with location data...');
+    // Add pagination support
+    const page = parseInt(req.query.page || '1', 10);
+    const limit = parseInt(req.query.limit || '50', 10);
+    const offset = (page - 1) * limit;
 
-    const users = await User.findAll({
+    console.log(`Fetching users - page: ${page}, limit: ${limit}`);
+    const t0 = Date.now();
+
+    // Fetch users with pagination
+    const { rows: users, count: totalUsers } = await User.findAndCountAll({
+      where: {
+        is_active: true
+      },
       include: [
         {
           model: HeadOffice,
           as: 'headOffices',
           through: { attributes: [] } // Don't include junction table attributes
         }
-      ]
+      ],
+      limit,
+      offset,
+      order: [['created_at', 'DESC']]
     });
 
-    console.log(`Found ${users.length} users`);
+    const t1 = Date.now();
+    console.log(`Found ${users.length} users (total: ${totalUsers}) in ${t1 - t0}ms`);
 
     // Create a map of user_id to latest location
     const locationMap = {};
@@ -340,31 +322,37 @@ const getAllUsers = async (req, res) => {
       try {
         const userIds = users.map(u => u.id);
 
-        // Get full location details for latest timestamps
-        const locationDetails = await Location.findAll({
-          where: {
-            user_id: userIds
-          },
-          order: [['timestamp', 'DESC']]
-        });
-
-        console.log(`Found ${locationDetails.length} location records`);
-
-        // Map locations to users (only keep latest per user)
-        locationDetails.forEach(loc => {
-          if (!locationMap[loc.user_id]) {
-            locationMap[loc.user_id] = {
-              latitude: parseFloat(loc.latitude),
-              longitude: parseFloat(loc.longitude),
-              timestamp: loc.timestamp,
-              accuracy: loc.accuracy,
-              battery_level: loc.battery_level,
-              network_type: loc.network_type
-            };
+        // OPTIMIZED: Use DISTINCT ON to get only latest location per user
+        const locationDetails = await sequelize.query(
+          `
+          SELECT DISTINCT ON (user_id)
+            user_id, latitude, longitude, timestamp, accuracy, battery_level, network_type
+          FROM locations
+          WHERE user_id = ANY(:userIds)
+          ORDER BY user_id, timestamp DESC
+          `,
+          {
+            replacements: { userIds },
+            type: sequelize.QueryTypes.SELECT
           }
+        );
+
+        const t2 = Date.now();
+        console.log(`Found ${locationDetails.length} latest locations in ${t2 - t1}ms`);
+
+        // Map locations to users
+        locationDetails.forEach(loc => {
+          locationMap[loc.user_id] = {
+            latitude: parseFloat(loc.latitude),
+            longitude: parseFloat(loc.longitude),
+            timestamp: loc.timestamp,
+            accuracy: loc.accuracy,
+            battery_level: loc.battery_level,
+            network_type: loc.network_type
+          };
         });
 
-        console.log(`Mapped locations for ${Object.keys(locationMap).length} users`);
+        console.log(`Total query time: ${t2 - t0}ms`);
       } catch (locationError) {
         console.error('Error fetching locations:', locationError.message);
         // Continue without location data
@@ -424,16 +412,18 @@ const getAllUsers = async (req, res) => {
       return transformedUser;
     });
 
+    const totalPages = Math.ceil(totalUsers / limit);
+
     res.json({
       success: true,
       data: transformedUsers,
       pagination: {
-        currentPage: 1,
-        totalPages: 1,
-        totalCount: transformedUsers.length,
-        limit: transformedUsers.length,
-        hasNext: false,
-        hasPrev: false
+        currentPage: page,
+        totalPages,
+        totalCount: totalUsers,
+        limit,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
       },
       filters: {}
     });
@@ -450,7 +440,11 @@ const getUserById = async (req, res) => {
   try {
     // Get the User model from app context
     const { User, HeadOffice } = req.app.get('models');
-    const user = await User.findByPk(req.params.id, {
+    const user = await User.findOne({
+      where: {
+        id: req.params.id,
+        is_active: true
+      },
       include: [
         {
           model: HeadOffice,
@@ -1059,7 +1053,11 @@ const getMyHeadOffices = async (req, res) => {
     const { User, HeadOffice } = req.app.get('models');
 
     // Get the current user with their head offices
-    const user = await User.findByPk(req.user.id, {
+    const user = await User.findOne({
+      where: {
+        id: req.user.id,
+        is_active: true
+      },
       include: [
         {
           model: HeadOffice,
