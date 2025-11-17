@@ -21,7 +21,7 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'https://test.gluckscare.com', // Add this for development
+            'https://test.gluckscare.com ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
             'https://api.gluckscare.com' // Add this for production frontend
@@ -44,7 +44,7 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'https://test.gluckscare.com', // Add this for development
+    'https://test.gluckscare.com ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://api.gluckscare.com' // Add this for production frontend
@@ -250,6 +250,10 @@ app.use('/api/invoice-tracking', invoiceTrackingRoutes);
   app.use('/api/user-head-offices', userHeadOfficeRoutes);
   app.use('/api/user-managers', userManagerRoutes);
   app.use('/api/user-shifts', userShiftRoutes);
+  
+  // Advance routes
+  const advanceRoutes = require('./src/advance/advanceRoutes');
+  app.use('/api/advances', advanceRoutes);
   // Mount stockist and chemist routes
   app.use('/api/stockists', stockistRoutes);
   app.use('/api/chemists', chemistRoutes);

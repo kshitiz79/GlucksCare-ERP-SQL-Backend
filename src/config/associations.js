@@ -234,5 +234,17 @@ module.exports = (db) => {
   db.User.hasMany(db.InvoiceTracking, { foreignKey: 'created_by', as: 'createdInvoices' });
   db.User.hasMany(db.InvoiceTracking, { foreignKey: 'updated_by', as: 'updatedInvoices' });
 
+  // Advance associations
+  db.Advance.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+  db.Advance.belongsTo(db.User, { foreignKey: 'approved_by', as: 'approver' });
+  db.Advance.hasMany(db.AdvanceRepayment, { foreignKey: 'advance_id', as: 'repayments' });
+  
+  db.AdvanceRepayment.belongsTo(db.Advance, { foreignKey: 'advance_id', as: 'advance' });
+  db.AdvanceRepayment.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+  
+  db.User.hasMany(db.Advance, { foreignKey: 'user_id', as: 'advances' });
+  db.User.hasMany(db.Advance, { foreignKey: 'approved_by', as: 'approvedAdvances' });
+  db.User.hasMany(db.AdvanceRepayment, { foreignKey: 'created_by', as: 'createdRepayments' });
+
   return db;
 };

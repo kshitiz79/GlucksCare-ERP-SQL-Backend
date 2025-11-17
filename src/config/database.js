@@ -9,7 +9,7 @@ dotenv.config();
 const sequelize = new Sequelize({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'gluckscare_erp',
+    database: process.env.DB_NAME || 'gluckscare_erp_production',
     username: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || '',
     dialect: 'postgres',
@@ -88,6 +88,8 @@ const AppVersionConfig = require('../version/AppVersionConfig');
 const PdfFile = require('../pdf/PdfFile');
 const UserDevice = require('../userDevice/UserDevice');
 const InvoiceTracking = require('../invoiceTracking/InvoiceTracking');
+const Advance = require('../advance/Advance');
+const AdvanceRepayment = require('../advance/AdvanceRepayment');
 
 // Initialize models
 const models = {
@@ -137,7 +139,9 @@ const models = {
     AppVersionConfig: AppVersionConfig(sequelize),
     PdfFile: PdfFile(sequelize),
     UserDevice: UserDevice(sequelize),
-    InvoiceTracking: InvoiceTracking(sequelize)
+    InvoiceTracking: InvoiceTracking(sequelize),
+    Advance: Advance(sequelize),
+    AdvanceRepayment: AdvanceRepayment(sequelize)
 };
 
 // Set up hooks
