@@ -16,17 +16,22 @@ const { uploadStockistDocuments } = require('./stockistImageController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+// Configure multer for memory storage (we'll upload to Cloudinary)
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
   },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname);
+  fileFilter: (req, file, cb) => {
+    // Accept images and PDFs
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files and PDFs are allowed!'), false);
+    }
   }
 });
-
-const upload = multer({ storage: storage });
 
 // GET all stockists
 router.get('/', authMiddleware, getAllStockists);

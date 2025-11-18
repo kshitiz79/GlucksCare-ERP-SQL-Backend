@@ -196,13 +196,6 @@ app.use('/api/web-dashboard', webDashboardRoutes);
 const invoiceTrackingRoutes = require('./src/invoiceTracking/invoiceTrackingRoutes');
 app.use('/api/invoice-tracking', invoiceTrackingRoutes);
 
-
-
-
-
-
-
-
   // Mount routes
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);

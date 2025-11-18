@@ -5,29 +5,33 @@ const cloudinary = require('../config/cloudinary');
 // Upload a single image to Cloudinary
 const uploadImage = async (file) => {
   try {
-    const result = await cloudinary.uploader.upload(file.path, {
-      folder: 'stockist_documents',
-      resource_type: 'auto', // Changed to 'auto' to support both images and PDFs
-      transformation: [
-        { width: 1200, height: 1200, crop: 'limit' },
-        { quality: 'auto' }
-      ]
+    // When using multer memory storage, file.buffer contains the file data
+    // Wait for the upload to complete
+    const result = await new Promise((resolve, reject) => {
+      const upload_stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'stockist_documents',
+          resource_type: 'auto',
+          transformation: [
+            { width: 1200, height: 1200, crop: 'limit' },
+            { quality: 'auto' }
+          ]
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        }
+      );
+      upload_stream.end(file.buffer);
     });
+    
     return result.secure_url;
   } catch (error) {
     console.error('Cloudinary upload error:', error);
     throw new Error('Failed to upload image to Cloudinary');
-  }
-};
-
-// Upload multiple images
-const uploadImages = async (files) => {
-  try {
-    const uploadPromises = files.map(file => uploadImage(file));
-    return await Promise.all(uploadPromises);
-  } catch (error) {
-    console.error('Cloudinary multi-upload error:', error);
-    throw new Error('Failed to upload images to Cloudinary');
   }
 };
 
@@ -105,6 +109,5 @@ const uploadStockistDocuments = async (req, res) => {
 
 module.exports = {
   uploadImage,
-  uploadImages,
   uploadStockistDocuments
 };

@@ -123,6 +123,14 @@ A Node.js backend API built with Express.js, Sequelize ORM, and PostgreSQL for t
 ### Locations
 - `GET /api/locations` - Get location records
 
+### Stockists
+- `GET /api/stockists` - Get all stockists
+- `GET /api/stockists/:id` - Get stockist by ID
+- `POST /api/stockists` - Create new stockist
+- `PUT /api/stockists/:id` - Update stockist
+- `DELETE /api/stockists/:id` - Delete stockist
+- `POST /api/stockists/:id/documents` - Upload stockist documents
+
 ## Database Models
 
 ### Core Models
@@ -136,6 +144,7 @@ A Node.js backend API built with Express.js, Sequelize ORM, and PostgreSQL for t
 - **Doctor** - Healthcare professional contacts
 - **SalesActivity** - Sales call records
 - **Location** - GPS tracking data
+- **Stockist** - Pharmaceutical distributor records
 
 ### Key Features
 - **UUID Primary Keys** for better scalability
@@ -144,6 +153,26 @@ A Node.js backend API built with Express.js, Sequelize ORM, and PostgreSQL for t
 - **Soft Deletes** via isActive flag
 - **Password Hashing** with bcrypt
 - **Field Validation** with Sequelize validators
+
+## File Storage
+
+### Cloudinary Integration
+Stockist documents are stored using Cloudinary to save hosting space on the VPS.
+
+**Supported Document Types:**
+1. GST Registration Certificate
+2. Drug License
+3. PAN Card Copy
+4. Cancelled Cheque
+5. Business Profile
+
+**Database Storage:**
+Document URLs are stored in the PostgreSQL database in the `stockists` table:
+- `gst_certificate_url`
+- `drug_license_url`
+- `pan_card_url`
+- `cancelled_cheque_url`
+- `business_profile_url`
 
 ## API Response Format
 
@@ -198,112 +227,4 @@ Sql-Backend/
 ├── src/
 │   ├── auth/           # Authentication routes
 │   ├── config/         # Database and service configs
-│   ├── middleware/     # Express middleware
-│   ├── models/         # Sequelize models
-│   ├── user/           # User management
-│   ├── attendance/     # Attendance management
-│   ├── leave/          # Leave management
-│   └── ...             # Other modules
-├── database.sql        # Database schema
-├── index.js           # Main server file
-└── package.json       # Dependencies
 ```
-
-### Adding New Models
-
-1. Create model in `src/models/`
-2. Add to `src/config/database.js`
-3. Define associations
-4. Create routes in respective module
-
-### Database Migrations
-
-For production deployments, use proper migrations instead of `sequelize.sync()`:
-
-```bash
-# Generate migration
-npx sequelize-cli migration:generate --name create-new-table
-
-# Run migrations
-npx sequelize-cli db:migrate
-```
-
-## Deployment
-
-### Environment Setup
-1. Set `NODE_ENV=production`
-2. Configure production database
-3. Set up SSL certificates
-4. Configure reverse proxy (nginx)
-
-### Docker Deployment
-```dockerfile
-FROM node:16-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 5051
-CMD ["npm", "start"]
-```
-
-## Health Check
-
-Check API health at: `GET /health`
-
-Response:
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "database": {
-    "type": "PostgreSQL",
-    "connected": true
-  },
-  "uptime": 3600
-}
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Failed**
-   - Check PostgreSQL is running
-   - Verify connection credentials
-   - Ensure database exists
-
-2. **JWT Token Invalid**
-   - Check JWT_SECRET in environment
-   - Verify token format in Authorization header
-
-3. **Model Association Errors**
-   - Ensure all models are imported in database.js
-   - Check foreign key relationships
-
-### Logs
-
-Enable detailed logging in development:
-```env
-NODE_ENV=development
-```
-
-## Migration from MongoDB
-
-This backend maintains API compatibility with the original MongoDB version:
-
-- **Same endpoint URLs** and request/response formats
-- **Compatible field names** (camelCase in responses)
-- **Preserved data structures** using JSONB fields
-- **Maintained authentication flow**
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
-
-## License
-
-Private - GlucksCare Pharmaceuticals# GlucksCare-ERP-SQL-Backend
