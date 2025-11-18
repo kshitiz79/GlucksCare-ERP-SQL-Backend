@@ -77,6 +77,11 @@ const Expense = (sequelize) => {
     },
     transaction_id: {
       type: DataTypes.STRING(100)
+    },
+    payment_note: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Optional note added during payment finalization'
     }
   }, {
     tableName: 'expenses',

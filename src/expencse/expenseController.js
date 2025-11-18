@@ -562,7 +562,7 @@ const uploadBillImage = async (req, res) => {
 const finalizeMonthPayment = async (req, res) => {
   try {
     const { Expense } = req.app.get('models');
-    const { userId, monthYear, transactionId } = req.body; // monthYear format: "YYYY-MM"
+    const { userId, monthYear, transactionId, paymentNote } = req.body; // monthYear format: "YYYY-MM"
 
     if (!userId || !monthYear || !transactionId) {
       return res.status(400).json({
@@ -626,7 +626,8 @@ const finalizeMonthPayment = async (req, res) => {
         payment_status: 'paid',
         payment_date: new Date(),
         payment_month_year: monthYear,
-        transaction_id: transactionId
+        transaction_id: transactionId,
+        payment_note: paymentNote || null
       },
       {
         where: {
