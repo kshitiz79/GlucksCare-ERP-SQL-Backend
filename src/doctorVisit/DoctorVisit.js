@@ -19,6 +19,11 @@ const DoctorVisit = (sequelize) => {
       type: DataTypes.DATEONLY,
       allowNull: false
     },
+    scheduled_time: {
+      type: DataTypes.TIME,
+      allowNull: true,
+      comment: 'Scheduled time for the visit'
+    },
     notes: {
       type: DataTypes.TEXT
     },

@@ -42,6 +42,11 @@ const Advance = (sequelize) => {
       type: DataTypes.DATE,
       allowNull: true
     },
+    advance_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      comment: 'Date when the advance was actually taken/disbursed'
+    },
     approved_by: {
       type: DataTypes.UUID,
       allowNull: true,

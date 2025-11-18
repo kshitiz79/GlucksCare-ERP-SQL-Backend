@@ -40,7 +40,7 @@ exports.createAdvance = async (req, res) => {
 // Create advance by admin (for any user)
 exports.createAdvanceByAdmin = async (req, res) => {
   try {
-    const { userId, requestedAmount, reason } = req.body;
+    const { userId, requestedAmount, reason, advanceDate } = req.body;
 
     if (!userId || !requestedAmount || !reason) {
       return res.status(400).json({
@@ -53,7 +53,8 @@ exports.createAdvanceByAdmin = async (req, res) => {
       user_id: userId,
       requested_amount: requestedAmount,
       reason: reason,
-      status: 'pending'
+      status: 'pending',
+      advance_date: advanceDate || new Date().toISOString().split('T')[0]
     });
 
     res.status(201).json({
@@ -222,7 +223,8 @@ exports.updateAdvanceStatus = async (req, res) => {
       adminNotes,
       repaymentStartDate,
       repaymentEndDate,
-      monthlyDeduction
+      monthlyDeduction,
+      advanceDate
     } = req.body;
     const approvedBy = req.user.id;
 
@@ -249,6 +251,7 @@ exports.updateAdvanceStatus = async (req, res) => {
       approved_amount: approvedAmount || 0,
       approved_by: approvedBy,
       approval_date: new Date(),
+      advance_date: advanceDate || advance.advance_date || new Date().toISOString().split('T')[0],
       admin_notes: adminNotes,
       repayment_start_date: repaymentStartDate,
       repayment_end_date: repaymentEndDate,
