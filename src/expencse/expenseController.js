@@ -128,7 +128,9 @@ const createExpense = async (req, res) => {
       bill, 
       status = 'pending', 
       travelDetails, 
-      dailyAllowanceType 
+      dailyAllowanceType,
+      date,
+      endDate
     } = req.body;
 
     // Get user info
@@ -177,10 +179,18 @@ const createExpense = async (req, res) => {
     let totalDistance = 0;
     let ratePerKm = settings.rate_per_km || 2.40;
     
-    if (category === 'travel' && Array.isArray(travelDetails)) {
+    // Check if manual amount is provided (Quick Add feature)
+    const manualAmount = req.body.amount;
+    
+    if (manualAmount && Number(manualAmount) > 0) {
+      // Use manual amount for Quick Add (when amount is explicitly provided)
+      computedAmount = Number(manualAmount);
+    } else if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
+      // Auto-calculate for Standard Travel Expense
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
+      // Auto-calculate for Daily Allowance
       computedAmount = dailyAllowanceType === 'headoffice' 
         ? (settings.head_office_amount || 150)
         : (settings.outside_head_office_amount || 175);
@@ -198,7 +208,8 @@ const createExpense = async (req, res) => {
       rate_per_km: ratePerKm,
       total_distance_km: totalDistance,
       daily_allowance_type: category === 'daily' ? dailyAllowanceType : null,
-      date: new Date().toISOString().split('T')[0],
+      date: date || new Date().toISOString().split('T')[0],
+      end_date: endDate || null,
       edit_count: 0
     };
 

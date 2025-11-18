@@ -37,6 +37,11 @@ const Expense = (sequelize) => {
       type: DataTypes.DATEONLY,
       defaultValue: DataTypes.NOW
     },
+    end_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      comment: 'End date for date range expenses'
+    },
     travel_details: {
       type: DataTypes.JSONB,
       defaultValue: []
