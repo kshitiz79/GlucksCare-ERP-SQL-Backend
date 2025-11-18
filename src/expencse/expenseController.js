@@ -584,14 +584,31 @@ const finalizeMonthPayment = async (req, res) => {
     const startDate = `${year}-${month}-01`;
     const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
 
+    const { Op } = require('sequelize');
+    
+    // Find expenses where either:
+    // 1. The date falls within the month, OR
+    // 2. The date range (date to end_date) overlaps with the month
     const expenses = await Expense.findAll({
       where: {
         user_id: userId,
         status: 'approved',
         payment_status: 'unpaid',
-        date: {
-          [require('sequelize').Op.between]: [startDate, endDate]
-        }
+        [Op.or]: [
+          // Case 1: date is within the month
+          {
+            date: {
+              [Op.between]: [startDate, endDate]
+            }
+          },
+          // Case 2: date range overlaps with the month
+          {
+            [Op.and]: [
+              { date: { [Op.lte]: endDate } },
+              { end_date: { [Op.gte]: startDate } }
+            ]
+          }
+        ]
       }
     });
 
