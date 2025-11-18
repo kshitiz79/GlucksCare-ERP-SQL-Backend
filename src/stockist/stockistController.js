@@ -162,7 +162,12 @@ const createStockist = async (req, res) => {
       coldStorageAvailable: 'cold_storage_available',
       numberOfSalesRepresentatives: 'number_of_sales_representatives',
       bankDetails: 'bank_details',
-      headOfficeId: 'head_office_id'
+      headOfficeId: 'head_office_id',
+      gstCertificateUrl: 'gst_certificate_url',
+      drugLicenseUrl: 'drug_license_url',
+      panCardUrl: 'pan_card_url',
+      cancelledChequeUrl: 'cancelled_cheque_url',
+      businessProfileUrl: 'business_profile_url'
     };
     
     // Convert field names and collect data for the main stockist record
@@ -322,7 +327,12 @@ const updateStockist = async (req, res) => {
         coldStorageAvailable: 'cold_storage_available',
         numberOfSalesRepresentatives: 'number_of_sales_representatives',
         bankDetails: 'bank_details',
-        headOfficeId: 'head_office_id'
+        headOfficeId: 'head_office_id',
+        gstCertificateUrl: 'gst_certificate_url',
+        drugLicenseUrl: 'drug_license_url',
+        panCardUrl: 'pan_card_url',
+        cancelledChequeUrl: 'cancelled_cheque_url',
+        businessProfileUrl: 'business_profile_url'
       };
       
       // Convert field names and collect data for the main stockist record

@@ -88,6 +88,27 @@ const Stockist = (sequelize) => {
         model: 'head_offices',
         key: 'id'
       }
+    },
+    // Document image URLs
+    gst_certificate_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true
+    },
+    drug_license_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true
+    },
+    pan_card_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true
+    },
+    cancelled_cheque_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true
+    },
+    business_profile_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true
     }
   }, {
     tableName: 'stockists',
