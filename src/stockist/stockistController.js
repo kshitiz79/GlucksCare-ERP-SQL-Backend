@@ -109,7 +109,7 @@ const getStockistById = async (req, res) => {
   }
 };
 
-// CREATE a new stockist
+// CREATE a new stockist with optional document upload
 const createStockist = async (req, res) => {
   try {
     const models = req.app.get('models');
@@ -216,6 +216,46 @@ const createStockist = async (req, res) => {
         if (annualTurnoverRecords.length > 0) {
           await StockistAnnualTurnover.bulkCreate(annualTurnoverRecords, { transaction });
         }
+      }
+      
+      // Handle document uploads if files are provided
+      if (req.files && Object.keys(req.files).length > 0) {
+        console.log('Processing document uploads for stockist:', stockist.id);
+        
+        // Import the uploadImage function from stockistImageController
+        const { uploadImage } = require('./stockistImageController');
+        
+        // Upload each file and update the stockist record
+        const documentUrls = {};
+        
+        // Process each file field
+        for (const [fieldName, files] of Object.entries(req.files)) {
+          if (files && files.length > 0) {
+            const file = files[0]; // Take the first file for each field
+            const url = await uploadImage(file);
+            // Map field names to database column names
+            switch (fieldName) {
+              case 'gstCertificate':
+                documentUrls.gst_certificate_url = url;
+                break;
+              case 'drugLicense':
+                documentUrls.drug_license_url = url;
+                break;
+              case 'panCard':
+                documentUrls.pan_card_url = url;
+                break;
+              case 'cancelledCheque':
+                documentUrls.cancelled_cheque_url = url;
+                break;
+              case 'businessProfile':
+                documentUrls.business_profile_url = url;
+                break;
+            }
+          }
+        }
+        
+        // Update the stockist with document URLs
+        await stockist.update(documentUrls, { transaction });
       }
       
       // Fetch the created stockist with associations
