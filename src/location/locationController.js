@@ -95,7 +95,7 @@ const getUsersWithLocation = async (req, res) => {
         const locations = locationMap[user.id];
         const latestLocation = locations[0]; // Most recent
         const previousLocation = locations[1] || null; // Second most recent (if exists)
-        
+
         return {
           id: user.id,
           name: user.name,
@@ -183,7 +183,282 @@ const getUserLocationHistory = async (req, res) => {
   }
 };
 
+// GET filtered route data for a specific user (optimized for Google Maps)
+// Returns 1 coordinate per 10 minutes for the last 24 hours
+const getUserRouteData = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { hours = 24 } = req.query; // Default to 24 hours
+
+    const models = req.app.get('models');
+    const { Location, User } = models;
+    const sequelize = req.app.get('sequelize');
+
+    if (!Location) {
+      return res.status(404).json({
+        success: false,
+        message: 'Location model not available'
+      });
+    }
+
+    // Get user info
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'name', 'email', 'role', 'employee_code']
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Calculate time range
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - (hours * 60 * 60 * 1000));
+
+    console.log(`Fetching route data for user ${userId} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
+
+    // OPTIMIZED QUERY: Get 1 location per 10-minute interval
+    // This uses PostgreSQL's DISTINCT ON with time bucketing
+    const routeData = await sequelize.query(
+      `
+      WITH time_buckets AS (
+        SELECT 
+          user_id,
+          latitude,
+          longitude,
+          timestamp,
+          accuracy,
+          battery_level,
+          network_type,
+          -- Create 10-minute time buckets
+          DATE_TRUNC('hour', timestamp) + 
+          INTERVAL '10 minutes' * FLOOR(EXTRACT(MINUTE FROM timestamp) / 10) as time_bucket
+        FROM locations
+        WHERE user_id = $1
+          AND timestamp >= $2
+          AND timestamp <= $3
+        ORDER BY timestamp ASC
+      ),
+      ranked_locations AS (
+        SELECT 
+          user_id,
+          latitude,
+          longitude,
+          timestamp,
+          accuracy,
+          battery_level,
+          network_type,
+          time_bucket,
+          -- Get the first location in each 10-minute bucket
+          ROW_NUMBER() OVER (PARTITION BY time_bucket ORDER BY timestamp ASC) as rn
+        FROM time_buckets
+      )
+      SELECT 
+        latitude,
+        longitude,
+        timestamp,
+        accuracy,
+        battery_level,
+        network_type
+      FROM ranked_locations
+      WHERE rn = 1
+      ORDER BY timestamp ASC
+      `,
+      {
+        bind: [userId, startTime, endTime],
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    console.log(`Found ${routeData.length} filtered location points (1 per 10 min)`);
+
+    // Format the response
+    const formattedRoute = routeData.map(loc => ({
+      lat: parseFloat(loc.latitude),
+      lng: parseFloat(loc.longitude),
+      timestamp: loc.timestamp,
+      accuracy: loc.accuracy,
+      battery_level: loc.battery_level,
+      network_type: loc.network_type
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          employee_code: user.employee_code
+        },
+        route: formattedRoute,
+        metadata: {
+          total_points: formattedRoute.length,
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+          hours: hours,
+          interval_minutes: 10
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching user route data:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch user route data'
+    });
+  }
+};
+
+// GET route data for all users (optimized)
+const getAllUsersRouteData = async (req, res) => {
+  try {
+    const { hours = 24 } = req.query;
+
+    const models = req.app.get('models');
+    const { Location, User } = models;
+    const sequelize = req.app.get('sequelize');
+
+    if (!Location) {
+      return res.status(404).json({
+        success: false,
+        message: 'Location model not available'
+      });
+    }
+
+    // Get all active users
+    const users = await User.findAll({
+      where: { is_active: true },
+      attributes: ['id', 'name', 'email', 'role', 'employee_code']
+    });
+
+    if (users.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'No active users found'
+      });
+    }
+
+    const userIds = users.map(u => u.id);
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - (hours * 60 * 60 * 1000));
+
+    console.log(`Fetching route data for ${users.length} users`);
+
+    // Get filtered locations for all users
+    const routeData = await sequelize.query(
+      `
+      WITH time_buckets AS (
+        SELECT 
+          user_id,
+          latitude,
+          longitude,
+          timestamp,
+          accuracy,
+          battery_level,
+          network_type,
+          DATE_TRUNC('hour', timestamp) + 
+          INTERVAL '10 minutes' * FLOOR(EXTRACT(MINUTE FROM timestamp) / 10) as time_bucket
+        FROM locations
+        WHERE user_id = ANY($1::uuid[])
+          AND timestamp >= $2
+          AND timestamp <= $3
+        ORDER BY timestamp ASC
+      ),
+      ranked_locations AS (
+        SELECT 
+          user_id,
+          latitude,
+          longitude,
+          timestamp,
+          accuracy,
+          battery_level,
+          network_type,
+          time_bucket,
+          ROW_NUMBER() OVER (PARTITION BY user_id, time_bucket ORDER BY timestamp ASC) as rn
+        FROM time_buckets
+      )
+      SELECT 
+        user_id,
+        latitude,
+        longitude,
+        timestamp,
+        accuracy,
+        battery_level,
+        network_type
+      FROM ranked_locations
+      WHERE rn = 1
+      ORDER BY user_id, timestamp ASC
+      `,
+      {
+        bind: [userIds, startTime, endTime],
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    console.log(`Found ${routeData.length} total filtered location points`);
+
+    // Group by user
+    const userRouteMap = {};
+    routeData.forEach(loc => {
+      if (!userRouteMap[loc.user_id]) {
+        userRouteMap[loc.user_id] = [];
+      }
+      userRouteMap[loc.user_id].push({
+        lat: parseFloat(loc.latitude),
+        lng: parseFloat(loc.longitude),
+        timestamp: loc.timestamp,
+        accuracy: loc.accuracy,
+        battery_level: loc.battery_level,
+        network_type: loc.network_type
+      });
+    });
+
+    // Combine with user data
+    const usersWithRoutes = users
+      .filter(user => userRouteMap[user.id] && userRouteMap[user.id].length > 0)
+      .map(user => ({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          employee_code: user.employee_code
+        },
+        route: userRouteMap[user.id],
+        total_points: userRouteMap[user.id].length
+      }));
+
+    res.json({
+      success: true,
+      data: usersWithRoutes,
+      metadata: {
+        total_users: usersWithRoutes.length,
+        total_points: routeData.length,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        hours: hours,
+        interval_minutes: 10
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching all users route data:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch users route data'
+    });
+  }
+};
+
 module.exports = {
   getUsersWithLocation,
-  getUserLocationHistory
+  getUserLocationHistory,
+  getUserRouteData,
+  getAllUsersRouteData
 };
