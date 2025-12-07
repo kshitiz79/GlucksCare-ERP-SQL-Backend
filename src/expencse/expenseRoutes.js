@@ -13,7 +13,8 @@ const {
   updateExpenseSettings,
   uploadBillImage,
   finalizeMonthPayment,
-  getPaymentSummary
+  getPaymentSummary,
+  sendExpenseReportEmail
 } = require('./expenseController');
 
 // GET expense settings
@@ -51,5 +52,8 @@ router.post('/finalize-payment', finalizeMonthPayment);
 
 // GET payment summary by month
 router.get('/payment-summary', getPaymentSummary);
+
+// SEND expense report via email
+router.post('/send-email', sendExpenseReportEmail);
 
 module.exports = router;

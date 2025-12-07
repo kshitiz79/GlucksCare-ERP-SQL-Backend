@@ -4,7 +4,7 @@ const cloudinary = require('../config/cloudinary');
 const uploadToCloudinary = async (imageData, isBase64 = true) => {
   try {
     let uploadData;
-    
+
     if (isBase64) {
       // Handle base64 data
       uploadData = imageData;
@@ -12,12 +12,12 @@ const uploadToCloudinary = async (imageData, isBase64 = true) => {
       // Handle buffer data from multer
       uploadData = `data:${imageData.mimetype};base64,${imageData.buffer.toString('base64')}`;
     }
-    
-    const result = await cloudinary.uploader.upload(uploadData, { 
+
+    const result = await cloudinary.uploader.upload(uploadData, {
       folder: 'expenses',
       resource_type: 'auto'
     });
-    
+
     return result.secure_url;
   } catch (error) {
     console.error('Cloudinary upload error:', error);
@@ -30,12 +30,12 @@ const getAllExpenses = async (req, res) => {
   try {
     const { Expense, User } = req.app.get('models');
     const { userId } = req.query;
-    
+
     let whereClause = {};
     if (userId) {
       whereClause.user_id = userId;
     }
-    
+
     const expenses = await Expense.findAll({
       where: whereClause,
       include: [{
@@ -83,7 +83,7 @@ const getExpenseById = async (req, res) => {
         attributes: ['id', 'name', 'email']
       }]
     });
-    
+
     if (!expense) {
       return res.status(404).json({
         success: false,
@@ -121,13 +121,13 @@ const getExpenseById = async (req, res) => {
 const createExpense = async (req, res) => {
   try {
     const { Expense, User, ExpenseSetting } = req.app.get('models');
-    const { 
-      userId, 
-      category, 
-      description, 
-      bill, 
-      status = 'pending', 
-      travelDetails, 
+    const {
+      userId,
+      category,
+      description,
+      bill,
+      status = 'pending',
+      travelDetails,
       dailyAllowanceType,
       date,
       endDate
@@ -178,10 +178,10 @@ const createExpense = async (req, res) => {
     let computedAmount = 0;
     let totalDistance = 0;
     let ratePerKm = settings.rate_per_km || 2.40;
-    
+
     // Check if manual amount is provided (Quick Add feature)
     const manualAmount = req.body.amount;
-    
+
     if (manualAmount && Number(manualAmount) > 0) {
       // Use manual amount for Quick Add (when amount is explicitly provided)
       computedAmount = Number(manualAmount);
@@ -191,7 +191,7 @@ const createExpense = async (req, res) => {
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
       // Auto-calculate for Daily Allowance
-      computedAmount = dailyAllowanceType === 'headoffice' 
+      computedAmount = dailyAllowanceType === 'headoffice'
         ? (settings.head_office_amount || 150)
         : (settings.outside_head_office_amount || 175);
     }
@@ -214,7 +214,7 @@ const createExpense = async (req, res) => {
     };
 
     const expense = await Expense.create(expenseData);
-    
+
     // Transform response
     const expenseObj = expense.toJSON();
     const transformedExpense = {
@@ -242,13 +242,13 @@ const createExpense = async (req, res) => {
 const updateExpense = async (req, res) => {
   try {
     const { Expense, ExpenseSetting } = req.app.get('models');
-    const { 
-      userId, 
-      category, 
-      description, 
-      bill, 
-      travelDetails, 
-      dailyAllowanceType 
+    const {
+      userId,
+      category,
+      description,
+      bill,
+      travelDetails,
+      dailyAllowanceType
     } = req.body;
 
     const expense = await Expense.findByPk(req.params.id);
@@ -317,12 +317,12 @@ const updateExpense = async (req, res) => {
     let computedAmount = 0;
     let totalDistance = 0;
     let ratePerKm = settings.rate_per_km || 2.40;
-    
+
     if (category === 'travel' && Array.isArray(travelDetails)) {
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
-      computedAmount = dailyAllowanceType === 'headoffice' 
+      computedAmount = dailyAllowanceType === 'headoffice'
         ? (settings.head_office_amount || 150)
         : (settings.outside_head_office_amount || 175);
     }
@@ -341,7 +341,7 @@ const updateExpense = async (req, res) => {
     };
 
     await expense.update(updateData);
-    
+
     // Transform response
     const expenseObj = expense.toJSON();
     const transformedExpense = {
@@ -376,7 +376,7 @@ const deleteExpense = async (req, res) => {
         message: 'Expense record not found'
       });
     }
-    
+
     await expense.destroy();
     res.json({
       success: true,
@@ -401,9 +401,9 @@ const approveExpense = async (req, res) => {
         message: 'Expense record not found'
       });
     }
-    
+
     await expense.update({ status: 'approved' });
-    
+
     // Transform response
     const expenseObj = expense.toJSON();
     const transformedExpense = {
@@ -437,9 +437,9 @@ const rejectExpense = async (req, res) => {
         message: 'Expense record not found'
       });
     }
-    
+
     await expense.update({ status: 'rejected' });
-    
+
     // Transform response
     const expenseObj = expense.toJSON();
     const transformedExpense = {
@@ -467,7 +467,7 @@ const getExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
     const settings = await ExpenseSetting.findOne();
-    
+
     if (!settings) {
       return res.json({
         ratePerKm: 2.40,
@@ -498,9 +498,9 @@ const updateExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
     const { ratePerKm, headOfficeAmount, outsideHeadOfficeAmount } = req.body;
-    
+
     let settings = await ExpenseSetting.findOne();
-    
+
     if (!settings) {
       settings = await ExpenseSetting.create({
         rate_per_km: ratePerKm,
@@ -543,7 +543,7 @@ const uploadBillImage = async (req, res) => {
     }
 
     const imageUrl = await uploadToCloudinary(req.file, false);
-    
+
     res.json({
       success: true,
       imageUrl: imageUrl,
@@ -585,7 +585,7 @@ const finalizeMonthPayment = async (req, res) => {
     const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
 
     const { Op } = require('sequelize');
-    
+
     // Find expenses where either:
     // 1. The date falls within the month, OR
     // 2. The date range (date to end_date) overlaps with the month
@@ -683,7 +683,7 @@ const getPaymentSummary = async (req, res) => {
     expenses.forEach(expense => {
       const date = new Date(expense.date);
       const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
+
       if (!summary[monthYear]) {
         summary[monthYear] = {
           monthYear,
@@ -731,6 +731,142 @@ const getPaymentSummary = async (req, res) => {
   }
 };
 
+// SEND expense report via email
+const sendExpenseReportEmail = async (req, res) => {
+  try {
+    const { userId, monthYear, pdfData, excelData } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId is required'
+      });
+    }
+
+    // Get user info
+    const { User } = req.app.get('models');
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'User email not found'
+      });
+    }
+
+    // Configure Nodemailer
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransporter({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // Use TLS
+      auth: {
+        user: process.env.EMAIL_USER || 'gluckscarepharmaceuticals@gmail.com',
+        pass: process.env.EMAIL_PASS || 'ldgmqixyufjdzylv',
+      },
+    });
+
+    // Prepare attachments
+    const attachments = [];
+
+    if (pdfData) {
+      // Convert base64 PDF to buffer
+      const pdfBuffer = Buffer.from(pdfData.split(',')[1] || pdfData, 'base64');
+      attachments.push({
+        filename: `Expense_Report_${user.name}_${monthYear || 'All'}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      });
+    }
+
+    if (excelData) {
+      // Convert base64 Excel to buffer
+      const excelBuffer = Buffer.from(excelData.split(',')[1] || excelData, 'base64');
+      attachments.push({
+        filename: `Expense_Report_${user.name}_${monthYear || 'All'}.xlsx`,
+        content: excelBuffer,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+    }
+
+    if (attachments.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No report data provided'
+      });
+    }
+
+    // Send email
+    const mailOptions = {
+      from: '"GlucksCare ERP" <care@gluckscare.com>',
+      to: user.email,
+      subject: `Expense Report - ${user.name} ${monthYear ? `(${monthYear})` : ''}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background-color: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h2 style="color: #4F46E5; margin-bottom: 10px;">Expense Report</h2>
+            </div>
+            <p style="color: #333; font-size: 16px; line-height: 1.6;">Dear ${user.name},</p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6;">
+              Please find attached your expense report${monthYear ? ` for ${monthYear}` : ''}.
+            </p>
+            <div style="background-color: #f8f9fa; border-left: 4px solid #4F46E5; padding: 15px; margin: 20px 0;">
+              <p style="color: #666; font-size: 14px; margin: 0;">
+                <strong>Attachments:</strong><br>
+                ${pdfData ? '📄 PDF Report<br>' : ''}
+                ${excelData ? '📊 Excel Report' : ''}
+              </p>
+            </div>
+            <p style="color: #666; font-size: 14px; line-height: 1.6;">
+              If you have any questions regarding this report, please contact your administrator.
+            </p>
+            <hr style="border: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              © 2025 GlucksCare Pharmaceuticals. All rights reserved.
+            </p>
+          </div>
+        </div>
+      `,
+      attachments: attachments
+    };
+
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log('📧 Expense report email sent:', info.response);
+
+      res.json({
+        success: true,
+        message: `Expense report sent successfully to ${user.email}`,
+        data: {
+          email: user.email,
+          attachmentCount: attachments.length
+        }
+      });
+    } catch (emailError) {
+      console.error('❌ Error sending expense report email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send email',
+        error: emailError.message
+      });
+    }
+  } catch (error) {
+    console.error('Send expense report email error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllExpenses,
   getExpenseById,
@@ -743,5 +879,6 @@ module.exports = {
   updateExpenseSettings,
   uploadBillImage,
   finalizeMonthPayment,
-  getPaymentSummary
+  getPaymentSummary,
+  sendExpenseReportEmail
 };
