@@ -763,7 +763,7 @@ const sendExpenseReportEmail = async (req, res) => {
     }
 
     // Configure Nodemailer
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
       secure: false, // Use TLS
