@@ -1,4 +1,5 @@
 const cloudinary = require('../config/cloudinary');
+const nodemailer = require('nodemailer');
 
 // Helper function to upload image to Cloudinary
 const uploadToCloudinary = async (imageData, isBase64 = true) => {
@@ -762,7 +763,6 @@ const sendExpenseReportEmail = async (req, res) => {
     }
 
     // Configure Nodemailer
-    const nodemailer = require('nodemailer');
     const transporter = nodemailer.createTransporter({
       host: 'smtp.gmail.com',
       port: 587,
