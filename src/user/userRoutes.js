@@ -42,8 +42,17 @@ router.get('/my-state', authMiddleware, getMyState);
 // GET users for shift assignment (no auth required for internal API calls)
 router.get('/for-shift-assignment', getAllUsers);
 
-// GET all users
-router.get('/', authMiddleware, getAllUsers);
+// GET all users (active + inactive) - for admin user management page
+router.get('/all-users', authMiddleware, getAllUsers);
+
+// GET all users (active only by default)
+router.get('/', authMiddleware, (req, res, next) => {
+  // Set includeDeactivated to false by default if not specified
+  if (req.query.includeDeactivated === undefined) {
+    req.query.includeDeactivated = 'false';
+  }
+  next();
+}, getAllUsers);
 
 // GET users by state
 router.get('/state/:stateId', authMiddleware, getUsersByState);
