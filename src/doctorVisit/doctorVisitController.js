@@ -30,7 +30,8 @@ const getAllDoctorVisits = async (req, res) => {
         {
           model: User,
           as: 'UserInfo',
-          attributes: ['id', 'name', 'email']
+          where: { is_active: true }, // Only include visits from active users
+          attributes: ['id', 'name', 'email', 'is_active']
         }
       ]
     });
@@ -136,7 +137,7 @@ const updateDoctorVisit = async (req, res) => {
         message: 'Doctor visit not found'
       });
     }
-    
+
     await doctorVisit.update(req.body);
     res.json({
       success: true,
@@ -161,7 +162,7 @@ const deleteDoctorVisit = async (req, res) => {
         message: 'Doctor visit not found'
       });
     }
-    
+
     await doctorVisit.destroy();
     res.json({
       success: true,
@@ -188,7 +189,7 @@ const confirmDoctorVisit = async (req, res) => {
         as: 'DoctorInfo'
       }]
     });
-    
+
     if (!visit) {
       return res.status(404).json({
         success: false,
@@ -250,7 +251,7 @@ const confirmDoctorVisit = async (req, res) => {
     visit.confirmed = true;
     visit.latitude = userLatitude || null;
     visit.longitude = userLongitude || null;
-    
+
     await visit.save();
 
     res.status(200).json({
@@ -273,7 +274,7 @@ const getDoctorVisitsByUserId = async (req, res) => {
   try {
     const { DoctorVisit, Doctor, User } = req.app.get('models'); // Get models from app context
     const { userId } = req.params;
-    
+
     const visits = await DoctorVisit.findAll({
       where: { user_id: userId },
       include: [

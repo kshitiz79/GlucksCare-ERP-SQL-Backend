@@ -19,8 +19,17 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all stockist visits
 const getAllStockistVisits = async (req, res) => {
   try {
-    const { StockistVisit } = req.app.get('models'); // Get StockistVisit model from app context
-    const stockistVisits = await StockistVisit.findAll();
+    const { StockistVisit, User } = req.app.get('models'); // Get models from app context
+    const stockistVisits = await StockistVisit.findAll({
+      include: [
+        {
+          model: User,
+          as: 'user',
+          where: { is_active: true }, // Only include visits from active users
+          attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
+        }
+      ]
+    });
     res.json({
       success: true,
       count: stockistVisits.length,
@@ -111,7 +120,7 @@ const updateStockistVisit = async (req, res) => {
         message: 'Stockist visit not found'
       });
     }
-    
+
     await stockistVisit.update(req.body);
     res.json({
       success: true,
@@ -136,7 +145,7 @@ const deleteStockistVisit = async (req, res) => {
         message: 'Stockist visit not found'
       });
     }
-    
+
     await stockistVisit.destroy();
     res.json({
       success: true,
@@ -163,7 +172,7 @@ const confirmStockistVisit = async (req, res) => {
         as: 'Stockist'
       }]
     });
-    
+
     if (!visit) {
       return res.status(404).json({
         success: false,
@@ -208,7 +217,7 @@ const confirmStockistVisit = async (req, res) => {
     visit.confirmed = true;
     visit.latitude = userLatitude || null;
     visit.longitude = userLongitude || null;
-    
+
     await visit.save();
 
     res.status(200).json({
@@ -231,7 +240,7 @@ const getStockistVisitsByUserId = async (req, res) => {
   try {
     const { StockistVisit, Stockist } = req.app.get('models'); // Get models from app context
     const { userId } = req.params;
-    
+
     const visits = await StockistVisit.findAll({
       where: { user_id: userId },
       include: [{

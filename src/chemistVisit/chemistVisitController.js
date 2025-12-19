@@ -19,8 +19,17 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all chemist visits
 const getAllChemistVisits = async (req, res) => {
   try {
-    const { ChemistVisit } = req.app.get('models'); // Get ChemistVisit model from app context
-    const chemistVisits = await ChemistVisit.findAll();
+    const { ChemistVisit, User } = req.app.get('models'); // Get models from app context
+    const chemistVisits = await ChemistVisit.findAll({
+      include: [
+        {
+          model: User,
+          as: 'user',
+          where: { is_active: true }, // Only include visits from active users
+          attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
+        }
+      ]
+    });
     res.json({
       success: true,
       count: chemistVisits.length,
@@ -111,7 +120,7 @@ const updateChemistVisit = async (req, res) => {
         message: 'Chemist visit not found'
       });
     }
-    
+
     await chemistVisit.update(req.body);
     res.json({
       success: true,
@@ -136,7 +145,7 @@ const deleteChemistVisit = async (req, res) => {
         message: 'Chemist visit not found'
       });
     }
-    
+
     await chemistVisit.destroy();
     res.json({
       success: true,
@@ -163,7 +172,7 @@ const confirmChemistVisit = async (req, res) => {
         as: 'Chemist'
       }]
     });
-    
+
     if (!visit) {
       return res.status(404).json({
         success: false,
@@ -208,7 +217,7 @@ const confirmChemistVisit = async (req, res) => {
     visit.confirmed = true;
     visit.latitude = userLatitude || null;
     visit.longitude = userLongitude || null;
-    
+
     await visit.save();
 
     res.status(200).json({
@@ -231,7 +240,7 @@ const getChemistVisitsByUserId = async (req, res) => {
   try {
     const { ChemistVisit, Chemist } = req.app.get('models'); // Get models from app context
     const { userId } = req.params;
-    
+
     const visits = await ChemistVisit.findAll({
       where: { user_id: userId },
       include: [{
