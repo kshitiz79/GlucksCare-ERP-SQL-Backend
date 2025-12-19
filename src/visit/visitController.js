@@ -1,9 +1,21 @@
 const Visit = require('./Visit');
 
-// GET all visits
+// GET all visits (only from active users)
 const getAllVisits = async (req, res) => {
   try {
-    const visits = await Visit.findAll();
+    // Get models from app context
+    const { Visit, User } = req.app.get('models');
+
+    const visits = await Visit.findAll({
+      include: [{
+        model: User,
+        as: 'user',
+        where: { is_active: true }, // Only include visits from active users
+        attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
+      }],
+      order: [['created_at', 'DESC']]
+    });
+
     res.json({
       success: true,
       count: visits.length,
@@ -65,7 +77,7 @@ const updateVisit = async (req, res) => {
         message: 'Visit record not found'
       });
     }
-    
+
     await visit.update(req.body);
     res.json({
       success: true,
@@ -89,7 +101,7 @@ const deleteVisit = async (req, res) => {
         message: 'Visit record not found'
       });
     }
-    
+
     await visit.destroy();
     res.json({
       success: true,

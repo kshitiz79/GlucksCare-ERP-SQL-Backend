@@ -72,7 +72,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
         });
         const areaManagerIds = zonalManagerAreas.map(zm => zm.area_manager_id);
         console.log(`Zonal Manager ${userId} has ${areaManagerIds.length} area managers assigned`);
-        
+
         // Get Managers and Users under these Area Managers
         if (areaManagerIds.length > 0) {
           const areaManagerSubordinates = await sequelize.models.AreaManagerManager.findAll({
@@ -80,7 +80,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
             attributes: ['manager_id']
           });
           const managerIds = areaManagerSubordinates.map(am => am.manager_id);
-          
+
           // Get Users under these Managers using raw query to avoid association issues
           if (managerIds.length > 0) {
             const managerUsers = await sequelize.query(`
@@ -97,7 +97,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
               replacements: { managerIds },
               type: sequelize.QueryTypes.SELECT
             });
-            
+
             subordinateIds = [...areaManagerIds, ...managerIds, ...(managerUsers || []).map(u => u.id)];
             console.log(`Zonal Manager ${userId} total subordinates: ${subordinateIds.length}`);
           } else {
@@ -114,7 +114,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
         });
         const managerIdsForArea = areaManagerManagers.map(am => am.manager_id);
         console.log(`Area Manager ${userId} has ${managerIdsForArea.length} managers assigned`);
-        
+
         // Get Users under these Managers using raw query
         if (managerIdsForArea.length > 0) {
           const usersUnderManagers = await sequelize.query(`
@@ -131,7 +131,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
             replacements: { managerIds: managerIdsForArea },
             type: sequelize.QueryTypes.SELECT
           });
-          
+
           subordinateIds = [...managerIdsForArea, ...(usersUnderManagers || []).map(u => u.id)];
           console.log(`Area Manager ${userId} total subordinates: ${subordinateIds.length}`);
         }
@@ -182,7 +182,7 @@ const getAllSalesTargets = async (req, res) => {
 
     // Build query filters
     let whereClause = {};
-    
+
     if (userId) whereClause.user_id = userId;
     if (targetMonth) whereClause.target_month = parseInt(targetMonth);
     if (targetYear) whereClause.target_year = parseInt(targetYear);
@@ -198,7 +198,8 @@ const getAllSalesTargets = async (req, res) => {
         {
           model: sequelize.models.User,
           as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
+          where: { is_active: true }, // Only include targets for active users
+          attributes: ['id', 'name', 'email', 'employee_code', 'role', 'is_active']
         },
         {
           model: sequelize.models.User,
@@ -220,10 +221,10 @@ const getAllSalesTargets = async (req, res) => {
     const transformedTargets = await Promise.all(targets.map(async (target) => {
       const plainTarget = target.toJSON();
       const userRole = plainTarget.salesTargetUser?.role;
-      
+
       let aggregatedTarget = parseFloat(plainTarget.target_amount) || 0;
       let aggregatedAchieved = parseFloat(plainTarget.achieved_amount) || 0;
-      
+
       // Only aggregate for hierarchical roles
       if (['Manager', 'Area Manager', 'Zonal Manager', 'State Head', 'National Head'].includes(userRole)) {
         const subordinateIds = await getSubordinateUserIds(
@@ -232,7 +233,7 @@ const getAllSalesTargets = async (req, res) => {
           plainTarget.target_month,
           plainTarget.target_year
         );
-        
+
         if (subordinateIds.length > 0) {
           const subordinateTargets = await sequelize.models.SalesTarget.findAll({
             where: {
@@ -242,17 +243,17 @@ const getAllSalesTargets = async (req, res) => {
             },
             attributes: ['target_amount', 'achieved_amount']
           });
-          
+
           const subordinateTargetSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.target_amount || 0), 0);
           const subordinateAchievedSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.achieved_amount || 0), 0);
-          
+
           aggregatedTarget += subordinateTargetSum;
           aggregatedAchieved += subordinateAchievedSum;
         }
       }
-      
+
       const aggregatedPercentage = aggregatedTarget > 0 ? Math.round((aggregatedAchieved / aggregatedTarget) * 100) : 0;
-      
+
       return {
         ...plainTarget,
         _id: plainTarget.id,
@@ -507,7 +508,7 @@ const updateSalesTarget = async (req, res) => {
     if (completionDeadline) salesTarget.completion_deadline = new Date(completionDeadline);
     if (notes !== undefined) salesTarget.notes = notes;
     if (achievedAmount !== undefined) salesTarget.achieved_amount = parseFloat(achievedAmount);
-    
+
     // Update updated_by field
     salesTarget.updated_by = req.user.id;
 
@@ -763,12 +764,12 @@ const updateTargetAchievement = async (req, res) => {
 
     // Update achievement fields
     salesTarget.achieved_amount = parseFloat(achievedAmount);
-    
+
     // Calculate achievement percentage
     if (salesTarget.target_amount > 0) {
       salesTarget.achievement_percentage = Math.round((salesTarget.achieved_amount / salesTarget.target_amount) * 100);
     }
-    
+
     // Update status based on achievement and deadline
     const now = new Date();
     if (salesTarget.achievement_percentage >= 100) {
@@ -778,7 +779,7 @@ const updateTargetAchievement = async (req, res) => {
     } else {
       salesTarget.status = 'Active';
     }
-    
+
     // Update updated_by field
     salesTarget.updated_by = req.user.id;
 
