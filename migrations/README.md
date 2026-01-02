@@ -59,3 +59,16 @@ mysql -u root -p your_database_name < migration_file.sql
 - Visit times are extracted from the `created_at` timestamp and converted to IST
 - The `advance_date` field is already active in the Advance model
 - Migration includes default value updates for existing records
+
+### 2. Add priority to doctors
+**File:** `add_priority_to_doctors.sql`
+**Purpose:** Adds a `priority` column to categorize doctors by service level (A=highest, B=medium, C=standard)
+**Date:** 2026-01-02
+
+**To apply:**
+```bash
+psql -U your_username -d your_database_name -f add_priority_to_doctors.sql
+```
+
+**Migration Status:**
+- [ ] add_priority_to_doctors.sql - **PENDING** (Model field is active, needs database migration)

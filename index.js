@@ -257,6 +257,11 @@ async function startServer() {
     // Mount version routes
     app.use('/api/version', versionRoutes);
 
+    // User device routes (device binding management)
+    const userDeviceRoutes = require('./src/userDevice/userDeviceRoutes');
+    app.use('/api/user-devices', userDeviceRoutes);
+
+
     // Root endpoint
     app.get('/', (req, res) => {
         res.json({

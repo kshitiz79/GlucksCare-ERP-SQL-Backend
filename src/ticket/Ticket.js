@@ -16,7 +16,9 @@ const Ticket = (sequelize) => {
       allowNull: false
     },
     image: {
-      type: DataTypes.STRING(500)
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Base64 encoded image or image URL'
     },
     user_id: {
       type: DataTypes.UUID,

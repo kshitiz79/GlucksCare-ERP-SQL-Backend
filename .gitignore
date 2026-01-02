@@ -26,9 +26,9 @@ build/
 coverage/
 
 # Database / SQL files
-*.sql
-*.sqlite
-*.db
+# *.sql
+# *.sqlite
+# *.db
 
 # System files
 .DS_Store

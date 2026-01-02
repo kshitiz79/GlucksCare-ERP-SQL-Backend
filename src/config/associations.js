@@ -222,13 +222,14 @@ module.exports = (db) => {
   db.PdfFile.belongsTo(db.User, { foreignKey: 'uploaded_by', as: 'uploader' });
 
   // UserDevice associations
-  db.UserDevice.belongsTo(db.User, { foreignKey: 'user_id' });
+  db.UserDevice.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+  db.UserDevice.belongsTo(db.User, { foreignKey: 'revoked_by', as: 'revoker' });
 
   // InvoiceTracking associations
   db.InvoiceTracking.belongsTo(db.Stockist, { foreignKey: 'stockist_id' });
   db.InvoiceTracking.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
   db.InvoiceTracking.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
-  
+
   // Reverse associations
   db.Stockist.hasMany(db.InvoiceTracking, { foreignKey: 'stockist_id' });
   db.User.hasMany(db.InvoiceTracking, { foreignKey: 'created_by', as: 'createdInvoices' });
@@ -238,10 +239,10 @@ module.exports = (db) => {
   db.Advance.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
   db.Advance.belongsTo(db.User, { foreignKey: 'approved_by', as: 'approver' });
   db.Advance.hasMany(db.AdvanceRepayment, { foreignKey: 'advance_id', as: 'repayments' });
-  
+
   db.AdvanceRepayment.belongsTo(db.Advance, { foreignKey: 'advance_id', as: 'advance' });
   db.AdvanceRepayment.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
-  
+
   db.User.hasMany(db.Advance, { foreignKey: 'user_id', as: 'advances' });
   db.User.hasMany(db.Advance, { foreignKey: 'approved_by', as: 'approvedAdvances' });
   db.User.hasMany(db.AdvanceRepayment, { foreignKey: 'created_by', as: 'createdRepayments' });

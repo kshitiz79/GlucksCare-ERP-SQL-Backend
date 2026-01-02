@@ -44,6 +44,17 @@ const Doctor = (sequelize) => {
     anniversary: {
       type: DataTypes.DATE
     },
+    priority: {
+      type: DataTypes.STRING(1),
+      allowNull: false,
+      defaultValue: 'C',
+      validate: {
+        isIn: {
+          args: [['A', 'B', 'C']],
+          msg: 'Priority must be A, B, or C'
+        }
+      }
+    },
     headOfficeId: {
       type: DataTypes.UUID,
       allowNull: false,

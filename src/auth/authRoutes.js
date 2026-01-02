@@ -48,7 +48,7 @@ router.post('/register', async (req, res) => {
         }
 
         // Check if employee code already exists
-const existingEmployeeCode = await User.findOne({ where: { employee_code: employeeCode } });
+        const existingEmployeeCode = await User.findOne({ where: { employee_code: employeeCode } });
         if (existingEmployeeCode) {
             return res.status(400).json({ msg: 'Employee Code already exists' });
         }
@@ -66,8 +66,8 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
         ];
 
         if (role && !validRoles.includes(role)) {
-            return res.status(400).json({ 
-                msg: `Invalid role. Must be one of: ${validRoles.join(', ')}` 
+            return res.status(400).json({
+                msg: `Invalid role. Must be one of: ${validRoles.join(', ')}`
             });
         }
 
@@ -80,7 +80,7 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
             // Only set head_office_id if headOffices array is not provided
             head_office_id: (headOffices && headOffices.length > 0) ? null : (headOffice || null),
             employee_code: employeeCode,
-            role, 
+            role,
             gender,
             salary_type: salaryType,
             salary_amount: salaryAmount ? parseFloat(salaryAmount) : null,
@@ -109,8 +109,8 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
 
         // Generate JWT token
         const token = jwt.sign(
-            { id: user.id, role: user.role }, 
-            process.env.JWT_SECRET, 
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET,
             { expiresIn: '60h' }
         );
 
@@ -128,7 +128,7 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
 
         // Get all head offices for the user
         let responseHeadOffices = [];
-        
+
         if (populatedUser.headOffices && populatedUser.headOffices.length > 0) {
             // User has multiple head offices through many-to-many relationship
             responseHeadOffices = populatedUser.headOffices.map(ho => ({
@@ -149,14 +149,14 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
         });
     } catch (err) {
         console.error('Register error:', err);
-        
+
         if (err.name === 'SequelizeUniqueConstraintError') {
             const field = err.errors[0].path;
-            return res.status(400).json({ 
-                msg: `${field} already exists` 
+            return res.status(400).json({
+                msg: `${field} already exists`
             });
         }
-        
+
         res.status(500).json({ msg: 'Server error' });
     }
     console.log('Register req.body:', req.body);
@@ -164,146 +164,266 @@ const existingEmployeeCode = await User.findOne({ where: { employee_code: employ
 
 // LOGIN
 router.post('/login', async (req, res) => {
-  try {
-    const { email, password, device_id } = req.body;
-    
-    // Validate input
-    if (!email || !password) {
-      console.log('Login validation failed:', { email: !!email, password: !!password });
-      return res.status(400).json({ msg: 'Email and password are required' });
-    }
+    try {
+        const { email, password, device_id, androidId, manufacturer, model } = req.body;
 
-    if (typeof email !== 'string' || typeof password !== 'string') {
-      console.log('Login type validation failed:', { 
-        emailType: typeof email, 
-        passwordType: typeof password 
-      });
-      return res.status(400).json({ msg: 'Email and password must be strings' });
-    }
-
-    console.log('Login attempt for email:', email);
-    
-    // Find user with all assigned head offices
-    const user = await User.findOne({ 
-      where: { 
-        email,
-        is_active: true
-      },
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] }, // Don't include junction table attributes
-          attributes: ['id', 'name']
+        // Validate input
+        if (!email || !password) {
+            console.log('Login validation failed:', { email: !!email, password: !!password });
+            return res.status(400).json({ msg: 'Email and password are required' });
         }
-      ]
-    });
-    
-    if (!user) {
-      console.log('User not found or inactive for email:', email);
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
 
-    if (!user.password_hash) {
-      console.log('User has no password set:', email);
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
+        if (typeof email !== 'string' || typeof password !== 'string') {
+            console.log('Login type validation failed:', {
+                emailType: typeof email,
+                passwordType: typeof password
+            });
+            return res.status(400).json({ msg: 'Email and password must be strings' });
+        }
 
-    console.log('Comparing passwords for user:', email);
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      console.log('Password mismatch for user:', email);
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
+        console.log('Login attempt for email:', email);
 
-    console.log('Login successful for user:', email, 'Role:', user.role);
-    
-    // Handle device registration if device_id is provided
-    if (device_id) {
-      try {
-        const { UserDevice } = require('../config/database');
-        
-        // Check if device already exists
-        let userDevice = await UserDevice.findOne({
-          where: { device_id }
+        // Find user with all assigned head offices
+        const user = await User.findOne({
+            where: {
+                email,
+                is_active: true
+            },
+            include: [
+                {
+                    model: HeadOffice,
+                    as: 'headOffices',
+                    through: { attributes: [] }, // Don't include junction table attributes
+                    attributes: ['id', 'name']
+                }
+            ]
         });
-        
-        if (userDevice) {
-          // Update existing device mapping
-          await userDevice.update({
-            user_id: user.id,
-            last_login: new Date(),
-            is_active: true
-          });
-          console.log('📱 Updated existing device mapping:', device_id, 'for user:', user.id);
-        } else {
-          // Create new device mapping
-          await UserDevice.create({
-            user_id: user.id,
-            device_id: device_id,
-            device_type: 'mobile', // Default to mobile
-            last_login: new Date(),
-            is_active: true
-          });
-          console.log('📱 Created new device mapping:', device_id, 'for user:', user.id);
+
+        if (!user) {
+            console.log('User not found or inactive for email:', email);
+            return res.status(400).json({ msg: 'Invalid credentials' });
         }
-      } catch (deviceError) {
-        console.error('Device registration error:', deviceError);
-        // Don't fail login if device registration fails
-      }
+
+        if (!user.password_hash) {
+            console.log('User has no password set:', email);
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        console.log('Comparing passwords for user:', email);
+        const isMatch = await user.comparePassword(password);
+        if (!isMatch) {
+            console.log('Password mismatch for user:', email);
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        console.log('✅ Password verified for user:', email, 'Role:', user.role);
+
+        // ============================================
+        // DEVICE FINGERPRINTING & BINDING LOGIC
+        // ============================================
+
+        // Import device fingerprinting utilities
+        const { generateDeviceFingerprint, validateDeviceInfo, getDeviceName } = require('../utils/deviceFingerprint');
+        const { UserDevice } = require('../config/database');
+
+        // Check if device info is provided (required for mobile apps)
+        if (androidId && manufacturer && model) {
+            console.log('📱 Device info provided:', { androidId, manufacturer, model });
+
+            // Validate device info
+            if (!validateDeviceInfo({ androidId, manufacturer, model })) {
+                return res.status(400).json({
+                    success: false,
+                    msg: 'Invalid device information provided'
+                });
+            }
+
+            try {
+                // Generate device fingerprint
+                const deviceFingerprint = generateDeviceFingerprint(androidId, manufacturer, model);
+                const deviceName = getDeviceName(manufacturer, model);
+
+                console.log('🔐 Generated device fingerprint:', deviceFingerprint);
+
+                // Check if this user already has a device registered
+                const existingUserDevice = await UserDevice.findOne({
+                    where: {
+                        user_id: user.id,
+                        status: 'ACTIVE'
+                    }
+                });
+
+                if (existingUserDevice) {
+                    // User already has a device - verify fingerprint match
+                    console.log('📱 User has existing device binding');
+
+                    if (existingUserDevice.device_fingerprint !== deviceFingerprint) {
+                        // Fingerprint mismatch - BLOCK LOGIN
+                        console.log('🚫 Device fingerprint mismatch!');
+                        console.log('Expected:', existingUserDevice.device_fingerprint);
+                        console.log('Received:', deviceFingerprint);
+
+                        return res.status(403).json({
+                            success: false,
+                            msg: 'Device already registered',
+                            error: 'This account is already registered to another device. Please contact your administrator to reset the device binding if you have replaced your tablet or performed a factory reset.',
+                            deviceMismatch: true,
+                            registeredDevice: {
+                                name: existingUserDevice.device_name,
+                                lastLogin: existingUserDevice.last_login
+                            }
+                        });
+                    }
+
+                    // Fingerprint matches - allow login and update last_login
+                    console.log('✅ Device fingerprint matches - allowing login');
+                    await existingUserDevice.update({
+                        last_login: new Date()
+                    });
+
+                } else {
+                    // First login - bind this device to the user
+                    console.log('🆕 First login - binding device to user');
+
+                    // Check if this fingerprint is already used by another user
+                    const fingerprintInUse = await UserDevice.findOne({
+                        where: {
+                            device_fingerprint: deviceFingerprint,
+                            status: 'ACTIVE'
+                        }
+                    });
+
+                    if (fingerprintInUse && fingerprintInUse.user_id !== user.id) {
+                        console.log('🚫 Device fingerprint already in use by another user');
+                        return res.status(403).json({
+                            success: false,
+                            msg: 'Device already registered to another user',
+                            error: 'This device is already registered to another account. Each device can only be used by one user.',
+                            deviceInUse: true
+                        });
+                    }
+
+                    // Create new device binding
+                    await UserDevice.create({
+                        user_id: user.id,
+                        device_id: device_id || androidId, // Use androidId as fallback for device_id
+                        android_id: androidId,
+                        manufacturer: manufacturer,
+                        model: model,
+                        device_fingerprint: deviceFingerprint,
+                        device_name: deviceName,
+                        device_type: 'android',
+                        status: 'ACTIVE',
+                        last_login: new Date(),
+                        is_active: true
+                    });
+
+                    console.log('✅ Device bound successfully:', deviceName);
+                }
+
+            } catch (deviceError) {
+                console.error('❌ Device fingerprinting error:', deviceError);
+                return res.status(500).json({
+                    success: false,
+                    msg: 'Error processing device information',
+                    error: deviceError.message
+                });
+            }
+
+        } else if (device_id) {
+            // Legacy device_id provided (backward compatibility)
+            console.log('📱 Legacy device_id provided (no fingerprinting):', device_id);
+
+            try {
+                const { UserDevice } = require('../config/database');
+
+                // Check if device already exists
+                let userDevice = await UserDevice.findOne({
+                    where: { device_id }
+                });
+
+                if (userDevice) {
+                    // Update existing device mapping
+                    await userDevice.update({
+                        user_id: user.id,
+                        last_login: new Date(),
+                        is_active: true
+                    });
+                    console.log('📱 Updated existing device mapping:', device_id, 'for user:', user.id);
+                } else {
+                    // Create new device mapping
+                    await UserDevice.create({
+                        user_id: user.id,
+                        device_id: device_id,
+                        device_type: 'mobile',
+                        last_login: new Date(),
+                        is_active: true,
+                        status: 'ACTIVE'
+                    });
+                    console.log('📱 Created new device mapping:', device_id, 'for user:', user.id);
+                }
+            } catch (deviceError) {
+                console.error('Device registration error:', deviceError);
+                // Don't fail login if device registration fails
+            }
+        }
+
+        // ============================================
+        // GENERATE JWT TOKEN & SEND RESPONSE
+        // ============================================
+
+        const token = jwt.sign(
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        // Get all head offices for the user
+        let headOffices = [];
+
+        if (user.headOffices && user.headOffices.length > 0) {
+            // User has multiple head offices through many-to-many relationship
+            headOffices = user.headOffices.map(ho => ({
+                id: ho.id,
+                name: ho.name
+            }));
+        } else if (user.head_office_id) {
+            // User has a single head office through foreign key
+            const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id, {
+                attributes: ['id', 'name']
+            });
+            if (singleHeadOffice) {
+                headOffices = [{
+                    id: singleHeadOffice.id,
+                    name: singleHeadOffice.name
+                }];
+            }
+        }
+
+        const responseUser = {
+            id: user.id.toString(),
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            emailVerified: user.email_verified,
+            phone: user.mobile_number,
+            headOffices: headOffices
+        };
+
+        console.log('✅ Login successful - Sending response for user:', responseUser.id);
+
+        res.json({
+            token,
+            user: responseUser
+        });
+    } catch (err) {
+        console.error('Login error:', err);
+        console.error('Login error stack:', err.stack);
+        console.error('Request body:', req.body);
+        res.status(500).json({ msg: 'Server error during login' });
     }
-    
-    const token = jwt.sign(
-      { id: user.id, role: user.role }, 
-      process.env.JWT_SECRET, 
-      { expiresIn: '7d' }
-    );
-
-    // Get all head offices for the user
-    let headOffices = [];
-    
-    if (user.headOffices && user.headOffices.length > 0) {
-      // User has multiple head offices through many-to-many relationship
-      headOffices = user.headOffices.map(ho => ({
-        id: ho.id,
-        name: ho.name
-      }));
-    } else if (user.head_office_id) {
-      // User has a single head office through foreign key
-      const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id, {
-        attributes: ['id', 'name']
-      });
-      if (singleHeadOffice) {
-        headOffices = [{
-          id: singleHeadOffice.id,
-          name: singleHeadOffice.name
-        }];
-      }
-    }
-
-    const responseUser = {
-      id: user.id.toString(),
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      emailVerified: user.email_verified,
-      phone: user.mobile_number,
-      headOffices: headOffices
-    };
-
-    console.log('Sending login response for user:', responseUser.id);
-
-    res.json({
-      token,
-      user: responseUser
-    });
-  } catch (err) {
-    console.error('Login error:', err);
-    console.error('Login error stack:', err.stack);
-    console.error('Request body:', req.body);
-    res.status(500).json({ msg: 'Server error during login' });
-  }
 });
+
 
 // GENERATE OTP (Email-based)
 router.post('/generate-otp', async (req, res) => {
@@ -360,9 +480,9 @@ router.post('/generate-otp', async (req, res) => {
             res.json({ msg: 'OTP sent successfully' });
         } catch (emailError) {
             console.error('Error sending email:', emailError);
-            return res.status(500).json({ 
-                msg: 'Failed to send OTP', 
-                error: emailError.message 
+            return res.status(500).json({
+                msg: 'Failed to send OTP',
+                error: emailError.message
             });
         }
     } catch (err) {
@@ -422,7 +542,7 @@ router.post('/email-login', async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ 
+        const user = await User.findOne({
             where: { email },
             include: [
                 {
@@ -431,7 +551,7 @@ router.post('/email-login', async (req, res) => {
                 }
             ]
         });
-        
+
         if (!user) {
             return res.status(404).json({
                 success: false,
@@ -512,7 +632,7 @@ router.post('/check-email-registered', async (req, res) => {
         });
 
         // Check if user exists
-        const user = await User.findOne({ 
+        const user = await User.findOne({
             where: { email },
             attributes: ['email', 'name', 'role', 'email_verified']
         });

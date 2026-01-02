@@ -86,41 +86,41 @@ const getUsersByState = async (req, res) => {
 
     // Transform users to match MongoDB format
     const transformedUsers = users.map(user => {
-        // Convert snake_case to camelCase
-        const transformedUser = {
-          _id: user.id,
-          id: user.id,
-          employeeCode: user.employee_code,
-          name: user.name,
-          email: user.email,
-          mobileNumber: user.mobile_number,
-          gender: user.gender,
-          role: user.role,
-          state: user.state_id,
-          salaryAmount: user.salary_amount,
-          address: user.address,
-          dateOfBirth: user.date_of_birth,
-          dateOfJoining: user.date_of_joining,
-          bankDetails: user.bank_details,
-          legalDocuments: user.legal_documents,
-          emergencyContact: user.emergency_contact,
-          reference: user.reference,
-          isActive: user.is_active,
-          emailVerified: user.email_verified,
-          otp: user.otp,
-          otpExpire: user.otp_expire,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
-          branch: user.branch_id,
-          department: user.department_id,
-          employmentType: user.employment_type_id
-        };
+      // Convert snake_case to camelCase
+      const transformedUser = {
+        _id: user.id,
+        id: user.id,
+        employeeCode: user.employee_code,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobile_number,
+        gender: user.gender,
+        role: user.role,
+        state: user.state_id,
+        salaryAmount: user.salary_amount,
+        address: user.address,
+        dateOfBirth: user.date_of_birth,
+        dateOfJoining: user.date_of_joining,
+        bankDetails: user.bank_details,
+        legalDocuments: user.legal_documents,
+        emergencyContact: user.emergency_contact,
+        reference: user.reference,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        otp: user.otp,
+        otpExpire: user.otp_expire,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        branch: user.branch_id,
+        department: user.department_id,
+        employmentType: user.employment_type_id
+      };
 
-        // Add headOffices array from map
-        transformedUser.headOffices = headOfficesMap[user.id] || [];
+      // Add headOffices array from map
+      transformedUser.headOffices = headOfficesMap[user.id] || [];
 
-        return transformedUser;
-      });
+      return transformedUser;
+    });
 
     res.json({
       success: true,
@@ -285,20 +285,51 @@ const getAllUsers = async (req, res) => {
     const models = req.app.get('models');
     const { User, HeadOffice, Location } = models;
     const sequelize = req.app.get('sequelize');
+    const { Op } = require('sequelize');
 
     // Add pagination support
     const page = parseInt(req.query.page || '1', 10);
     const limit = parseInt(req.query.limit || '50', 10);
     const offset = (page - 1) * limit;
-    
+
     // Check if we should include deactivated users (default: true for backward compatibility)
     const includeDeactivated = req.query.includeDeactivated !== 'false';
 
-    console.log(`Fetching users - page: ${page}, limit: ${limit}, includeDeactivated: ${includeDeactivated}`);
+    // Get filter parameters
+    const roleFilter = req.query.role;
+    const searchTerm = req.query.search;
+    const sortBy = req.query.sortBy || 'created_at';
+    const sortOrder = req.query.sortOrder || 'DESC';
+
+    console.log(`Fetching users - page: ${page}, limit: ${limit}, includeDeactivated: ${includeDeactivated}, role: ${roleFilter}, search: ${searchTerm}, sortBy: ${sortBy}, sortOrder: ${sortOrder}`);
     const t0 = Date.now();
 
     // Build where clause
     const whereClause = includeDeactivated ? {} : { is_active: true };
+
+    // Add role filter if provided
+    if (roleFilter) {
+      whereClause.role = roleFilter;
+    }
+
+    // Add search filter if provided
+    if (searchTerm) {
+      whereClause[Op.or] = [
+        { name: { [Op.iLike]: `%${searchTerm}%` } },
+        { email: { [Op.iLike]: `%${searchTerm}%` } },
+        { employee_code: { [Op.iLike]: `%${searchTerm}%` } }
+      ];
+    }
+
+    // Map sortBy to actual column names
+    const sortByMap = {
+      'name': 'name',
+      'email': 'email',
+      'role': 'role',
+      'created_at': 'created_at'
+    };
+    const actualSortBy = sortByMap[sortBy] || 'created_at';
+    const actualSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     // Fetch users with pagination
     const { rows: users, count: totalUsers } = await User.findAndCountAll({
@@ -312,7 +343,7 @@ const getAllUsers = async (req, res) => {
       ],
       limit,
       offset,
-      order: [['created_at', 'DESC']]
+      order: [[actualSortBy, actualSortOrder]]
     });
 
     const t1 = Date.now();
