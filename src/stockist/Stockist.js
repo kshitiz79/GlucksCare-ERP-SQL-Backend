@@ -118,3 +118,7 @@ const Stockist = (sequelize) => {
 };
 
 module.exports = Stockist;
+
+
+
+

@@ -37,7 +37,8 @@ const io = new Server(server, {
 app.set('io', io);
 
 // --- Middleware ---
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true, parameterLimit: 50000 }));
 app.use(helmet());
 
 const allowedOrigins = [

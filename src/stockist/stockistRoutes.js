@@ -18,10 +18,10 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 
 // Configure multer for memory storage (we'll upload to Cloudinary)
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 50 * 1024 * 1024 // 50MB limit (increased from 10MB)
   },
   fileFilter: (req, file, cb) => {
     // Accept images and PDFs
