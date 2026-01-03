@@ -2,7 +2,7 @@
 const getAllStockists = async (req, res) => {
   try {
     const { Stockist, HeadOffice, StockistAnnualTurnover } = req.app.get('models');
-    
+
     const stockists = await Stockist.findAll({
       include: [
         {
@@ -17,7 +17,7 @@ const getAllStockists = async (req, res) => {
         }
       ]
     });
-    
+
     // Transform the response to match the MongoDB format
     const transformedStockists = stockists.map(stockist => {
       const stockistObj = stockist.toJSON();
@@ -37,7 +37,7 @@ const getAllStockists = async (req, res) => {
         HeadOffice: undefined
       };
     });
-    
+
     res.json({
       success: true,
       count: transformedStockists.length,
@@ -56,7 +56,7 @@ const getAllStockists = async (req, res) => {
 const getStockistById = async (req, res) => {
   try {
     const { Stockist, HeadOffice, StockistAnnualTurnover } = req.app.get('models');
-    
+
     const stockist = await Stockist.findByPk(req.params.id, {
       include: [
         {
@@ -71,14 +71,14 @@ const getStockistById = async (req, res) => {
         }
       ]
     });
-    
+
     if (!stockist) {
       return res.status(404).json({
         success: false,
         message: 'Stockist not found'
       });
     }
-    
+
     // Transform the response to match the MongoDB format
     const stockistObj = stockist.toJSON();
     const transformedStockist = {
@@ -96,7 +96,7 @@ const getStockistById = async (req, res) => {
       AnnualTurnovers: undefined,
       HeadOffice: undefined
     };
-    
+
     res.json({
       success: true,
       data: transformedStockist
@@ -118,13 +118,13 @@ const createStockist = async (req, res) => {
       throw new Error('Required models or Sequelize instance are not available');
     }
     const { Stockist, HeadOffice, StockistAnnualTurnover } = models;
-    
+
     // Log the incoming request body for debugging
     console.log('Incoming stockist data:', JSON.stringify(req.body, null, 2));
-    
+
     // Process the incoming data
     const stockistData = { ...req.body };
-    
+
     // Handle head office ID field conversion
     // The frontend might send headOfficeId, head_office_id, or headOffice
     if (stockistData.headOfficeId) {
@@ -141,7 +141,7 @@ const createStockist = async (req, res) => {
       delete stockistData.headOffice;
       console.log('Converted headOffice to headOfficeId:', stockistData.headOfficeId);
     }
-    
+
     // Handle field name conversions from camelCase to snake_case
     const fieldMappings = {
       firmName: 'firm_name',
@@ -169,17 +169,17 @@ const createStockist = async (req, res) => {
       cancelledChequeUrl: 'cancelled_cheque_url',
       businessProfileUrl: 'business_profile_url'
     };
-    
+
     // Convert field names and collect data for the main stockist record
     const stockistRecordData = {};
     Object.keys(stockistData).forEach(key => {
       // Skip annualTurnover as it will be handled separately
       if (key === 'annualTurnover') return;
-      
+
       const dbFieldName = fieldMappings[key] || key;
       stockistRecordData[dbFieldName] = stockistData[key];
     });
-    
+
     // Validate that headOfficeId is provided
     if (!stockistRecordData.head_office_id) {
       return res.status(400).json({
@@ -187,7 +187,7 @@ const createStockist = async (req, res) => {
         message: 'Head Office ID is required'
       });
     }
-    
+
     // Validate that firmName is provided
     if (!stockistRecordData.firm_name) {
       return res.status(400).json({
@@ -195,15 +195,15 @@ const createStockist = async (req, res) => {
         message: 'Firm Name is required'
       });
     }
-    
+
     // Start a transaction
     const transaction = await sequelize.transaction();
-    
+
     try {
       console.log('Creating stockist with data:', stockistRecordData);
       const stockist = await Stockist.create(stockistRecordData, { transaction });
       console.log('Stockist created successfully:', stockist.id);
-      
+
       // Handle annual turnover data if provided
       if (stockistData.annualTurnover && Array.isArray(stockistData.annualTurnover) && stockistData.annualTurnover.length > 0) {
         // Create annual turnover records
@@ -212,52 +212,78 @@ const createStockist = async (req, res) => {
           year: parseInt(turnover.year, 10),
           amount: parseFloat(turnover.amount)
         })).filter(turnover => !isNaN(turnover.year) && !isNaN(turnover.amount));
-        
+
         if (annualTurnoverRecords.length > 0) {
           await StockistAnnualTurnover.bulkCreate(annualTurnoverRecords, { transaction });
         }
       }
-      
+
       // Handle document uploads if files are provided
+      console.log('Checking for file uploads...');
+      console.log('req.files:', req.files);
+      console.log('Number of files:', req.files ? Object.keys(req.files).length : 0);
+
       if (req.files && Object.keys(req.files).length > 0) {
         console.log('Processing document uploads for stockist:', stockist.id);
-        
+        console.log('File fields received:', Object.keys(req.files));
+
         // Import the uploadImage function from stockistImageController
         const { uploadImage } = require('./stockistImageController');
-        
+
         // Upload each file and update the stockist record
         const documentUrls = {};
-        
+
         // Process each file field
         for (const [fieldName, files] of Object.entries(req.files)) {
+          console.log(`Processing field: ${fieldName}, files count: ${files.length}`);
           if (files && files.length > 0) {
             const file = files[0]; // Take the first file for each field
-            const url = await uploadImage(file);
-            // Map field names to database column names
-            switch (fieldName) {
-              case 'gstCertificate':
-                documentUrls.gst_certificate_url = url;
-                break;
-              case 'drugLicense':
-                documentUrls.drug_license_url = url;
-                break;
-              case 'panCard':
-                documentUrls.pan_card_url = url;
-                break;
-              case 'cancelledCheque':
-                documentUrls.cancelled_cheque_url = url;
-                break;
-              case 'businessProfile':
-                documentUrls.business_profile_url = url;
-                break;
+            console.log(`Uploading ${fieldName}:`, {
+              originalname: file.originalname,
+              mimetype: file.mimetype,
+              size: file.size
+            });
+
+            try {
+              const url = await uploadImage(file);
+              console.log(`Successfully uploaded ${fieldName} to:`, url);
+
+              // Map field names to database column names
+              switch (fieldName) {
+                case 'gstCertificate':
+                  documentUrls.gst_certificate_url = url;
+                  break;
+                case 'drugLicense':
+                  documentUrls.drug_license_url = url;
+                  break;
+                case 'panCard':
+                  documentUrls.pan_card_url = url;
+                  break;
+                case 'cancelledCheque':
+                  documentUrls.cancelled_cheque_url = url;
+                  break;
+                case 'businessProfile':
+                  documentUrls.business_profile_url = url;
+                  break;
+              }
+            } catch (uploadError) {
+              console.error(`Error uploading ${fieldName}:`, uploadError);
+              // Continue with other files even if one fails
             }
           }
         }
-        
+
+        console.log('Document URLs to update:', documentUrls);
+
         // Update the stockist with document URLs
-        await stockist.update(documentUrls, { transaction });
+        if (Object.keys(documentUrls).length > 0) {
+          await stockist.update(documentUrls, { transaction });
+          console.log('Stockist updated with document URLs');
+        }
+      } else {
+        console.log('No files received in request');
       }
-      
+
       // Fetch the created stockist with associations
       const createdStockist = await Stockist.findByPk(stockist.id, {
         include: [
@@ -274,10 +300,10 @@ const createStockist = async (req, res) => {
         ],
         transaction
       });
-      
+
       // Commit the transaction
       await transaction.commit();
-      
+
       // Transform the response to match the MongoDB format
       const stockistObj = createdStockist.toJSON();
       const transformedStockist = {
@@ -299,7 +325,7 @@ const createStockist = async (req, res) => {
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
-      
+
       res.status(201).json({
         success: true,
         data: transformedStockist
@@ -327,7 +353,7 @@ const updateStockist = async (req, res) => {
       throw new Error('Required models or Sequelize instance are not available');
     }
     const { Stockist, HeadOffice, StockistAnnualTurnover } = models;
-    
+
     const stockist = await Stockist.findByPk(req.params.id);
     if (!stockist) {
       return res.status(404).json({
@@ -335,10 +361,10 @@ const updateStockist = async (req, res) => {
         message: 'Stockist not found'
       });
     }
-    
+
     // Start a transaction
     const transaction = await sequelize.transaction();
-    
+
     try {
       // Map headOffice to head_office_id if needed
       const stockistData = { ...req.body };
@@ -346,7 +372,7 @@ const updateStockist = async (req, res) => {
         stockistData.head_office_id = stockistData.headOffice;
         delete stockistData.headOffice;
       }
-      
+
       // Handle field name conversions from camelCase to snake_case
       const fieldMappings = {
         firmName: 'firm_name',
@@ -374,19 +400,19 @@ const updateStockist = async (req, res) => {
         cancelledChequeUrl: 'cancelled_cheque_url',
         businessProfileUrl: 'business_profile_url'
       };
-      
+
       // Convert field names and collect data for the main stockist record
       const stockistUpdateData = {};
       Object.keys(stockistData).forEach(key => {
         // Skip annualTurnover as it will be handled separately
         if (key === 'annualTurnover') return;
-        
+
         const dbFieldName = fieldMappings[key] || key;
         stockistUpdateData[dbFieldName] = stockistData[key];
       });
-      
+
       await stockist.update(stockistUpdateData, { transaction });
-      
+
       // Handle annual turnover data if provided
       if ('annualTurnover' in stockistData) {
         // Delete existing annual turnover records
@@ -394,7 +420,7 @@ const updateStockist = async (req, res) => {
           where: { stockist_id: stockist.id },
           transaction
         });
-        
+
         // Create new annual turnover records if provided
         if (stockistData.annualTurnover && Array.isArray(stockistData.annualTurnover) && stockistData.annualTurnover.length > 0) {
           const annualTurnoverRecords = stockistData.annualTurnover.map(turnover => ({
@@ -402,13 +428,13 @@ const updateStockist = async (req, res) => {
             year: parseInt(turnover.year, 10),
             amount: parseFloat(turnover.amount)
           })).filter(turnover => !isNaN(turnover.year) && !isNaN(turnover.amount));
-          
+
           if (annualTurnoverRecords.length > 0) {
             await StockistAnnualTurnover.bulkCreate(annualTurnoverRecords, { transaction });
           }
         }
       }
-      
+
       // Fetch the updated stockist with associations
       const updatedStockist = await Stockist.findByPk(stockist.id, {
         include: [
@@ -425,10 +451,10 @@ const updateStockist = async (req, res) => {
         ],
         transaction
       });
-      
+
       // Commit the transaction
       await transaction.commit();
-      
+
       // Transform the response to match the MongoDB format
       const stockistObj = updatedStockist.toJSON();
       const transformedStockist = {
@@ -450,7 +476,7 @@ const updateStockist = async (req, res) => {
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
-      
+
       res.json({
         success: true,
         data: transformedStockist
@@ -480,7 +506,7 @@ const deleteStockist = async (req, res) => {
         message: 'Stockist not found'
       });
     }
-    
+
     await stockist.destroy();
     res.json({
       success: true,
@@ -517,7 +543,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 const getMyStockists = async (req, res) => {
   try {
     const { Stockist, HeadOffice, User } = req.app.get('models');
-    
+
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
       include: [
@@ -538,7 +564,7 @@ const getMyStockists = async (req, res) => {
 
     // Get all user's head office IDs
     let headOfficeIds = [];
-    
+
     if (user.headOffices && user.headOffices.length > 0) {
       headOfficeIds = user.headOffices.map(office => office.id);
     } else if (user.head_office_id) {
@@ -565,7 +591,7 @@ const getMyStockists = async (req, res) => {
         }
       ]
     });
-    
+
     // Transform the response to match the MongoDB format
     const transformedStockists = stockists.map(stockist => {
       const stockistObj = stockist.toJSON();
@@ -579,7 +605,7 @@ const getMyStockists = async (req, res) => {
         HeadOffice: undefined
       };
     });
-    
+
     res.json({
       success: true,
       count: transformedStockists.length,

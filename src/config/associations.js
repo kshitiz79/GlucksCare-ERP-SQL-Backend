@@ -220,6 +220,8 @@ module.exports = (db) => {
 
   // PdfFile associations
   db.PdfFile.belongsTo(db.User, { foreignKey: 'uploaded_by', as: 'uploader' });
+  db.PdfFile.belongsTo(db.Product, { foreignKey: 'product_id', as: 'product' });
+  db.Product.hasMany(db.PdfFile, { foreignKey: 'product_id' });
 
   // UserDevice associations
   db.UserDevice.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });

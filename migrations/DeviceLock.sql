@@ -57,3 +57,16 @@ ALTER TABLE doctors ALTER COLUMN priority SET NOT NULL;
 
 -- Added index
 CREATE INDEX idx_doctors_priority ON doctors(priority);
+
+
+
+
+
+ALTER TABLE pdf_files 
+ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE SET NULL;
+-- Step 2: Create Index for faster Join queries (Product Thumbnails के लिए)
+CREATE INDEX IF NOT EXISTS idx_pdf_files_product_id ON pdf_files(product_id);
+-- Step 3: Verify the changes
+SELECT column_name, data_type, is_nullable 
+FROM information_schema.columns 
+WHERE table_name = 'pdf_files' AND column_name = 'product_id';

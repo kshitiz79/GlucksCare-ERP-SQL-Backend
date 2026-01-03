@@ -19,13 +19,39 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all stockist visits
 const getAllStockistVisits = async (req, res) => {
   try {
-    const { StockistVisit, User } = req.app.get('models'); // Get models from app context
+    const { StockistVisit, User, Sequelize } = req.app.get('models');
+    const { Op } = Sequelize;
+    const { startDate, endDate, range } = req.query;
+
+    let whereClause = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    if (startDate && endDate) {
+      whereClause.date = { [Op.between]: [startDate, endDate] };
+    } else if (range === 'last7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'last30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
+    } else if (range === 'all') {
+      // No date filter
+    } else {
+      // Default to today
+      whereClause.date = today;
+    }
+
     const stockistVisits = await StockistVisit.findAll({
+      where: whereClause,
       include: [
         {
           model: User,
           as: 'user',
-          where: { is_active: true }, // Only include visits from active users
+          where: { is_active: true },
           attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
         }
       ]
@@ -238,14 +264,38 @@ const confirmStockistVisit = async (req, res) => {
 // GET visits by user ID
 const getStockistVisitsByUserId = async (req, res) => {
   try {
-    const { StockistVisit, Stockist } = req.app.get('models'); // Get models from app context
+    const { StockistVisit, Stockist, Sequelize } = req.app.get('models');
+    const { Op } = Sequelize;
     const { userId } = req.params;
+    const { startDate, endDate, range } = req.query;
+
+    let whereClause = { user_id: userId };
+    const today = new Date().toISOString().split('T')[0];
+
+    if (startDate && endDate) {
+      whereClause.date = { [Op.between]: [startDate, endDate] };
+    } else if (range === 'last7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'last30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
+    } else if (range === 'all') {
+      // No date filter
+    } else {
+      // Default to today
+      whereClause.date = today;
+    }
 
     const visits = await StockistVisit.findAll({
-      where: { user_id: userId },
+      where: whereClause,
       include: [{
         model: Stockist,
-        as: 'Stockist' // This should match the association name in your model
+        as: 'Stockist'
       }]
     });
 

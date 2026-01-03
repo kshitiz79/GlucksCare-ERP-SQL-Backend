@@ -19,8 +19,34 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all doctor visits
 const getAllDoctorVisits = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User } = req.app.get('models'); // Get models from app context
+    const { DoctorVisit, Doctor, User, Sequelize } = req.app.get('models');
+    const { Op } = Sequelize;
+    const { startDate, endDate, range } = req.query;
+
+    let whereClause = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    if (startDate && endDate) {
+      whereClause.date = { [Op.between]: [startDate, endDate] };
+    } else if (range === 'last7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'last30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
+    } else if (range === 'all') {
+      // No date filter
+    } else {
+      // Default to today
+      whereClause.date = today;
+    }
+
     const doctorVisits = await DoctorVisit.findAll({
+      where: whereClause,
       include: [
         {
           model: Doctor,
@@ -272,11 +298,35 @@ const confirmDoctorVisit = async (req, res) => {
 // GET visits by user ID
 const getDoctorVisitsByUserId = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User } = req.app.get('models'); // Get models from app context
+    const { DoctorVisit, Doctor, User, Sequelize } = req.app.get('models');
+    const { Op } = Sequelize;
     const { userId } = req.params;
+    const { startDate, endDate, range } = req.query;
+
+    let whereClause = { user_id: userId };
+    const today = new Date().toISOString().split('T')[0];
+
+    if (startDate && endDate) {
+      whereClause.date = { [Op.between]: [startDate, endDate] };
+    } else if (range === 'last7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'last30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
+    } else if (range === 'all') {
+      // No date filter
+    } else {
+      // Default to today
+      whereClause.date = today;
+    }
 
     const visits = await DoctorVisit.findAll({
-      where: { user_id: userId },
+      where: whereClause,
       include: [
         {
           model: Doctor,
@@ -291,14 +341,12 @@ const getDoctorVisitsByUserId = async (req, res) => {
       ]
     });
 
-    // Transform the response to match the expected format
     const transformedVisits = visits.map(visit => {
       const visitObj = visit.toJSON();
       return {
         ...visitObj,
         doctor: visitObj.DoctorInfo || null,
         user: visitObj.UserInfo || null,
-        // Remove the nested objects
         DoctorInfo: undefined,
         UserInfo: undefined
       };

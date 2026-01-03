@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 
 // Multer configuration for file upload
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB limit
@@ -31,13 +31,20 @@ const getAllPdfFiles = async (req, res) => {
     const PdfFile = req.app.get('models').PdfFile;
     const pdfFiles = await PdfFile.findAll({
       order: [['created_at', 'DESC']],
-      include: [{
-        model: req.app.get('models').User,
-        as: 'uploader',
-        attributes: ['id', 'name', 'email']
-      }]
+      include: [
+        {
+          model: req.app.get('models').User,
+          as: 'uploader',
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: req.app.get('models').Product,
+          as: 'product',
+          attributes: ['id', 'name', 'image']
+        }
+      ]
     });
-    
+
     // Fix URL for existing files that don't have the protocol
     const fixedPdfFiles = pdfFiles.map(pdf => {
       const pdfData = pdf.toJSON();
@@ -46,7 +53,7 @@ const getAllPdfFiles = async (req, res) => {
       }
       return pdfData;
     });
-    
+
     res.json({
       success: true,
       count: pdfFiles.length,
@@ -66,25 +73,32 @@ const getPdfFileById = async (req, res) => {
   try {
     const PdfFile = req.app.get('models').PdfFile;
     const pdfFile = await PdfFile.findByPk(req.params.id, {
-      include: [{
-        model: req.app.get('models').User,
-        as: 'uploader',
-        attributes: ['id', 'name', 'email']
-      }]
+      include: [
+        {
+          model: req.app.get('models').User,
+          as: 'uploader',
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: req.app.get('models').Product,
+          as: 'product',
+          attributes: ['id', 'name', 'image']
+        }
+      ]
     });
-    
+
     if (!pdfFile) {
       return res.status(404).json({
         success: false,
         message: 'PDF file not found'
       });
     }
-    
+
     const pdfData = pdfFile.toJSON();
     if (pdfData.file_url && !pdfData.file_url.startsWith('http')) {
       pdfData.file_url = `https://${pdfData.file_url}`;
     }
-    
+
     res.json({
       success: true,
       data: pdfData
@@ -107,22 +121,22 @@ const createPdfFile = async (req, res) => {
         message: 'No PDF file uploaded'
       });
     }
-    
-    const { title, description, type } = req.body;
-    
+
+    const { title, description, type, product_id } = req.body;
+
     if (!title) {
       return res.status(400).json({ success: false, message: 'Title is required' });
     }
     if (!type) {
       return res.status(400).json({ success: false, message: 'Type is required' });
     }
-    
+
     const PdfFile = req.app.get('models').PdfFile;
     const s3Client = require('../config/b2Config');
-    
+
     const fileExtension = path.extname(req.file.originalname) || '.pdf';
     const fileName = `${uuidv4()}${fileExtension}`;
-    
+
     const uploadParams = {
       Bucket: process.env.B2_S3_BUCKET_NAME,
       Key: fileName,
@@ -132,24 +146,25 @@ const createPdfFile = async (req, res) => {
         'original-name': req.file.originalname
       }
     };
-    
+
     await s3Client.send(new PutObjectCommand(uploadParams));
-    
+
     // Keep stored file_url as an internal URL or placeholder; do NOT rely on it being publicly accessible if bucket is private
     const publicUrl = `https://${process.env.B2_S3_ENDPOINT.replace(/^https?:\/\//, '')}/${process.env.B2_S3_BUCKET_NAME}/${fileName}`;
-    
+
     const pdfData = {
       title,
       description: description || '',
       file_url: publicUrl,
       file_key: fileName,
-      type
+      type,
+      product_id: product_id || null
     };
-    
+
     if (req.user && req.user.id) pdfData.uploaded_by = req.user.id;
-    
+
     const pdfFile = await PdfFile.create(pdfData);
-    
+
     res.status(201).json({
       success: true,
       message: 'PDF file uploaded successfully',
@@ -169,16 +184,16 @@ const updatePdfFile = async (req, res) => {
   try {
     const PdfFile = req.app.get('models').PdfFile;
     const pdfFile = await PdfFile.findByPk(req.params.id);
-    
+
     if (!pdfFile) {
       return res.status(404).json({
         success: false,
         message: 'PDF file not found'
       });
     }
-    
-    const { title, description, type } = req.body;
-    
+
+    const { title, description, type, product_id } = req.body;
+
     if (title !== undefined) pdfFile.title = title;
     if (description !== undefined) pdfFile.description = description;
     if (type !== undefined) {
@@ -191,9 +206,10 @@ const updatePdfFile = async (req, res) => {
       }
       pdfFile.type = type;
     }
-    
+    if (product_id !== undefined) pdfFile.product_id = product_id || null;
+
     await pdfFile.save();
-    
+
     res.json({
       success: true,
       message: 'PDF file updated successfully',
@@ -213,23 +229,23 @@ const deletePdfFile = async (req, res) => {
   try {
     const PdfFile = req.app.get('models').PdfFile;
     const pdfFile = await PdfFile.findByPk(req.params.id);
-    
+
     if (!pdfFile) {
       return res.status(404).json({
         success: false,
         message: 'PDF file not found'
       });
     }
-    
+
     const s3Client = require('../config/b2Config');
     const deleteParams = {
       Bucket: process.env.B2_S3_BUCKET_NAME,
       Key: pdfFile.file_key
     };
-    
+
     await s3Client.send(new DeleteObjectCommand(deleteParams));
     await pdfFile.destroy();
-    
+
     res.json({ success: true, message: 'PDF file deleted successfully' });
   } catch (error) {
     console.error('Error in deletePdfFile:', error);
@@ -283,7 +299,7 @@ const getPdfSignedUrl = async (req, res) => {
       return res.status(500).json({ success: false, message: `Presigner failed: ${presignErr.message || presignErr}` });
     }
 
-    console.log('Generated signedUrl (first 200 chars):', String(signedUrl).slice(0,200));
+    console.log('Generated signedUrl (first 200 chars):', String(signedUrl).slice(0, 200));
     // Basic sanity check
     if (typeof signedUrl !== 'string' || !/^https?:\/\//i.test(signedUrl)) {
       console.error('getPdfSignedUrl: generated signedUrl invalid:', signedUrl);
