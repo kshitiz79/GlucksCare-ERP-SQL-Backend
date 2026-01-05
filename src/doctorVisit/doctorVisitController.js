@@ -84,25 +84,130 @@ const getAllDoctorVisits = async (req, res) => {
   }
 };
 
-// GET doctor visit by ID
+// GET doctor visit by ID or all visits for a user
 const getDoctorVisitById = async (req, res) => {
   try {
-    const { DoctorVisit } = req.app.get('models'); // Get DoctorVisit model from app context
-    const doctorVisit = await DoctorVisit.findByPk(req.params.id);
-    if (!doctorVisit) {
-      return res.status(404).json({
-        success: false,
-        message: 'Doctor visit not found'
+    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
+    const { id } = req.params;
+    const { startDate, endDate, range } = req.query;
+
+    console.log('🔍 Searching for visit or user with ID:', id);
+
+    // First, try to find a single visit by ID
+    const doctorVisit = await DoctorVisit.findByPk(id, {
+      include: [
+        {
+          model: Doctor,
+          as: 'DoctorInfo',
+          attributes: ['id', 'name', 'specialization'],
+          required: false
+        },
+        {
+          model: User,
+          as: 'UserInfo',
+          attributes: ['id', 'name', 'email'],
+          required: false
+        }
+      ]
+    });
+
+    // If found as a visit ID, return the single visit
+    if (doctorVisit) {
+      console.log('✅ Found visit by ID');
+      const visitObj = doctorVisit.toJSON();
+      return res.json({
+        success: true,
+        data: {
+          ...visitObj,
+          doctor: visitObj.DoctorInfo || null,
+          user: visitObj.UserInfo || null,
+          DoctorInfo: undefined,
+          UserInfo: undefined
+        }
       });
     }
-    res.json({
-      success: true,
-      data: doctorVisit
+
+    // If not found as visit ID, try to find visits by user_id
+    console.log('🔍 Not found as visit ID, checking if it\'s a user_id...');
+
+    let whereClause = { user_id: id };
+    const today = new Date().toISOString().split('T')[0];
+
+    // Apply date filters only if explicitly requested
+    if (startDate && endDate) {
+      whereClause.date = { [Op.between]: [startDate, endDate] };
+    } else if (range === 'last7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'last30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
+    } else if (range === 'today') {
+      whereClause.date = today;
+    }
+    // Default: No date filter - returns all visits
+
+    const visits = await DoctorVisit.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: Doctor,
+          as: 'DoctorInfo',
+          attributes: ['id', 'name', 'specialization'],
+          required: false
+        },
+        {
+          model: User,
+          as: 'UserInfo',
+          attributes: ['id', 'name', 'email'],
+          required: false
+        }
+      ],
+      order: [['date', 'DESC']]
     });
+
+    // If found visits for user_id, return them
+    if (visits.length > 0) {
+      console.log(`✅ Found ${visits.length} visits for user_id: ${id}`);
+
+      const transformedVisits = visits.map(visit => {
+        const visitObj = visit.toJSON();
+        return {
+          ...visitObj,
+          doctor: visitObj.DoctorInfo || null,
+          user: visitObj.UserInfo || null,
+          DoctorInfo: undefined,
+          UserInfo: undefined
+        };
+      });
+
+      return res.json({
+        success: true,
+        data: transformedVisits,
+        count: transformedVisits.length,
+        type: 'user_visits' // Indicate this is a list of visits for a user
+      });
+    }
+
+    // If neither visit ID nor user_id found, return 404
+    console.log('❌ No visit or user visits found for ID:', id);
+    return res.status(404).json({
+      success: false,
+      message: 'No visit found with this ID, and no visits found for this user ID'
+    });
+
   } catch (error) {
+    console.error('❌ Error in getDoctorVisitById:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
