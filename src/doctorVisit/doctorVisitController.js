@@ -113,19 +113,21 @@ const getDoctorVisitById = async (req, res) => {
       ]
     });
 
-    // If found as a visit ID, return the single visit
+    // If found as a visit ID, return the single visit as an array
     if (doctorVisit) {
       console.log('✅ Found visit by ID');
       const visitObj = doctorVisit.toJSON();
       return res.json({
         success: true,
-        data: {
+        data: [{
           ...visitObj,
           doctor: visitObj.DoctorInfo || null,
           user: visitObj.UserInfo || null,
           DoctorInfo: undefined,
           UserInfo: undefined
-        }
+        }],
+        count: 1,
+        type: 'single_visit'
       });
     }
 
