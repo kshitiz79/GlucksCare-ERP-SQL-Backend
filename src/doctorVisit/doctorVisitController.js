@@ -19,8 +19,9 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all doctor visits
 const getAllDoctorVisits = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { startDate, endDate, range } = req.query;
 
     let whereClause = {};
@@ -298,8 +299,9 @@ const confirmDoctorVisit = async (req, res) => {
 // GET visits by user ID
 const getDoctorVisitsByUserId = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { userId } = req.params;
     const { startDate, endDate, range } = req.query;
 
