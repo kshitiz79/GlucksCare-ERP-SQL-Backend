@@ -27,6 +27,7 @@ const getAllDoctorVisits = async (req, res) => {
     let whereClause = {};
     const today = new Date().toISOString().split('T')[0];
 
+    // Apply date filters only if explicitly requested
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
     } else if (range === 'last7days') {
@@ -39,12 +40,10 @@ const getAllDoctorVisits = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     const doctorVisits = await DoctorVisit.findAll({
       where: whereClause,
@@ -320,6 +319,7 @@ const getDoctorVisitsByUserId = async (req, res) => {
     let whereClause = { user_id: userId };
     const today = new Date().toISOString().split('T')[0];
 
+    // Apply date filters only if explicitly requested
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
     } else if (range === 'last7days') {
@@ -332,12 +332,10 @@ const getDoctorVisitsByUserId = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     console.log('🔍 Where clause:', JSON.stringify(whereClause, null, 2));
 
