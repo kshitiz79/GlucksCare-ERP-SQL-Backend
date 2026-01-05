@@ -118,7 +118,6 @@ const getDoctorVisitById = async (req, res) => {
       console.log('✅ Found visit by ID');
       const visitObj = doctorVisit.toJSON();
       return res.json({
-        success: true,
         data: [{
           ...visitObj,
           doctor: visitObj.DoctorInfo || null,
@@ -190,7 +189,6 @@ const getDoctorVisitById = async (req, res) => {
       });
 
       return res.json({
-        success: true,
         data: transformedVisits,
         count: transformedVisits.length,
         type: 'user_visits' // Indicate this is a list of visits for a user
@@ -467,14 +465,10 @@ const getDoctorVisitsByUserId = async (req, res) => {
 
     console.log(`✅ Found ${visits.length} visits for user ${userId}`);
 
-    // If no visits found, return empty array with message
+    // If no visits found, return empty array
     if (visits.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No visits found for this user',
-        data: [],
-        count: 0
-      });
+      console.log('⚠️ No visits found, returning empty array');
+      return res.json([]);
     }
 
     const transformedVisits = visits.map(visit => {
@@ -488,11 +482,8 @@ const getDoctorVisitsByUserId = async (req, res) => {
       };
     });
 
-    res.json({
-      success: true,
-      data: transformedVisits,
-      count: transformedVisits.length
-    });
+    // Return plain array for frontend compatibility
+    res.json(transformedVisits);
   } catch (error) {
     console.error('❌ Error in getDoctorVisitsByUserId:', error);
     console.error('Stack trace:', error.stack);
