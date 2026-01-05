@@ -305,6 +305,18 @@ const getDoctorVisitsByUserId = async (req, res) => {
     const { userId } = req.params;
     const { startDate, endDate, range } = req.query;
 
+    // Log the request for debugging
+    console.log('📋 Fetching doctor visits for user:', userId);
+    console.log('📅 Query params:', { startDate, endDate, range });
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
     let whereClause = { user_id: userId };
     const today = new Date().toISOString().split('T')[0];
 
@@ -327,21 +339,38 @@ const getDoctorVisitsByUserId = async (req, res) => {
       whereClause.date = today;
     }
 
+    console.log('🔍 Where clause:', JSON.stringify(whereClause, null, 2));
+
     const visits = await DoctorVisit.findAll({
       where: whereClause,
       include: [
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization']
+          attributes: ['id', 'name', 'specialization'],
+          required: false // Use LEFT JOIN instead of INNER JOIN
         },
         {
           model: User,
           as: 'UserInfo',
-          attributes: ['id', 'name', 'email']
+          attributes: ['id', 'name', 'email'],
+          required: false // Use LEFT JOIN instead of INNER JOIN
         }
-      ]
+      ],
+      order: [['date', 'DESC']] // Order by date descending
     });
+
+    console.log(`✅ Found ${visits.length} visits for user ${userId}`);
+
+    // If no visits found, return empty array with message
+    if (visits.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No visits found for this user',
+        data: [],
+        count: 0
+      });
+    }
 
     const transformedVisits = visits.map(visit => {
       const visitObj = visit.toJSON();
@@ -354,11 +383,18 @@ const getDoctorVisitsByUserId = async (req, res) => {
       };
     });
 
-    res.json(transformedVisits);
+    res.json({
+      success: true,
+      data: transformedVisits,
+      count: transformedVisits.length
+    });
   } catch (error) {
+    console.error('❌ Error in getDoctorVisitsByUserId:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
