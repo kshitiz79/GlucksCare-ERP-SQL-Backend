@@ -542,7 +542,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 // GET stockists for current user's head offices
 const getMyStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, User } = req.app.get('models');
+    const { Stockist, HeadOffice, User, StockistAnnualTurnover } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
@@ -588,6 +588,11 @@ const getMyStockists = async (req, res) => {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: StockistAnnualTurnover,
+          as: 'AnnualTurnovers',
+          attributes: ['year', 'amount']
         }
       ]
     });
@@ -597,11 +602,17 @@ const getMyStockists = async (req, res) => {
       const stockistObj = stockist.toJSON();
       return {
         ...stockistObj,
+        // Convert annual_turnover to the format expected by the frontend
+        annual_turnover: stockistObj.AnnualTurnovers ? stockistObj.AnnualTurnovers.map(turnover => ({
+          year: turnover.year,
+          amount: parseFloat(turnover.amount)
+        })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         // Remove the nested objects
+        AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
     });
