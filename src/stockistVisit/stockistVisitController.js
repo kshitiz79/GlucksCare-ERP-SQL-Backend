@@ -19,8 +19,9 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all stockist visits
 const getAllStockistVisits = async (req, res) => {
   try {
-    const { StockistVisit, User, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { StockistVisit, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { startDate, endDate, range } = req.query;
 
     let whereClause = {};
@@ -38,12 +39,10 @@ const getAllStockistVisits = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     const stockistVisits = await StockistVisit.findAll({
       where: whereClause,
@@ -81,7 +80,6 @@ const getStockistVisitById = async (req, res) => {
       });
     }
     res.json({
-      success: true,
       data: stockistVisit
     });
   } catch (error) {
@@ -264,8 +262,9 @@ const confirmStockistVisit = async (req, res) => {
 // GET visits by user ID
 const getStockistVisitsByUserId = async (req, res) => {
   try {
-    const { StockistVisit, Stockist, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { StockistVisit, Stockist, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { userId } = req.params;
     const { startDate, endDate, range } = req.query;
 
@@ -284,12 +283,10 @@ const getStockistVisitsByUserId = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     const visits = await StockistVisit.findAll({
       where: whereClause,

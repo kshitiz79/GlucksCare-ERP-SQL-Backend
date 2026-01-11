@@ -19,8 +19,9 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all chemist visits
 const getAllChemistVisits = async (req, res) => {
   try {
-    const { ChemistVisit, User, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { ChemistVisit, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { startDate, endDate, range } = req.query;
 
     let whereClause = {};
@@ -38,12 +39,10 @@ const getAllChemistVisits = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     const chemistVisits = await ChemistVisit.findAll({
       where: whereClause,
@@ -81,7 +80,6 @@ const getChemistVisitById = async (req, res) => {
       });
     }
     res.json({
-      success: true,
       data: chemistVisit
     });
   } catch (error) {
@@ -264,8 +262,9 @@ const confirmChemistVisit = async (req, res) => {
 // GET visits by user ID
 const getChemistVisitsByUserId = async (req, res) => {
   try {
-    const { ChemistVisit, Chemist, Sequelize } = req.app.get('models');
-    const { Op } = Sequelize;
+    const { ChemistVisit, Chemist, User } = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Op } = sequelize;
     const { userId } = req.params;
     const { startDate, endDate, range } = req.query;
 
@@ -284,12 +283,10 @@ const getChemistVisitsByUserId = async (req, res) => {
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
     } else if (range === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'all') {
-      // No date filter
-    } else {
-      // Default to today
+    } else if (range === 'today') {
       whereClause.date = today;
     }
+    // Default: No date filter - returns all visits
 
     const visits = await ChemistVisit.findAll({
       where: whereClause,
