@@ -21,7 +21,7 @@ const getAllChemistVisits = async (req, res) => {
   try {
     const { ChemistVisit, User } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    const { Op } = sequelize;
+    const { Op } = require('sequelize');
     const { startDate, endDate, range } = req.query;
 
     let whereClause = {};
@@ -264,7 +264,7 @@ const getChemistVisitsByUserId = async (req, res) => {
   try {
     const { ChemistVisit, Chemist, User } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    const { Op } = sequelize;
+    const { Op } = require('sequelize');
     const { userId } = req.params;
     const { startDate, endDate, range } = req.query;
 

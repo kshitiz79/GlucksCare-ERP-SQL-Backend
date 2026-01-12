@@ -13,6 +13,9 @@ const {
 // GET all stockist visits
 router.get('/', getAllStockistVisits);
 
+// GET visits by user ID (MUST come before /:id to avoid route conflict)
+router.get('/user/:userId', getStockistVisitsByUserId);
+
 // GET stockist visit by ID
 router.get('/:id', getStockistVisitById);
 
@@ -27,8 +30,5 @@ router.delete('/:id', deleteStockistVisit);
 
 // CONFIRM a stockist visit
 router.put('/:id/confirm', confirmStockistVisit);
-
-// GET visits by user ID
-router.get('/user/:userId', getStockistVisitsByUserId);
 
 module.exports = router;

@@ -13,6 +13,9 @@ const {
 // GET all chemist visits
 router.get('/', getAllChemistVisits);
 
+// GET visits by user ID (MUST come before /:id to avoid route conflict)
+router.get('/user/:userId', getChemistVisitsByUserId);
+
 // GET chemist visit by ID
 router.get('/:id', getChemistVisitById);
 
@@ -27,8 +30,5 @@ router.delete('/:id', deleteChemistVisit);
 
 // CONFIRM a chemist visit
 router.put('/:id/confirm', confirmChemistVisit);
-
-// GET visits by user ID
-router.get('/user/:userId', getChemistVisitsByUserId);
 
 module.exports = router;
