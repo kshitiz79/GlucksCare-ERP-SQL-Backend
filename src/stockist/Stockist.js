@@ -81,6 +81,11 @@ const Stockist = (sequelize) => {
     bank_details: {
       type: DataTypes.JSONB
     },
+    geo_image_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      comment: 'Cloudinary URL for stockist geo-tagged image'
+    },
     head_office_id: {
       type: DataTypes.UUID,
       allowNull: false,

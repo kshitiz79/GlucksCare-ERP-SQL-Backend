@@ -32,6 +32,7 @@ const getAllStockists = async (req, res) => {
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
+        geo_image_status: !!stockistObj.geo_image_url,
         // Remove the nested objects
         AnnualTurnovers: undefined,
         HeadOffice: undefined
@@ -92,6 +93,7 @@ const getStockistById = async (req, res) => {
       _id: stockistObj.id,
       createdAt: stockistObj.created_at,
       updatedAt: stockistObj.updated_at,
+      geo_image_status: !!stockistObj.geo_image_url,
       // Remove the nested objects
       AnnualTurnovers: undefined,
       HeadOffice: undefined
@@ -362,6 +364,42 @@ const updateStockist = async (req, res) => {
       });
     }
 
+    // Handle geo_image upload if file is provided
+    let uploadedImageUrl = null;
+    if (req.file) {
+      console.log('Processing geo_image upload for update...');
+      const cloudinary = require('../config/cloudinary');
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const upload_stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'stockist_geo_images',
+              resource_type: 'auto',
+              transformation: [
+                { width: 1200, height: 1200, crop: 'limit' },
+                { quality: 'auto' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+          upload_stream.end(req.file.buffer);
+        });
+
+        uploadedImageUrl = result.secure_url;
+        console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        // Continue with stockist update even if image upload fails
+      }
+    }
+
     // Start a transaction
     const transaction = await sequelize.transaction();
 
@@ -410,6 +448,11 @@ const updateStockist = async (req, res) => {
         const dbFieldName = fieldMappings[key] || key;
         stockistUpdateData[dbFieldName] = stockistData[key];
       });
+
+      // Add uploaded image URL if available
+      if (uploadedImageUrl) {
+        stockistUpdateData.geo_image_url = uploadedImageUrl;
+      }
 
       await stockist.update(stockistUpdateData, { transaction });
 
@@ -611,6 +654,7 @@ const getMyStockists = async (req, res) => {
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
+        geo_image_status: !!stockistObj.geo_image_url,
         // Remove the nested objects
         AnnualTurnovers: undefined,
         HeadOffice: undefined

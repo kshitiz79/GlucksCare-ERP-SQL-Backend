@@ -38,6 +38,11 @@ const Doctor = (sequelize) => {
     date_of_birth: {
       type: DataTypes.DATE
     },
+    geo_image_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      comment: 'Cloudinary URL for chemist geo-tagged image'
+    },
     gender: {
       type: DataTypes.STRING(10)
     },

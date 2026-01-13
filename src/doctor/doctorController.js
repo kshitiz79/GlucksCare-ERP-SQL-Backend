@@ -19,7 +19,8 @@ const getAllDoctors = async (req, res) => {
         headOffice: doctorObj.HeadOffice || null,
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
-        updatedAt: doctorObj.updated_at
+        updatedAt: doctorObj.updated_at,
+        geo_image_status: !!doctorObj.geo_image_url // true if geo_image_url exists, false otherwise
         // Keep HeadOffice for frontend compatibility
       };
     });
@@ -64,6 +65,7 @@ const getDoctorById = async (req, res) => {
       _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
+      geo_image_status: !!doctorObj.geo_image_url,
       // Remove the nested objects
       HeadOffice: undefined
     };
@@ -91,6 +93,7 @@ const createDoctor = async (req, res) => {
 
     // Log the incoming request body for debugging
     console.log('Incoming doctor data:', JSON.stringify(req.body, null, 2));
+    console.log('File uploaded:', req.file ? 'Yes' : 'No');
 
     // Process the incoming data
     const doctorData = { ...req.body };
@@ -125,6 +128,42 @@ const createDoctor = async (req, res) => {
     } else {
       // Default to 'C' if not provided
       doctorData.priority = 'C';
+    }
+
+    // Handle geo_image upload if file is provided
+    if (req.file) {
+      console.log('Processing geo_image upload...');
+      const cloudinary = require('../config/cloudinary');
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const upload_stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'doctor_geo_images',
+              resource_type: 'auto',
+              transformation: [
+                { width: 1200, height: 1200, crop: 'limit' },
+                { quality: 'auto' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+          upload_stream.end(req.file.buffer);
+        });
+
+        doctorData.geo_image_url = result.secure_url;
+        console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        // Continue with doctor creation even if image upload fails
+        // You can choose to return error instead if image is mandatory
+      }
     }
 
     // Log the processed data
@@ -193,6 +232,42 @@ const updateDoctor = async (req, res) => {
       });
     }
 
+    // Handle geo_image upload if file is provided
+    let uploadedImageUrl = null;
+    if (req.file) {
+      console.log('Processing geo_image upload for update...');
+      const cloudinary = require('../config/cloudinary');
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const upload_stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'doctor_geo_images',
+              resource_type: 'auto',
+              transformation: [
+                { width: 1200, height: 1200, crop: 'limit' },
+                { quality: 'auto' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+          upload_stream.end(req.file.buffer);
+        });
+
+        uploadedImageUrl = result.secure_url;
+        console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        // Continue with doctor update even if image upload fails
+      }
+    }
+
     // Map headOffice to head_office_id if needed
     const doctorData = { ...req.body };
     if (doctorData.headOffice && !doctorData.head_office_id) {
@@ -218,6 +293,11 @@ const updateDoctor = async (req, res) => {
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       convertedData[snakeCaseKey] = doctorData[key];
     });
+
+    // Add uploaded image URL if available
+    if (uploadedImageUrl) {
+      convertedData.geo_image_url = uploadedImageUrl;
+    }
 
     await doctor.update(convertedData);
 

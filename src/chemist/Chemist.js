@@ -43,6 +43,11 @@ const Chemist = (sequelize) => {
     years_in_business: {
       type: DataTypes.INTEGER
     },
+    geo_image_url: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      comment: 'Cloudinary URL for chemist geo-tagged image'
+    },
     head_office_id: {
       type: DataTypes.UUID,
       allowNull: false,

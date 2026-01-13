@@ -12,7 +12,7 @@ const {
   createBulkStockists
 } = require('./stockistController');
 
-const { uploadStockistDocuments } = require('./stockistImageController');
+const { uploadStockistDocuments, uploadStockistGeoImage } = require('./stockistImageController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
 
@@ -57,8 +57,8 @@ router.post('/', authMiddleware, upload.fields([
 // CREATE bulk stockists
 router.post('/bulk', authMiddleware, createBulkStockists);
 
-// UPDATE a stockist
-router.put('/:id', authMiddleware, updateStockist);
+// UPDATE a stockist (with optional geo-image upload)
+router.put('/:id', authMiddleware, upload.single('geo_image'), updateStockist);
 
 // UPLOAD stockist documents - Fixed to accept individual file fields
 router.post('/:id/documents', authMiddleware, upload.fields([
@@ -68,6 +68,9 @@ router.post('/:id/documents', authMiddleware, upload.fields([
   { name: 'cancelledCheque', maxCount: 1 },
   { name: 'businessProfile', maxCount: 1 }
 ]), uploadStockistDocuments);
+
+// UPLOAD stockist geo-image
+router.post('/:id/geo-image', authMiddleware, upload.single('geo_image'), uploadStockistGeoImage);
 
 // DELETE a stockist
 router.delete('/:id', authMiddleware, deleteStockist);

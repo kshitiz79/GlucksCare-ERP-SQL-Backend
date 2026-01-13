@@ -8,7 +8,7 @@ const getAllChemists = async (req, res) => {
       throw new Error('Required models are not available');
     }
     const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
-    
+
     const chemists = await Chemist.findAll({
       include: [
         {
@@ -23,7 +23,7 @@ const getAllChemists = async (req, res) => {
         }
       ]
     });
-    
+
     const transformedChemists = chemists.map(chemist => {
       const chemistObj = chemist.toJSON();
       return {
@@ -36,11 +36,12 @@ const getAllChemists = async (req, res) => {
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
+        geo_image_status: !!chemistObj.geo_image_url,
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
     });
-    
+
     res.json({
       success: true,
       count: transformedChemists.length,
@@ -63,7 +64,7 @@ const getChemistById = async (req, res) => {
       throw new Error('Required models are not available');
     }
     const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
-    
+
     const chemist = await Chemist.findByPk(req.params.id, {
       include: [
         {
@@ -78,14 +79,14 @@ const getChemistById = async (req, res) => {
         }
       ]
     });
-    
+
     if (!chemist) {
       return res.status(404).json({
         success: false,
         message: 'Chemist not found'
       });
     }
-    
+
     const chemistObj = chemist.toJSON();
     const transformedChemist = {
       ...chemistObj,
@@ -97,10 +98,11 @@ const getChemistById = async (req, res) => {
       _id: chemistObj.id,
       createdAt: chemistObj.created_at,
       updatedAt: chemistObj.updated_at,
+      geo_image_status: !!chemistObj.geo_image_url,
       AnnualTurnovers: undefined,
       HeadOffice: undefined
     };
-    
+
     res.json({
       success: true,
       data: transformedChemist
@@ -123,13 +125,13 @@ const createChemist = async (req, res) => {
       throw new Error('Required models or Sequelize instance are not available');
     }
     const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
-    
+
     // Log the incoming request body for debugging
     console.log('Incoming chemist data:', JSON.stringify(req.body, null, 2));
-    
+
     // Process the incoming data
     const chemistData = { ...req.body };
-    
+
     // Handle head office ID field conversion
     // The frontend might send headOfficeId, head_office_id, or headOffice
     if (chemistData.headOfficeId) {
@@ -146,7 +148,7 @@ const createChemist = async (req, res) => {
       delete chemistData.headOffice;
       console.log('Converted headOffice to headOfficeId:', chemistData.headOfficeId);
     }
-    
+
     // Handle field name conversions from camelCase to snake_case
     const fieldMappings = {
       firmName: 'firm_name',
@@ -158,17 +160,17 @@ const createChemist = async (req, res) => {
       yearsInBusiness: 'years_in_business',
       headOfficeId: 'head_office_id'
     };
-    
+
     // Convert field names and collect data for the main chemist record
     const chemistRecordData = {};
     Object.keys(chemistData).forEach(key => {
       // Skip annualTurnover as it will be handled separately
       if (key === 'annualTurnover') return;
-      
+
       const dbFieldName = fieldMappings[key] || key;
       chemistRecordData[dbFieldName] = chemistData[key];
     });
-    
+
     // Validate that headOfficeId is provided
     if (!chemistRecordData.head_office_id) {
       return res.status(400).json({
@@ -176,7 +178,7 @@ const createChemist = async (req, res) => {
         message: 'Head Office ID is required'
       });
     }
-    
+
     // Validate that firmName is provided
     if (!chemistRecordData.firm_name) {
       return res.status(400).json({
@@ -184,15 +186,50 @@ const createChemist = async (req, res) => {
         message: 'Firm Name is required'
       });
     }
-    
+
+    // Handle geo_image upload if file is provided
+    if (req.file) {
+      console.log('Processing geo_image upload...');
+      const cloudinary = require('../config/cloudinary');
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const upload_stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'chemist_geo_images',
+              resource_type: 'auto',
+              transformation: [
+                { width: 1200, height: 1200, crop: 'limit' },
+                { quality: 'auto' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+          upload_stream.end(req.file.buffer);
+        });
+
+        chemistRecordData.geo_image_url = result.secure_url;
+        console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        // Continue with chemist creation even if image upload fails
+      }
+    }
+
     // Start a transaction
     const transaction = await sequelize.transaction();
-    
+
     try {
       console.log('Creating chemist with data:', chemistRecordData);
       const chemist = await Chemist.create(chemistRecordData, { transaction });
       console.log('Chemist created successfully:', chemist.id);
-      
+
       // Handle annual turnover data if provided
       if (chemistData.annualTurnover && Array.isArray(chemistData.annualTurnover) && chemistData.annualTurnover.length > 0) {
         // Create annual turnover records
@@ -201,12 +238,12 @@ const createChemist = async (req, res) => {
           year: parseInt(turnover.year, 10),
           amount: parseFloat(turnover.amount)
         })).filter(turnover => !isNaN(turnover.year) && !isNaN(turnover.amount));
-        
+
         if (annualTurnoverRecords.length > 0) {
           await ChemistAnnualTurnover.bulkCreate(annualTurnoverRecords, { transaction });
         }
       }
-      
+
       // Fetch the created chemist with associations
       const createdChemist = await Chemist.findByPk(chemist.id, {
         include: [
@@ -223,10 +260,10 @@ const createChemist = async (req, res) => {
         ],
         transaction
       });
-      
+
       // Commit the transaction
       await transaction.commit();
-      
+
       // Transform the response to match the MongoDB format
       const chemistObj = createdChemist.toJSON();
       const transformedChemist = {
@@ -248,7 +285,7 @@ const createChemist = async (req, res) => {
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
-      
+
       res.status(201).json({
         success: true,
         data: transformedChemist
@@ -276,7 +313,7 @@ const updateChemist = async (req, res) => {
       throw new Error('Required models or Sequelize instance are not available');
     }
     const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
-    
+
     const chemist = await Chemist.findByPk(req.params.id);
     if (!chemist) {
       return res.status(404).json({
@@ -284,10 +321,46 @@ const updateChemist = async (req, res) => {
         message: 'Chemist not found'
       });
     }
-    
+
+    // Handle geo_image upload if file is provided
+    let uploadedImageUrl = null;
+    if (req.file) {
+      console.log('Processing geo_image upload for update...');
+      const cloudinary = require('../config/cloudinary');
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const upload_stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'chemist_geo_images',
+              resource_type: 'auto',
+              transformation: [
+                { width: 1200, height: 1200, crop: 'limit' },
+                { quality: 'auto' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            }
+          );
+          upload_stream.end(req.file.buffer);
+        });
+
+        uploadedImageUrl = result.secure_url;
+        console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
+      } catch (uploadError) {
+        console.error('Cloudinary upload error:', uploadError);
+        // Continue with chemist update even if image upload fails
+      }
+    }
+
     // Start a transaction
     const transaction = await sequelize.transaction();
-    
+
     try {
       // Map headOffice to head_office_id if needed
       const chemistData = { ...req.body };
@@ -295,7 +368,7 @@ const updateChemist = async (req, res) => {
         chemistData.head_office_id = chemistData.headOffice;
         delete chemistData.headOffice;
       }
-      
+
       // Handle field name conversions from camelCase to snake_case
       const fieldMappings = {
         firmName: 'firm_name',
@@ -307,19 +380,24 @@ const updateChemist = async (req, res) => {
         yearsInBusiness: 'years_in_business',
         headOfficeId: 'head_office_id'
       };
-      
+
       // Convert field names and collect data for the main chemist record
       const chemistUpdateData = {};
       Object.keys(chemistData).forEach(key => {
         // Skip annualTurnover as it will be handled separately
         if (key === 'annualTurnover') return;
-        
+
         const dbFieldName = fieldMappings[key] || key;
         chemistUpdateData[dbFieldName] = chemistData[key];
       });
-      
+
+      // Add uploaded image URL if available
+      if (uploadedImageUrl) {
+        chemistUpdateData.geo_image_url = uploadedImageUrl;
+      }
+
       await chemist.update(chemistUpdateData, { transaction });
-      
+
       // Handle annual turnover data if provided
       if ('annualTurnover' in chemistData) {
         // Delete existing annual turnover records
@@ -327,7 +405,7 @@ const updateChemist = async (req, res) => {
           where: { chemist_id: chemist.id },
           transaction
         });
-        
+
         // Create new annual turnover records if provided
         if (chemistData.annualTurnover && Array.isArray(chemistData.annualTurnover) && chemistData.annualTurnover.length > 0) {
           const annualTurnoverRecords = chemistData.annualTurnover.map(turnover => ({
@@ -335,13 +413,13 @@ const updateChemist = async (req, res) => {
             year: parseInt(turnover.year, 10),
             amount: parseFloat(turnover.amount)
           })).filter(turnover => !isNaN(turnover.year) && !isNaN(turnover.amount));
-          
+
           if (annualTurnoverRecords.length > 0) {
             await ChemistAnnualTurnover.bulkCreate(annualTurnoverRecords, { transaction });
           }
         }
       }
-      
+
       // Fetch the updated chemist with associations
       const updatedChemist = await Chemist.findByPk(chemist.id, {
         include: [
@@ -358,10 +436,10 @@ const updateChemist = async (req, res) => {
         ],
         transaction
       });
-      
+
       // Commit the transaction
       await transaction.commit();
-      
+
       // Transform the response to match the MongoDB format
       const chemistObj = updatedChemist.toJSON();
       const transformedChemist = {
@@ -383,7 +461,7 @@ const updateChemist = async (req, res) => {
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
-      
+
       res.json({
         success: true,
         data: transformedChemist
@@ -410,7 +488,7 @@ const deleteChemist = async (req, res) => {
       throw new Error('Required models are not available');
     }
     const { Chemist } = models;
-    
+
     const chemist = await Chemist.findByPk(req.params.id);
     if (!chemist) {
       return res.status(404).json({
@@ -418,7 +496,7 @@ const deleteChemist = async (req, res) => {
         message: 'Chemist not found'
       });
     }
-    
+
     await chemist.destroy();
     res.json({
       success: true,
@@ -441,7 +519,7 @@ const getChemistsByHeadOffice = async (req, res) => {
       throw new Error('Required models are not available');
     }
     const { Chemist } = models;
-    
+
     const { headOfficeId } = req.params;
     const chemists = await Chemist.findAll({
       where: {
@@ -466,7 +544,7 @@ const getMyChemists = async (req, res) => {
       throw new Error('Required models are not available');
     }
     const { Chemist, HeadOffice, User, ChemistAnnualTurnover } = models;
-    
+
     const user = await User.findByPk(req.user.id, {
       include: [
         {
@@ -515,7 +593,7 @@ const getMyChemists = async (req, res) => {
         }
       ]
     });
-    
+
     const transformedChemists = chemists.map(chemist => {
       const chemistObj = chemist.toJSON();
       return {
@@ -528,11 +606,12 @@ const getMyChemists = async (req, res) => {
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
+        geo_image_status: !!chemistObj.geo_image_url,
         AnnualTurnovers: undefined,
         HeadOffice: undefined
       };
     });
-    
+
     res.json({
       success: true,
       count: transformedChemists.length,
