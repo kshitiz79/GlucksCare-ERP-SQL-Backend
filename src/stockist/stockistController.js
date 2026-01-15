@@ -267,6 +267,9 @@ const createStockist = async (req, res) => {
                 case 'businessProfile':
                   documentUrls.business_profile_url = url;
                   break;
+                case 'geo_image':
+                  documentUrls.geo_image_url = url;
+                  break;
               }
             } catch (uploadError) {
               console.error(`Error uploading ${fieldName}:`, uploadError);
