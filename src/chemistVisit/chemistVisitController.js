@@ -296,7 +296,20 @@ const getChemistVisitsByUserId = async (req, res) => {
       }]
     });
 
-    res.json(visits);
+    // Transform visits to add geo_image_status
+    const transformedVisits = visits.map(visit => {
+      const visitObj = visit.toJSON();
+      return {
+        ...visitObj,
+        Chemist: visitObj.Chemist ? {
+          ...visitObj.Chemist,
+          geo_image_status: !!visitObj.Chemist.geo_image_url,
+          geo_image_url: undefined // Remove URL from response
+        } : null
+      };
+    });
+
+    res.json(transformedVisits);
   } catch (error) {
     res.status(500).json({
       success: false,

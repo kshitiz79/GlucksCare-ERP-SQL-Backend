@@ -261,12 +261,8 @@ const updateExpense = async (req, res) => {
     }
 
     // Check if expense can be edited
-    if (expense.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: 'Can only edit pending expenses'
-      });
-    }
+    // Admin can edit at any status, but we'll reset to pending if it was approved/rejected
+    const wasApprovedOrRejected = expense.status === 'approved' || expense.status === 'rejected';
 
     if (expense.edit_count >= 1) {
       return res.status(400).json({
@@ -338,7 +334,9 @@ const updateExpense = async (req, res) => {
       rate_per_km: ratePerKm,
       total_distance_km: totalDistance,
       daily_allowance_type: category === 'daily' ? dailyAllowanceType : null,
-      edit_count: expense.edit_count + 1
+      edit_count: expense.edit_count + 1,
+      // Reset status to pending if it was approved or rejected
+      status: wasApprovedOrRejected ? 'pending' : expense.status
     };
 
     await expense.update(updateData);
