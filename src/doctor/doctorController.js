@@ -386,6 +386,7 @@ const getDoctorsByHeadOffice = async (req, res) => {
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
+        geo_image_status: !!doctorObj.geo_image_url,
         // Remove the nested objects
         HeadOffice: undefined
       };
@@ -465,6 +466,7 @@ const getMyDoctors = async (req, res) => {
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
+        geo_image_status: !!doctorObj.geo_image_url,
         // Remove the nested objects
         HeadOffice: undefined
       };
