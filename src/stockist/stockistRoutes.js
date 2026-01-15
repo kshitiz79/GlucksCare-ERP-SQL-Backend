@@ -45,13 +45,14 @@ router.get('/my-stockists', authMiddleware, getMyStockists);
 // GET stockist by ID
 router.get('/:id', authMiddleware, getStockistById);
 
-// CREATE a new stockist with optional document upload
+// CREATE a new stockist with optional document upload and geo-image
 router.post('/', authMiddleware, upload.fields([
   { name: 'gstCertificate', maxCount: 1 },
   { name: 'drugLicense', maxCount: 1 },
   { name: 'panCard', maxCount: 1 },
   { name: 'cancelledCheque', maxCount: 1 },
-  { name: 'businessProfile', maxCount: 1 }
+  { name: 'businessProfile', maxCount: 1 },
+  { name: 'geo_image', maxCount: 1 }
 ]), createStockist);
 
 // CREATE bulk stockists
