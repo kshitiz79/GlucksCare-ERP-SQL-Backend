@@ -460,7 +460,11 @@ const getDoctorVisitsByUserId = async (req, res) => {
           required: false // Use LEFT JOIN instead of INNER JOIN
         }
       ],
-      order: [['date', 'DESC']] // Order by date descending
+order: [
+  ['date', 'DESC'],
+  ['createdAt', 'DESC']
+]
+
     });
 
     console.log(`✅ Found ${visits.length} visits for user ${userId}`);
