@@ -450,7 +450,7 @@ const getDoctorVisitsByUserId = async (req, res) => {
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization'],
+          attributes: ['id', 'name', 'specialization', 'geo_image_url'],
           required: false // Use LEFT JOIN instead of INNER JOIN
         },
         {
