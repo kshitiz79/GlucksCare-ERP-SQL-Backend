@@ -1126,14 +1126,7 @@ const getMyHeadOffices = async (req, res) => {
         where: {
           stateId: user.state_id,
           is_active: true
-        },
-        include: [
-          {
-            model: State,
-            as: 'State',
-            attributes: ['id', 'name', 'code']
-          }
-        ]
+        }
       });
 
       headOffices = stateHeadOffices.map(ho => ({
@@ -1145,12 +1138,7 @@ const getMyHeadOffices = async (req, res) => {
         pincode: ho.pincode,
         isActive: ho.is_active,
         createdAt: ho.created_at,
-        updatedAt: ho.updated_at,
-        State: ho.State ? {
-          id: ho.State.id,
-          name: ho.State.name,
-          code: ho.State.code
-        } : null
+        updatedAt: ho.updated_at
       }));
     } else {
       // For other users, return their assigned head offices
@@ -1187,9 +1175,7 @@ const getMyHeadOffices = async (req, res) => {
 
     res.json({
       success: true,
-      data: headOffices,
-      userRole: user.role,
-      stateId: user.state_id
+      data: headOffices
     });
   } catch (error) {
     console.error('Get my head offices error:', error);
