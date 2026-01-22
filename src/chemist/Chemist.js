@@ -25,7 +25,7 @@ const Chemist = (sequelize) => {
       unique: true
     },
     drug_license_number: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(100)
 
     },
     gst_no: {
