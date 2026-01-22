@@ -1084,8 +1084,8 @@ const deleteUser = async (req, res) => {
 // GET current user's assigned head offices
 const getMyHeadOffices = async (req, res) => {
   try {
-    // Get the User and HeadOffice models from app context
-    const { User, HeadOffice } = req.app.get('models');
+    // Get the User, HeadOffice, and State models from app context
+    const { User, HeadOffice, State } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findOne({
@@ -1109,42 +1109,87 @@ const getMyHeadOffices = async (req, res) => {
       });
     }
 
-    // Return all assigned head offices as an array
     let headOffices = [];
 
-    if (user.headOffices && user.headOffices.length > 0) {
-      headOffices = user.headOffices.map(ho => ({
+    // Check if user is State Head
+    if (user.role === 'State Head') {
+      // For State Head, return all head offices in their assigned state
+      if (!user.state_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'State Head user does not have a state assigned.'
+        });
+      }
+
+      // Find all head offices belonging to this state
+      const stateHeadOffices = await HeadOffice.findAll({
+        where: {
+          stateId: user.state_id,
+          is_active: true
+        },
+        include: [
+          {
+            model: State,
+            as: 'State',
+            attributes: ['id', 'name', 'code']
+          }
+        ]
+      });
+
+      headOffices = stateHeadOffices.map(ho => ({
         _id: ho.id,
         id: ho.id,
         name: ho.name,
         code: ho.code,
-        stateId: ho.state_id,
+        stateId: ho.stateId,
         pincode: ho.pincode,
         isActive: ho.is_active,
         createdAt: ho.created_at,
-        updatedAt: ho.updated_at
+        updatedAt: ho.updated_at,
+        State: ho.State ? {
+          id: ho.State.id,
+          name: ho.State.name,
+          code: ho.State.code
+        } : null
       }));
-    } else if (user.head_office_id) {
-      // If user has a single head office, fetch it
-      const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id);
-      if (singleHeadOffice) {
-        headOffices = [{
-          _id: singleHeadOffice.id,
-          id: singleHeadOffice.id,
-          name: singleHeadOffice.name,
-          code: singleHeadOffice.code,
-          stateId: singleHeadOffice.state_id,
-          pincode: singleHeadOffice.pincode,
-          isActive: singleHeadOffice.is_active,
-          createdAt: singleHeadOffice.created_at,
-          updatedAt: singleHeadOffice.updated_at
-        }];
+    } else {
+      // For other users, return their assigned head offices
+      if (user.headOffices && user.headOffices.length > 0) {
+        headOffices = user.headOffices.map(ho => ({
+          _id: ho.id,
+          id: ho.id,
+          name: ho.name,
+          code: ho.code,
+          stateId: ho.stateId,
+          pincode: ho.pincode,
+          isActive: ho.is_active,
+          createdAt: ho.created_at,
+          updatedAt: ho.updated_at
+        }));
+      } else if (user.head_office_id) {
+        // If user has a single head office, fetch it
+        const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id);
+        if (singleHeadOffice) {
+          headOffices = [{
+            _id: singleHeadOffice.id,
+            id: singleHeadOffice.id,
+            name: singleHeadOffice.name,
+            code: singleHeadOffice.code,
+            stateId: singleHeadOffice.stateId,
+            pincode: singleHeadOffice.pincode,
+            isActive: singleHeadOffice.is_active,
+            createdAt: singleHeadOffice.created_at,
+            updatedAt: singleHeadOffice.updated_at
+          }];
+        }
       }
     }
 
     res.json({
       success: true,
-      data: headOffices
+      data: headOffices,
+      userRole: user.role,
+      stateId: user.state_id
     });
   } catch (error) {
     console.error('Get my head offices error:', error);
