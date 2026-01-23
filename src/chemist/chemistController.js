@@ -168,7 +168,9 @@ const createChemist = async (req, res) => {
       if (key === 'annualTurnover') return;
 
       const dbFieldName = fieldMappings[key] || key;
-      chemistRecordData[dbFieldName] = chemistData[key];
+      // Convert empty strings to null for optional fields
+      const value = chemistData[key];
+      chemistRecordData[dbFieldName] = (value === '' || value === undefined) ? null : value;
     });
 
     // Validate that headOfficeId is provided
@@ -388,7 +390,9 @@ const updateChemist = async (req, res) => {
         if (key === 'annualTurnover') return;
 
         const dbFieldName = fieldMappings[key] || key;
-        chemistUpdateData[dbFieldName] = chemistData[key];
+        // Convert empty strings to null for optional fields
+        const value = chemistData[key];
+        chemistUpdateData[dbFieldName] = (value === '' || value === undefined) ? null : value;
       });
 
       // Add uploaded image URL if available
