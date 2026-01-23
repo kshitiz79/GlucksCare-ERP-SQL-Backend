@@ -136,7 +136,7 @@ const User = (sequelize) => {
       type: DataTypes.STRING(10)
     },
     otp_expire: {
-      type: DataTypes.DATE 
+      type: DataTypes.DATE
     },
     email_verified: {
       type: DataTypes.BOOLEAN,
@@ -150,6 +150,12 @@ const User = (sequelize) => {
     },
     pin_expire: {
       type: DataTypes.DATE
+    },
+    // FCM Token for push notifications
+    fcm_token: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      comment: 'Firebase Cloud Messaging token for push notifications'
     },
     // Audit fields
     created_by: {

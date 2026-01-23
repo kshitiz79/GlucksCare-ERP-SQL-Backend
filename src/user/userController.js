@@ -1755,6 +1755,87 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
+// UPDATE FCM Token (POST/PUT)
+const updateFcmToken = async (req, res) => {
+  try {
+    const { User } = req.app.get('models');
+    const userId = req.user.id; // Get user ID from auth token
+    const { fcmToken } = req.body;
+
+    // Validate FCM token
+    if (!fcmToken || typeof fcmToken !== 'string' || fcmToken.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid FCM token is required'
+      });
+    }
+
+    // Find user
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update FCM token
+    user.fcm_token = fcmToken.trim();
+    await user.save();
+
+    console.log(`✅ FCM token updated for user ${user.name} (${user.id})`);
+
+    res.json({
+      success: true,
+      message: 'FCM token updated successfully',
+      data: {
+        userId: user.id,
+        fcmToken: user.fcm_token
+      }
+    });
+  } catch (error) {
+    console.error('Update FCM token error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// DELETE FCM Token
+const deleteFcmToken = async (req, res) => {
+  try {
+    const { User } = req.app.get('models');
+    const userId = req.user.id; // Get user ID from auth token
+
+    // Find user
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Remove FCM token
+    user.fcm_token = null;
+    await user.save();
+
+    console.log(`✅ FCM token deleted for user ${user.name} (${user.id})`);
+
+    res.json({
+      success: true,
+      message: 'FCM token deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete FCM token error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUsersByRole,
@@ -1772,5 +1853,7 @@ module.exports = {
   registerUser,
   getUsersByState,
   getMyState,
-  updateUserStatus
+  updateUserStatus,
+  updateFcmToken,
+  deleteFcmToken
 };

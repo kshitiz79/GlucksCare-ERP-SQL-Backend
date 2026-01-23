@@ -19,7 +19,9 @@ const {
   registerUser,
   getUsersByState,
   getMyState,
-  updateUserStatus
+  updateUserStatus,
+  updateFcmToken,
+  deleteFcmToken
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -92,5 +94,15 @@ router.put('/:id/deactivate', authMiddleware, softDeleteUser);
 
 // FORCE DELETE a user (use with extreme caution)
 router.delete('/:id/force', authMiddleware, forceDeleteUser);
+
+// FCM TOKEN MANAGEMENT
+// UPDATE/CREATE FCM token (POST)
+router.post('/fcm-token', authMiddleware, updateFcmToken);
+
+// UPDATE FCM token (PUT)
+router.put('/fcm-token', authMiddleware, updateFcmToken);
+
+// DELETE FCM token
+router.delete('/fcm-token', authMiddleware, deleteFcmToken);
 
 module.exports = router;
