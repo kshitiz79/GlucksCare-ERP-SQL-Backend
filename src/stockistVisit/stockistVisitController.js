@@ -49,8 +49,8 @@ const getAllStockistVisits = async (req, res) => {
       include: [
         {
           model: User,
-          as: 'user',
-          where: { is_active: true },
+          as: 'User',
+          required: false,
           attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
         }
       ]

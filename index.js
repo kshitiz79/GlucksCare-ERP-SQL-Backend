@@ -262,6 +262,10 @@ async function startServer() {
     const userDeviceRoutes = require('./src/userDevice/userDeviceRoutes');
     app.use('/api/user-devices', userDeviceRoutes);
 
+    // Mob image upload routes
+    const mobImageRoutes = require('./src/mobimgupload/mobImageRoutes');
+    app.use('/api/mobimages', mobImageRoutes);
+
 
     // Root endpoint
     app.get('/', (req, res) => {

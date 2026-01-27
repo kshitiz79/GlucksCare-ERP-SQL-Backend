@@ -90,6 +90,7 @@ const UserDevice = require('../userDevice/UserDevice');
 const InvoiceTracking = require('../invoiceTracking/InvoiceTracking');
 const Advance = require('../advance/Advance');
 const AdvanceRepayment = require('../advance/AdvanceRepayment');
+const MobImage = require('../mobimgupload/MobImage');
 
 // Initialize models
 const models = {
@@ -114,7 +115,7 @@ const models = {
     StockistAnnualTurnover: StockistAnnualTurnover(sequelize),
     Product: Product(sequelize),
     SalesTarget: SalesTarget(sequelize),
-  
+
     StopEvents: StopEvents(sequelize),
     DoctorVisit: DoctorVisit(sequelize),
     ChemistVisit: ChemistVisit(sequelize),
@@ -141,7 +142,8 @@ const models = {
     UserDevice: UserDevice(sequelize),
     InvoiceTracking: InvoiceTracking(sequelize),
     Advance: Advance(sequelize),
-    AdvanceRepayment: AdvanceRepayment(sequelize)
+    AdvanceRepayment: AdvanceRepayment(sequelize),
+    MobImage: MobImage(sequelize)
 };
 
 // Set up hooks
@@ -149,9 +151,9 @@ setupHooks(models.User);
 
 // Call associate functions if they exist
 Object.values(models).forEach(model => {
-  if (model.associate) {
-    model.associate(models);
-  }
+    if (model.associate) {
+        model.associate(models);
+    }
 });
 
 // Import associations and apply them

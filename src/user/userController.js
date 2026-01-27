@@ -667,6 +667,40 @@ const updateUser = async (req, res) => {
 
     await user.update(updateData);
 
+    // Handle headOffices relationship if provided
+    if (req.body.headOffices && Array.isArray(req.body.headOffices)) {
+      const { HeadOffice } = req.app.get('models');
+      const sequelize = req.app.get('sequelize');
+
+      try {
+        // Clear existing head office associations
+        await sequelize.query(
+          'DELETE FROM user_head_offices WHERE user_id = :userId',
+          {
+            replacements: { userId: user.id },
+            type: sequelize.QueryTypes.DELETE
+          }
+        );
+
+        // Add new head office associations
+        if (req.body.headOffices.length > 0) {
+          const values = req.body.headOffices.map(hoId =>
+            `('${user.id}', '${hoId}')`
+          ).join(', ');
+
+          await sequelize.query(
+            `INSERT INTO user_head_offices (user_id, head_office_id) VALUES ${values}`,
+            { type: sequelize.QueryTypes.INSERT }
+          );
+        }
+
+        console.log(`✅ Updated head offices for user ${user.id}: ${req.body.headOffices.length} offices`);
+      } catch (hoError) {
+        console.error('Error updating head offices:', hoError);
+        // Continue even if head office update fails
+      }
+    }
+
     // Transform user to match MongoDB format
     const transformedUser = {
       _id: user.id,
