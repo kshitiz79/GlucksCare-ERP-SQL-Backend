@@ -37,6 +37,8 @@ module.exports = (db) => {
   db.User.hasMany(db.PdfFile, { foreignKey: 'uploaded_by', as: 'uploadedFiles' });
   db.User.hasMany(db.UserDevice, { foreignKey: 'user_id' });
 
+
+
   // Many-to-many relationship with HeadOffice
   db.User.belongsToMany(db.HeadOffice, {
     through: db.UserHeadOffice,
@@ -248,6 +250,12 @@ module.exports = (db) => {
   db.User.hasMany(db.Advance, { foreignKey: 'user_id', as: 'advances' });
   db.User.hasMany(db.Advance, { foreignKey: 'approved_by', as: 'approvedAdvances' });
   db.User.hasMany(db.AdvanceRepayment, { foreignKey: 'created_by', as: 'createdRepayments' });
+  db.User.hasMany(db.ForwardingNote, { foreignKey: 'created_by', as: 'createdForwardingNotes' });
+  db.User.hasMany(db.ForwardingNote, { foreignKey: 'updated_by', as: 'updatedForwardingNotes' });
+
+  // ForwardingNote associations
+  db.ForwardingNote.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_tracking_id', as: 'invoiceTracking' });
+  db.InvoiceTracking.hasMany(db.ForwardingNote, { foreignKey: 'invoice_tracking_id', as: 'forwardingNotes' });
 
   return db;
 };

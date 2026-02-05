@@ -197,6 +197,10 @@ async function startServer() {
     const invoiceTrackingRoutes = require('./src/invoiceTracking/invoiceTrackingRoutes');
     app.use('/api/invoice-tracking', invoiceTrackingRoutes);
 
+    // Forwarding note routes
+    const forwardingNoteRoutes = require('./src/forwardingNote/forwardingNoteRoutes');
+    app.use('/api/forwarding-notes', forwardingNoteRoutes);
+
     // Mount routes
     app.use('/api/auth', authRoutes);
     app.use('/api/users', userRoutes);

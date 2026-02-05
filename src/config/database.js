@@ -88,6 +88,7 @@ const AppVersionConfig = require('../version/AppVersionConfig');
 const PdfFile = require('../pdf/PdfFile');
 const UserDevice = require('../userDevice/UserDevice');
 const InvoiceTracking = require('../invoiceTracking/InvoiceTracking');
+const ForwardingNote = require('../forwardingNote/forwardingNote');
 const Advance = require('../advance/Advance');
 const AdvanceRepayment = require('../advance/AdvanceRepayment');
 const MobImage = require('../mobimgupload/MobImage');
@@ -141,6 +142,7 @@ const models = {
     PdfFile: PdfFile(sequelize),
     UserDevice: UserDevice(sequelize),
     InvoiceTracking: InvoiceTracking(sequelize),
+    ForwardingNote: ForwardingNote(sequelize),
     Advance: Advance(sequelize),
     AdvanceRepayment: AdvanceRepayment(sequelize),
     MobImage: MobImage(sequelize)
