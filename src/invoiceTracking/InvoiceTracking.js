@@ -58,6 +58,12 @@ const InvoiceTracking = (sequelize) => {
       allowNull: true,
       comment: 'Courier company name (e.g., Blue Dart, DTDC, etc.)'
     },
+    amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+      comment: 'Invoice amount'
+    },
     status: {
       type: DataTypes.ENUM('pending', 'shipped', 'in_transit', 'delivered', 'cancelled'),
       defaultValue: 'pending',

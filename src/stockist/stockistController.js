@@ -1,3 +1,31 @@
+// Field mapping from camelCase (frontend) to snake_case (database)
+const STOCKIST_FIELD_MAPPINGS = {
+  firmName: 'firm_name',
+  registeredBusinessName: 'registered_business_name',
+  natureOfBusiness: 'nature_of_business',
+  gstNumber: 'gst_number',
+  drugLicenseNumber: 'drug_license_number',
+  panNumber: 'pan_number',
+  registeredOfficeAddress: 'registered_office_address',
+  contactPerson: 'contact_person',
+  mobileNumber: 'mobile_number',
+  emailAddress: 'email_address',
+  yearsInBusiness: 'years_in_business',
+  areasOfOperation: 'areas_of_operation',
+  currentPharmaDistributorships: 'current_pharma_distributorships',
+  warehouseFacility: 'warehouse_facility',
+  storageFacilitySize: 'storage_facility_size',
+  coldStorageAvailable: 'cold_storage_available',
+  numberOfSalesRepresentatives: 'number_of_sales_representatives',
+  bankDetails: 'bank_details',
+  headOfficeId: 'head_office_id',
+  gstCertificateUrl: 'gst_certificate_url',
+  drugLicenseUrl: 'drug_license_url',
+  panCardUrl: 'pan_card_url',
+  cancelledChequeUrl: 'cancelled_cheque_url',
+  businessProfileUrl: 'business_profile_url'
+};
+
 // GET all stockists
 const getAllStockists = async (req, res) => {
   try {
@@ -144,43 +172,70 @@ const createStockist = async (req, res) => {
       console.log('Converted headOffice to headOfficeId:', stockistData.headOfficeId);
     }
 
-    // Handle field name conversions from camelCase to snake_case
-    const fieldMappings = {
-      firmName: 'firm_name',
-      registeredBusinessName: 'registered_business_name',
-      natureOfBusiness: 'nature_of_business',
-      gstNumber: 'gst_number',
-      drugLicenseNumber: 'drug_license_number',
-      panNumber: 'pan_number',
-      registeredOfficeAddress: 'registered_office_address',
-      contactPerson: 'contact_person',
-      mobileNumber: 'mobile_number',
-      emailAddress: 'email_address',
-      yearsInBusiness: 'years_in_business',
-      areasOfOperation: 'areas_of_operation',
-      currentPharmaDistributorships: 'current_pharma_distributorships',
-      warehouseFacility: 'warehouse_facility',
-      storageFacilitySize: 'storage_facility_size',
-      coldStorageAvailable: 'cold_storage_available',
-      numberOfSalesRepresentatives: 'number_of_sales_representatives',
-      bankDetails: 'bank_details',
-      headOfficeId: 'head_office_id',
-      gstCertificateUrl: 'gst_certificate_url',
-      drugLicenseUrl: 'drug_license_url',
-      panCardUrl: 'pan_card_url',
-      cancelledChequeUrl: 'cancelled_cheque_url',
-      businessProfileUrl: 'business_profile_url'
-    };
-
     // Convert field names and collect data for the main stockist record
     const stockistRecordData = {};
     Object.keys(stockistData).forEach(key => {
       // Skip annualTurnover as it will be handled separately
       if (key === 'annualTurnover') return;
 
-      const dbFieldName = fieldMappings[key] || key;
+      const dbFieldName = STOCKIST_FIELD_MAPPINGS[key] || key;
       stockistRecordData[dbFieldName] = stockistData[key];
     });
+
+    // --- Robust Type Conversion for stockistRecordData ---
+    console.log('Performing type conversions on stockistRecordData...');
+
+    // 1. Handle Array fields (must be arrays for Postgres ARRAY type)
+    ['areas_of_operation', 'current_pharma_distributorships'].forEach(field => {
+      if (typeof stockistRecordData[field] === 'string') {
+        if (stockistRecordData[field].trim() === '') {
+          stockistRecordData[field] = [];
+        } else {
+          // split by comma if it's a comma-separated string
+          stockistRecordData[field] = stockistRecordData[field].split(',').map(s => s.trim()).filter(Boolean);
+        }
+        console.log(`Converted ${field} to array:`, stockistRecordData[field]);
+      } else if (!Array.isArray(stockistRecordData[field])) {
+        stockistRecordData[field] = stockistRecordData[field] ? [stockistRecordData[field]] : [];
+      }
+    });
+
+    // 2. Handle JSON fields
+    if (typeof stockistRecordData.bank_details === 'string' && stockistRecordData.bank_details.trim() !== '') {
+      try {
+        stockistRecordData.bank_details = JSON.parse(stockistRecordData.bank_details);
+        console.log('Parsed bank_details from JSON string');
+      } catch (e) {
+        console.error('Error parsing bank_details JSON:', e.message);
+      }
+    }
+
+    // 3. Handle Boolean fields (FormData sends everything as strings)
+    ['warehouse_facility', 'cold_storage_available'].forEach(field => {
+      if (stockistRecordData[field] === 'true') stockistRecordData[field] = true;
+      else if (stockistRecordData[field] === 'false') stockistRecordData[field] = false;
+      else if (typeof stockistRecordData[field] === 'string') {
+        stockistRecordData[field] = stockistRecordData[field].trim().toLowerCase() === 'true';
+      }
+    });
+
+    // 4. Handle Numeric fields
+    ['years_in_business', 'storage_facility_size', 'number_of_sales_representatives', 'latitude', 'longitude'].forEach(field => {
+      if (typeof stockistRecordData[field] === 'string' && stockistRecordData[field].trim() !== '') {
+        const val = parseFloat(stockistRecordData[field]);
+        if (!isNaN(val)) stockistRecordData[field] = val;
+      }
+    });
+
+    // 5. Ensure annualTurnover in stockistData is also parsed for later use
+    if (typeof stockistData.annualTurnover === 'string' && stockistData.annualTurnover.trim() !== '') {
+      try {
+        stockistData.annualTurnover = JSON.parse(stockistData.annualTurnover);
+        console.log('Parsed annualTurnover from JSON string');
+      } catch (e) {
+        console.error('Error parsing annualTurnover JSON:', e.message);
+      }
+    }
 
     // Validate that headOfficeId is provided
     if (!stockistRecordData.head_office_id) {
@@ -202,7 +257,7 @@ const createStockist = async (req, res) => {
     const transaction = await sequelize.transaction();
 
     try {
-      console.log('Creating stockist with data:', stockistRecordData);
+      console.log('Creating stockist with sanitized data:', stockistRecordData);
       const stockist = await Stockist.create(stockistRecordData, { transaction });
       console.log('Stockist created successfully:', stockist.id);
 
@@ -414,33 +469,13 @@ const updateStockist = async (req, res) => {
         delete stockistData.headOffice;
       }
 
-      // Handle field name conversions from camelCase to snake_case
-      const fieldMappings = {
-        firmName: 'firm_name',
-        registeredBusinessName: 'registered_business_name',
-        natureOfBusiness: 'nature_of_business',
-        gstNumber: 'gst_number',
-        drugLicenseNumber: 'drug_license_number',
-        panNumber: 'pan_number',
-        registeredOfficeAddress: 'registered_office_address',
-        contactPerson: 'contact_person',
-        mobileNumber: 'mobile_number',
-        emailAddress: 'email_address',
-        yearsInBusiness: 'years_in_business',
-        areasOfOperation: 'areas_of_operation',
-        currentPharmaDistributorships: 'current_pharma_distributorships',
-        warehouseFacility: 'warehouse_facility',
-        storageFacilitySize: 'storage_facility_size',
-        coldStorageAvailable: 'cold_storage_available',
-        numberOfSalesRepresentatives: 'number_of_sales_representatives',
-        bankDetails: 'bank_details',
-        headOfficeId: 'head_office_id',
-        gstCertificateUrl: 'gst_certificate_url',
-        drugLicenseUrl: 'drug_license_url',
-        panCardUrl: 'pan_card_url',
-        cancelledChequeUrl: 'cancelled_cheque_url',
-        businessProfileUrl: 'business_profile_url'
-      };
+      // Handle head office ID field conversion (similar to create)
+      if (stockistData.headOfficeId) {
+        // Keep as is
+      } else if (stockistData.head_office_id) {
+        stockistData.headOfficeId = stockistData.head_office_id;
+        delete stockistData.head_office_id;
+      }
 
       // Convert field names and collect data for the main stockist record
       const stockistUpdateData = {};
@@ -448,9 +483,63 @@ const updateStockist = async (req, res) => {
         // Skip annualTurnover as it will be handled separately
         if (key === 'annualTurnover') return;
 
-        const dbFieldName = fieldMappings[key] || key;
+        const dbFieldName = STOCKIST_FIELD_MAPPINGS[key] || key;
         stockistUpdateData[dbFieldName] = stockistData[key];
       });
+
+      // --- Robust Type Conversion for stockistUpdateData ---
+      console.log('Performing type conversions on stockistUpdateData...');
+
+      // 1. Handle Array fields
+      ['areas_of_operation', 'current_pharma_distributorships'].forEach(field => {
+        if (typeof stockistUpdateData[field] === 'string') {
+          if (stockistUpdateData[field].trim() === '') {
+            stockistUpdateData[field] = [];
+          } else {
+            stockistUpdateData[field] = stockistUpdateData[field].split(',').map(s => s.trim()).filter(Boolean);
+          }
+          console.log(`Converted ${field} to array (update):`, stockistUpdateData[field]);
+        } else if (stockistUpdateData[field] !== undefined && !Array.isArray(stockistUpdateData[field])) {
+          stockistUpdateData[field] = [stockistUpdateData[field]];
+        }
+      });
+
+      // 2. Handle JSON fields
+      if (typeof stockistUpdateData.bank_details === 'string' && stockistUpdateData.bank_details.trim() !== '') {
+        try {
+          stockistUpdateData.bank_details = JSON.parse(stockistUpdateData.bank_details);
+          console.log('Parsed bank_details from JSON string (update)');
+        } catch (e) {
+          console.error('Error parsing bank_details JSON (update):', e.message);
+        }
+      }
+
+      // 3. Handle Boolean fields
+      ['warehouse_facility', 'cold_storage_available'].forEach(field => {
+        if (stockistUpdateData[field] === 'true') stockistUpdateData[field] = true;
+        else if (stockistUpdateData[field] === 'false') stockistUpdateData[field] = false;
+        else if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
+          stockistUpdateData[field] = stockistUpdateData[field].trim().toLowerCase() === 'true';
+        }
+      });
+
+      // 4. Handle Numeric fields
+      ['years_in_business', 'storage_facility_size', 'number_of_sales_representatives', 'latitude', 'longitude'].forEach(field => {
+        if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
+          const val = parseFloat(stockistUpdateData[field]);
+          if (!isNaN(val)) stockistUpdateData[field] = val;
+        }
+      });
+
+      // 5. Ensure annualTurnover is also parsed if present
+      if (typeof stockistData.annualTurnover === 'string' && stockistData.annualTurnover.trim() !== '') {
+        try {
+          stockistData.annualTurnover = JSON.parse(stockistData.annualTurnover);
+          console.log('Parsed annualTurnover from JSON string (update)');
+        } catch (e) {
+          console.error('Error parsing annualTurnover JSON (update):', e.message);
+        }
+      }
 
       // Add uploaded image URL if available
       if (uploadedImageUrl) {

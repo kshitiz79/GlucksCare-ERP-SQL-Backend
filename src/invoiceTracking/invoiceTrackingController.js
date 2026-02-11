@@ -6,11 +6,12 @@ const s3Client = require('../config/b2Config');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const nodemailer = require('nodemailer');
 
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB limit
@@ -58,7 +59,7 @@ const uploadToB2 = async (buffer, originalFilename, mimetype = 'application/pdf'
       // normalize endpoint and avoid calling replace on undefined
       const rawEndpoint = process.env.B2_S3_ENDPOINT;
       // ensure no trailing slash
-      const endpointNoSlash = rawEndpoint.replace(/\/+$/,'');
+      const endpointNoSlash = rawEndpoint.replace(/\/+$/, '');
       // If endpoint includes the scheme, keep it; otherwise default to https
       const hasScheme = /^https?:\/\//i.test(endpointNoSlash);
       const base = hasScheme ? endpointNoSlash : `https://${endpointNoSlash}`;
@@ -88,15 +89,49 @@ const deleteFromB2 = async (fileKey) => {
   }
 };
 
+const { Op } = require('sequelize');
+
 // GET all invoice tracking records
 const getAllInvoiceTracking = async (req, res) => {
   try {
     const { InvoiceTracking, Stockist, User } = req.app.get('models');
-    const { page = 1, limit = 10, status, stockist_id } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      stockist_id,
+      startDate,
+      endDate,
+      search
+    } = req.query;
 
     const whereClause = {};
     if (status) whereClause.status = status;
     if (stockist_id) whereClause.stockist_id = stockist_id;
+
+    // Date range filtering
+    if (startDate && endDate) {
+      whereClause.invoice_date = {
+        [Op.between]: [startDate, endDate]
+      };
+    } else if (startDate) {
+      whereClause.invoice_date = {
+        [Op.gte]: startDate
+      };
+    } else if (endDate) {
+      whereClause.invoice_date = {
+        [Op.lte]: endDate
+      };
+    }
+
+    // Search functionality
+    if (search) {
+      whereClause[Op.or] = [
+        { invoice_number: { [Op.like]: `%${search}%` } },
+        { party_name: { [Op.like]: `%${search}%` } },
+        { remarks: { [Op.like]: `%${search}%` } }
+      ];
+    }
 
     const options = {
       where: whereClause,
@@ -118,7 +153,7 @@ const getAllInvoiceTracking = async (req, res) => {
       ],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit),
-      order: [['created_at', 'DESC']]
+      order: [['invoice_date', 'DESC'], ['created_at', 'DESC']]
     };
 
     const { count, rows } = await InvoiceTracking.findAndCountAll(options);
@@ -147,7 +182,15 @@ const getUserInvoiceTracking = async (req, res) => {
   try {
     const { InvoiceTracking, Stockist, User, HeadOffice } = req.app.get('models');
     const userId = req.user.id;
-    const { page = 1, limit = 10, status } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      stockist_id,
+      startDate,
+      endDate,
+      search
+    } = req.query;
 
     // Get user's head offices
     const user = await User.findByPk(userId, {
@@ -169,10 +212,15 @@ const getUserInvoiceTracking = async (req, res) => {
     const headOfficeIds = user.headOffices.map(ho => ho.id);
 
     // Find stockists in user's head offices
+    const stockistWhere = {
+      head_office_id: headOfficeIds
+    };
+    if (stockist_id) {
+      stockistWhere.id = stockist_id;
+    }
+
     const stockists = await Stockist.findAll({
-      where: {
-        head_office_id: headOfficeIds
-      },
+      where: stockistWhere,
       attributes: ['id']
     });
 
@@ -182,6 +230,30 @@ const getUserInvoiceTracking = async (req, res) => {
       stockist_id: stockistIds
     };
     if (status) whereClause.status = status;
+
+    // Date range filtering
+    if (startDate && endDate) {
+      whereClause.invoice_date = {
+        [Op.between]: [startDate, endDate]
+      };
+    } else if (startDate) {
+      whereClause.invoice_date = {
+        [Op.gte]: startDate
+      };
+    } else if (endDate) {
+      whereClause.invoice_date = {
+        [Op.lte]: endDate
+      };
+    }
+
+    // Search functionality
+    if (search) {
+      whereClause[Op.or] = [
+        { invoice_number: { [Op.like]: `%${search}%` } },
+        { party_name: { [Op.like]: `%${search}%` } },
+        { remarks: { [Op.like]: `%${search}%` } }
+      ];
+    }
 
     const options = {
       where: whereClause,
@@ -198,7 +270,7 @@ const getUserInvoiceTracking = async (req, res) => {
       ],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit),
-      order: [['created_at', 'DESC']]
+      order: [['invoice_date', 'DESC'], ['created_at', 'DESC']]
     };
 
     const { count, rows } = await InvoiceTracking.findAndCountAll(options);
@@ -279,7 +351,8 @@ const createInvoiceTracking = async (req, res) => {
       awb_number,
       courier_company_name,
       status,
-      remarks
+      remarks,
+      amount
     } = req.body;
 
     // Validate required fields
@@ -332,6 +405,7 @@ const createInvoiceTracking = async (req, res) => {
       courier_company_name,
       status: status || 'pending',
       remarks,
+      amount,
       created_by: req.user.id
     };
 
@@ -374,7 +448,8 @@ const updateInvoiceTracking = async (req, res) => {
       awb_number,
       courier_company_name,
       status,
-      remarks
+      remarks,
+      amount
     } = req.body;
 
     const invoiceTracking = await InvoiceTracking.findByPk(id);
@@ -393,6 +468,7 @@ const updateInvoiceTracking = async (req, res) => {
       courier_company_name,
       status,
       remarks,
+      amount,
       updated_by: req.user.id
     };
 
@@ -563,6 +639,93 @@ const getInvoiceSignedUrl = async (req, res) => {
   }
 };
 
+const sendInvoiceEmail = async (req, res) => {
+  try {
+    const { InvoiceTracking, Stockist } = req.app.get('models');
+    const { id } = req.params;
+
+    const invoice = await InvoiceTracking.findByPk(id, {
+      include: [
+        {
+          model: Stockist,
+          attributes: ['id', 'firm_name', 'email_address', 'mobile_number']
+        }
+      ]
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
+    }
+
+    if (!invoice.Stockist?.email_address) {
+      return res.status(400).json({ success: false, message: 'Stockist email not found' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER || 'gluckscarepharmaceuticals@gmail.com',
+        pass: process.env.EMAIL_PASS || 'ldgmqixyufjdzylv',
+      },
+    });
+
+    let attachment = [];
+    if (invoice.invoice_image_public_id) {
+      const getObjectParams = {
+        Bucket: process.env.B2_S3_BUCKET_NAME,
+        Key: invoice.invoice_image_public_id
+      };
+      const command = new GetObjectCommand(getObjectParams);
+      const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+
+      attachment.push({
+        filename: `Invoice_${invoice.invoice_number}.pdf`,
+        path: signedUrl
+      });
+    }
+
+    const mailOptions = {
+      from: '"GlucksCare ERP" <care@gluckscare.com>',
+      to: invoice.Stockist.email_address,
+      subject: `invoice - ${invoice.invoice_number}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px;">
+          <p>Dear ${invoice.Stockist.firm_name},</p>
+          <p>Greetings from <strong>Gluckscare Pharmaceuticals</strong>.</p>
+          <p>Please find attached the invoice for the medicines supplied to you.</p>
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Invoice No:</strong> ${invoice.invoice_number}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Invoice Date:</strong> ${new Date(invoice.invoice_date).toLocaleDateString('en-IN')}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Invoice Amount:</strong> ₹${invoice.amount?.toLocaleString('en-IN')}</p>
+          </div>
+          <p>Kindly verify the details and let us know if any clarification is required.</p>
+          <p>Thank you for your continued association with Gluckscare Pharmaceuticals.</p>
+          <p style="margin-top: 30px;">
+            Warm regards,<br>
+            <strong>Accounts Team</strong><br>
+            Gluckscare Pharmaceuticals
+          </p>
+        </div>
+      `,
+      attachments: attachment
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('📧 Invoice email sent:', info.response);
+
+    res.json({
+      success: true,
+      message: `Invoice sent to ${invoice.Stockist.email_address} successfully`
+    });
+
+  } catch (error) {
+    console.error('Error sending invoice email:', error);
+    res.status(500).json({ success: false, message: 'Failed to send email' });
+  }
+};
+
 
 module.exports = {
   upload,
@@ -573,5 +736,6 @@ module.exports = {
   updateInvoiceTracking,
   deleteInvoiceTracking,
   getStockistsForDropdown,
-  getInvoiceSignedUrl
+  getInvoiceSignedUrl,
+  sendInvoiceEmail
 };
