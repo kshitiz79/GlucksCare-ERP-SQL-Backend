@@ -11,7 +11,10 @@ const {
     deleteForwardingNote
 } = require('./forwardingNoteController');
 
-// Apply authentication middleware to all routes
+// GET route for specific forwarding note (Public - for QR scan)
+router.get('/public/:id', getForwardingNoteById);
+
+// Apply authentication middleware to remaining routes
 router.use(authMiddleware);
 
 // GET routes
