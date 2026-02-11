@@ -438,7 +438,7 @@ const createInvoiceTracking = async (req, res) => {
 // UPDATE invoice tracking record
 const updateInvoiceTracking = async (req, res) => {
   try {
-    const { InvoiceTracking, Stockist } = req.app.get('models');
+    const { InvoiceTracking, Stockist, ForwardingNote } = req.app.get('models');
     const { id } = req.params;
     const {
       stockist_id,
@@ -510,6 +510,14 @@ const updateInvoiceTracking = async (req, res) => {
     }
 
     await invoiceTracking.update(updateData);
+
+    // Sync amount to forwarding notes if amount has changed
+    if (amount !== undefined) {
+      await ForwardingNote.update(
+        { amount: amount },
+        { where: { invoice_tracking_id: id } }
+      );
+    }
 
     // Fetch updated record with associations
     const updatedRecord = await InvoiceTracking.findByPk(id, {

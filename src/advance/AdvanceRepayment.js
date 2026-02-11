@@ -12,7 +12,7 @@ const AdvanceRepayment = (sequelize) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'Advances',
+        model: 'advances',
         key: 'id'
       }
     },
@@ -39,7 +39,7 @@ const AdvanceRepayment = (sequelize) => {
       type: DataTypes.UUID,
       allowNull: true,
       references: {
-        model: 'Users',
+        model: 'users',
         key: 'id'
       }
     }

@@ -39,8 +39,28 @@ const ForwardingNote = (sequelize) => {
             type: DataTypes.STRING,
             allowNull: true
         },
+        origin_address: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
 
         destination: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        to_city: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        to_pincode: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        to_state: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        to_mobile: {
             type: DataTypes.STRING,
             allowNull: true
         },
@@ -60,9 +80,11 @@ const ForwardingNote = (sequelize) => {
             allowNull: true
         },
 
-        invoice_value: {
-            type: DataTypes.DECIMAL(12, 2),
-            allowNull: true
+        amount: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
+            defaultValue: 0,
+            comment: 'Invoice amount'
         },
 
         permit_no: {
