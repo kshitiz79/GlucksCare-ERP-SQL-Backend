@@ -257,5 +257,9 @@ module.exports = (db) => {
   db.ForwardingNote.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_tracking_id', as: 'invoiceTracking' });
   db.InvoiceTracking.hasMany(db.ForwardingNote, { foreignKey: 'invoice_tracking_id', as: 'forwardingNotes' });
 
+  // Stockist and Address associations
+  db.Stockist.belongsTo(db.Address, { foreignKey: 'address_id', as: 'address' });
+  db.Address.hasMany(db.Stockist, { foreignKey: 'address_id', as: 'stockists' });
+
   return db;
 };

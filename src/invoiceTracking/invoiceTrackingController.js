@@ -94,7 +94,7 @@ const { Op } = require('sequelize');
 // GET all invoice tracking records
 const getAllInvoiceTracking = async (req, res) => {
   try {
-    const { InvoiceTracking, Stockist, User } = req.app.get('models');
+    const { InvoiceTracking, Stockist, User, ForwardingNote } = req.app.get('models');
     const {
       page = 1,
       limit = 10,
@@ -138,7 +138,12 @@ const getAllInvoiceTracking = async (req, res) => {
       include: [
         {
           model: Stockist,
-          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address']
+          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address', 'contact_person', 'address_id', 'gst_number', 'drug_license_number']
+        },
+        {
+          model: ForwardingNote,
+          as: 'forwardingNotes', // Singular or plural depends on association, associations.js says 'forwardingNotes'
+          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount']
         },
         {
           model: User,
@@ -180,7 +185,7 @@ const getAllInvoiceTracking = async (req, res) => {
 // GET invoice tracking records for user (filtered by head office)
 const getUserInvoiceTracking = async (req, res) => {
   try {
-    const { InvoiceTracking, Stockist, User, HeadOffice } = req.app.get('models');
+    const { InvoiceTracking, Stockist, User, HeadOffice, ForwardingNote } = req.app.get('models');
     const userId = req.user.id;
     const {
       page = 1,
@@ -260,7 +265,12 @@ const getUserInvoiceTracking = async (req, res) => {
       include: [
         {
           model: Stockist,
-          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address']
+          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address', 'contact_person', 'address_id', 'gst_number', 'drug_license_number']
+        },
+        {
+          model: ForwardingNote,
+          as: 'forwardingNotes',
+          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount']
         },
         {
           model: User,
@@ -297,14 +307,19 @@ const getUserInvoiceTracking = async (req, res) => {
 // GET invoice tracking by ID
 const getInvoiceTrackingById = async (req, res) => {
   try {
-    const { InvoiceTracking, Stockist, User } = req.app.get('models');
+    const { InvoiceTracking, Stockist, User, ForwardingNote } = req.app.get('models');
     const { id } = req.params;
 
     const invoiceTracking = await InvoiceTracking.findByPk(id, {
       include: [
         {
           model: Stockist,
-          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address']
+          attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'registered_office_address', 'gst_number', 'drug_license_number']
+        },
+        {
+          model: ForwardingNote,
+          as: 'forwardingNotes',
+          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount']
         },
         {
           model: User,
@@ -352,7 +367,11 @@ const createInvoiceTracking = async (req, res) => {
       courier_company_name,
       status,
       remarks,
-      amount
+      amount,
+      taxable_amount,
+      gst_percent,
+      rounded_off,
+      receipt_date
     } = req.body;
 
     // Validate required fields
@@ -406,6 +425,10 @@ const createInvoiceTracking = async (req, res) => {
       status: status || 'pending',
       remarks,
       amount,
+      taxable_amount,
+      gst_percent,
+      rounded_off,
+      receipt_date,
       created_by: req.user.id
     };
 
@@ -449,7 +472,11 @@ const updateInvoiceTracking = async (req, res) => {
       courier_company_name,
       status,
       remarks,
-      amount
+      amount,
+      taxable_amount,
+      gst_percent,
+      rounded_off,
+      receipt_date
     } = req.body;
 
     const invoiceTracking = await InvoiceTracking.findByPk(id);
@@ -469,6 +496,10 @@ const updateInvoiceTracking = async (req, res) => {
       status,
       remarks,
       amount,
+      taxable_amount,
+      gst_percent,
+      rounded_off,
+      receipt_date,
       updated_by: req.user.id
     };
 
@@ -587,7 +618,7 @@ const getStockistsForDropdown = async (req, res) => {
     const { Stockist } = req.app.get('models');
 
     const stockists = await Stockist.findAll({
-      attributes: ['id', 'firm_name', 'email_address', 'mobile_number'],
+      attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'drug_license_number', 'registered_office_address', 'gst_number', 'address_id'],
       order: [['firm_name', 'ASC']]
     });
 

@@ -29,7 +29,7 @@ const STOCKIST_FIELD_MAPPINGS = {
 // GET all stockists
 const getAllStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = req.app.get('models');
 
     const stockists = await Stockist.findAll({
       include: [
@@ -42,6 +42,10 @@ const getAllStockists = async (req, res) => {
           model: StockistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Address,
+          as: 'address'
         }
       ]
     });
@@ -84,7 +88,7 @@ const getAllStockists = async (req, res) => {
 // GET stockist by ID
 const getStockistById = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = req.app.get('models');
 
     const stockist = await Stockist.findByPk(req.params.id, {
       include: [
@@ -97,6 +101,10 @@ const getStockistById = async (req, res) => {
           model: StockistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Address,
+          as: 'address'
         }
       ]
     });
@@ -147,7 +155,7 @@ const createStockist = async (req, res) => {
     if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Stockist, HeadOffice, StockistAnnualTurnover } = models;
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = models;
 
     // Log the incoming request body for debugging
     console.log('Incoming stockist data:', JSON.stringify(req.body, null, 2));
@@ -257,6 +265,44 @@ const createStockist = async (req, res) => {
     const transaction = await sequelize.transaction();
 
     try {
+      // 6. Handle separate Address model creation if address fields are provided
+      let addressId = null;
+      if (stockistData.pincode && stockistData.addressLine1) {
+        console.log('Creating separate Address record for stockist...');
+        const address = await Address.create({
+          address_name: stockistData.firmName || 'Stockist Office',
+          address_line_1: stockistData.addressLine1,
+          address_line_2: stockistData.addressLine2,
+          area_locality: stockistData.landmark,
+          pincode: stockistData.pincode,
+          post_office: stockistData.postOffice,
+          district: stockistData.district,
+          state: stockistData.state,
+          country: stockistData.country || 'India',
+          contact_person_name: stockistData.contactPerson,
+          contact_number: stockistData.mobileNumber,
+          communication_type: 'Office'
+        }, { transaction });
+        addressId = address.id;
+        stockistRecordData.address_id = addressId;
+        console.log('Address record created with ID:', addressId);
+
+        // Fallback for legacy field (to avoid NOT NULL DB constraint error)
+        if (!stockistRecordData.registered_office_address) {
+          const addrParts = [
+            stockistData.addressLine1,
+            stockistData.addressLine2,
+            stockistData.landmark,
+            stockistData.postOffice,
+            stockistData.district,
+            stockistData.state,
+            stockistData.pincode,
+            stockistData.country || 'India'
+          ].filter(Boolean);
+          stockistRecordData.registered_office_address = addrParts.join(', ');
+        }
+      }
+
       console.log('Creating stockist with sanitized data:', stockistRecordData);
       const stockist = await Stockist.create(stockistRecordData, { transaction });
       console.log('Stockist created successfully:', stockist.id);
@@ -356,6 +402,10 @@ const createStockist = async (req, res) => {
             model: StockistAnnualTurnover,
             as: 'AnnualTurnovers',
             attributes: ['year', 'amount']
+          },
+          {
+            model: Address,
+            as: 'address'
           }
         ],
         transaction
@@ -412,7 +462,7 @@ const updateStockist = async (req, res) => {
     if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Stockist, HeadOffice, StockistAnnualTurnover } = models;
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = models;
 
     const stockist = await Stockist.findByPk(req.params.id);
     if (!stockist) {
@@ -541,9 +591,58 @@ const updateStockist = async (req, res) => {
         }
       }
 
-      // Add uploaded image URL if available
-      if (uploadedImageUrl) {
-        stockistUpdateData.geo_image_url = uploadedImageUrl;
+      // Update or Create Address
+      if (stockistData.pincode && stockistData.addressLine1) {
+        // Prepare legacy address string
+        const addrParts = [
+          stockistData.addressLine1,
+          stockistData.addressLine2,
+          stockistData.landmark,
+          stockistData.postOffice,
+          stockistData.district,
+          stockistData.state,
+          stockistData.pincode,
+          stockistData.country || 'India'
+        ].filter(Boolean);
+        const formattedAddr = addrParts.join(', ');
+        stockistUpdateData.registered_office_address = formattedAddr;
+
+        if (stockist.address_id) {
+          console.log('Updating existing Address record:', stockist.address_id);
+          await Address.update({
+            address_name: stockistData.firmName || stockist.firm_name,
+            address_line_1: stockistData.addressLine1,
+            address_line_2: stockistData.addressLine2,
+            area_locality: stockistData.landmark,
+            pincode: stockistData.pincode,
+            post_office: stockistData.postOffice,
+            district: stockistData.district,
+            state: stockistData.state,
+            country: stockistData.country || 'India',
+            contact_person_name: stockistData.contactPerson,
+            contact_number: stockistData.mobileNumber
+          }, {
+            where: { id: stockist.address_id },
+            transaction
+          });
+        } else {
+          console.log('Creating new Address record for existing stockist...');
+          const address = await Address.create({
+            address_name: stockistData.firmName || stockist.firm_name,
+            address_line_1: stockistData.addressLine1,
+            address_line_2: stockistData.addressLine2,
+            area_locality: stockistData.landmark,
+            pincode: stockistData.pincode,
+            post_office: stockistData.postOffice,
+            district: stockistData.district,
+            state: stockistData.state,
+            country: stockistData.country || 'India',
+            contact_person_name: stockistData.contactPerson,
+            contact_number: stockistData.mobileNumber,
+            communication_type: 'Office'
+          }, { transaction });
+          stockistUpdateData.address_id = address.id;
+        }
       }
 
       await stockist.update(stockistUpdateData, { transaction });
@@ -582,6 +681,10 @@ const updateStockist = async (req, res) => {
             model: StockistAnnualTurnover,
             as: 'AnnualTurnovers',
             attributes: ['year', 'amount']
+          },
+          {
+            model: Address,
+            as: 'address'
           }
         ],
         transaction
@@ -658,12 +761,18 @@ const deleteStockist = async (req, res) => {
 // GET stockists by head office ID
 const getStockistsByHeadOffice = async (req, res) => {
   try {
-    const { Stockist } = req.app.get('models');
+    const { Stockist, Address } = req.app.get('models');
     const { headOfficeId } = req.params;
     const stockists = await Stockist.findAll({
       where: {
         head_office_id: headOfficeId
-      }
+      },
+      include: [
+        {
+          model: Address,
+          as: 'address'
+        }
+      ]
     });
     res.json(stockists);
   } catch (error) {
@@ -677,7 +786,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 // GET stockists for current user's head offices
 const getMyStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, User, StockistAnnualTurnover } = req.app.get('models');
+    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
@@ -728,6 +837,10 @@ const getMyStockists = async (req, res) => {
           model: StockistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Address,
+          as: 'address'
         }
       ]
     });

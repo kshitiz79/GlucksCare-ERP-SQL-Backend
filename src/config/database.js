@@ -93,6 +93,8 @@ const Advance = require('../advance/Advance');
 const AdvanceRepayment = require('../advance/AdvanceRepayment');
 const MobImage = require('../mobimgupload/MobImage');
 
+const Address = require('../Address/Address');
+
 // Initialize models
 const models = {
     User: User(sequelize),
@@ -145,7 +147,9 @@ const models = {
     ForwardingNote: ForwardingNote(sequelize),
     Advance: Advance(sequelize),
     AdvanceRepayment: AdvanceRepayment(sequelize),
-    MobImage: MobImage(sequelize)
+    MobImage: MobImage(sequelize),
+
+    Address: Address(sequelize)
 };
 
 // Set up hooks

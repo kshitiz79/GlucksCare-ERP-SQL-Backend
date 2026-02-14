@@ -58,11 +58,31 @@ const InvoiceTracking = (sequelize) => {
       allowNull: true,
       comment: 'Courier company name (e.g., Blue Dart, DTDC, etc.)'
     },
+    receipt_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      comment: 'Date of receipt from courier'
+    },
     amount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
       defaultValue: 0,
-      comment: 'Invoice amount'
+      comment: 'Final Invoice amount'
+    },
+    taxable_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    gst_percent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+      defaultValue: 5,
+    },
+    rounded_off: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
     },
     status: {
       type: DataTypes.ENUM('pending', 'shipped', 'in_transit', 'delivered', 'cancelled'),

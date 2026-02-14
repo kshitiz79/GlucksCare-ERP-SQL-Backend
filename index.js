@@ -21,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'http://localhost:5051 ', // Add this for development
+            'http://localhost:5051', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            'http://localhost:5051 ' // Add this for production frontend
+            'http://localhost:5051' // Add this for production frontend
         ],
         methods: ['GET', 'POST'],
         credentials: true,
@@ -45,10 +45,10 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'http://localhost:5051 ', // Add this for development
+    'http://localhost:5051', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
-    'http://localhost:5051 ' // Add this for production frontend
+    'http://localhost:5051' // Add this for production frontend
 ];
 
 app.use(cors({
@@ -158,6 +158,8 @@ async function startServer() {
     // Product routes
     const productRoutes = require('./src/product/productRoutes');
 
+    const addressRoutes = require('./src/Address/AddressRoute');
+
     // Version routes
     const versionRoutes = require('./src/version/versionRoutes');
 
@@ -264,6 +266,9 @@ async function startServer() {
     // Mob image upload routes
     const mobImageRoutes = require('./src/mobimgupload/mobImageRoutes');
     app.use('/api/mobimages', mobImageRoutes);
+
+
+    app.use('/api/addresses', addressRoutes);
 
 
     // Root endpoint

@@ -30,7 +30,15 @@ const Stockist = (sequelize) => {
     },
     registered_office_address: {
       type: DataTypes.TEXT,
-      allowNull: false
+      allowNull: true
+    },
+    address_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'addresses',
+        key: 'id'
+      }
     },
     latitude: {
       type: DataTypes.DECIMAL(10, 8)
