@@ -273,14 +273,14 @@ const createStockist = async (req, res) => {
           address_name: stockistData.firmName || 'Stockist Office',
           address_line_1: stockistData.addressLine1,
           address_line_2: stockistData.addressLine2,
-          area_locality: stockistData.landmark,
+          area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
           pincode: stockistData.pincode,
-          post_office: stockistData.postOffice,
-          district: stockistData.district,
-          state: stockistData.state,
+          post_office: stockistData.postOffice || 'N/A',
+          district: stockistData.district || 'N/A',
+          state: stockistData.state || 'N/A',
           country: stockistData.country || 'India',
-          contact_person_name: stockistData.contactPerson,
-          contact_number: stockistData.mobileNumber,
+          contact_person_name: stockistData.contactPerson || 'N/A',
+          contact_number: stockistData.mobileNumber || '0000000000',
           communication_type: 'Office'
         }, { transaction });
         addressId = address.id;
@@ -610,17 +610,17 @@ const updateStockist = async (req, res) => {
         if (stockist.address_id) {
           console.log('Updating existing Address record:', stockist.address_id);
           await Address.update({
-            address_name: stockistData.firmName || stockist.firm_name,
+            address_name: stockistData.firmName || stockist.firm_name || 'Stockist Office',
             address_line_1: stockistData.addressLine1,
             address_line_2: stockistData.addressLine2,
-            area_locality: stockistData.landmark,
+            area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
             pincode: stockistData.pincode,
-            post_office: stockistData.postOffice,
-            district: stockistData.district,
-            state: stockistData.state,
+            post_office: stockistData.postOffice || 'N/A',
+            district: stockistData.district || 'N/A',
+            state: stockistData.state || 'N/A',
             country: stockistData.country || 'India',
-            contact_person_name: stockistData.contactPerson,
-            contact_number: stockistData.mobileNumber
+            contact_person_name: stockistData.contactPerson || 'N/A',
+            contact_number: stockistData.mobileNumber || '0000000000'
           }, {
             where: { id: stockist.address_id },
             transaction
@@ -628,17 +628,17 @@ const updateStockist = async (req, res) => {
         } else {
           console.log('Creating new Address record for existing stockist...');
           const address = await Address.create({
-            address_name: stockistData.firmName || stockist.firm_name,
+            address_name: stockistData.firmName || stockist.firm_name || 'Stockist Office',
             address_line_1: stockistData.addressLine1,
             address_line_2: stockistData.addressLine2,
-            area_locality: stockistData.landmark,
+            area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
             pincode: stockistData.pincode,
-            post_office: stockistData.postOffice,
-            district: stockistData.district,
-            state: stockistData.state,
+            post_office: stockistData.postOffice || 'N/A',
+            district: stockistData.district || 'N/A',
+            state: stockistData.state || 'N/A',
             country: stockistData.country || 'India',
-            contact_person_name: stockistData.contactPerson,
-            contact_number: stockistData.mobileNumber,
+            contact_person_name: stockistData.contactPerson || 'N/A',
+            contact_number: stockistData.mobileNumber || '0000000000',
             communication_type: 'Office'
           }, { transaction });
           stockistUpdateData.address_id = address.id;
