@@ -162,6 +162,7 @@ const createStockist = async (req, res) => {
 
     // Process the incoming data
     const stockistData = { ...req.body };
+    console.log('--- Address Creation Debug (Version: 2.1) ---');
 
     // Handle head office ID field conversion
     // The frontend might send headOfficeId, head_office_id, or headOffice
@@ -269,11 +270,12 @@ const createStockist = async (req, res) => {
       let addressId = null;
       if (stockistData.pincode && stockistData.addressLine1) {
         console.log('Creating separate Address record for stockist...');
-        const address = await Address.create({
+        const addressPayload = {
           address_name: stockistData.firmName || 'Stockist Office',
           address_line_1: stockistData.addressLine1,
           address_line_2: stockistData.addressLine2,
-          area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
+          area_locality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'),
+          areaLocality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'), // Fallback for camelCase
           pincode: stockistData.pincode,
           post_office: stockistData.postOffice || 'N/A',
           district: stockistData.district || 'N/A',
@@ -282,7 +284,9 @@ const createStockist = async (req, res) => {
           contact_person_name: stockistData.contactPerson || 'N/A',
           contact_number: stockistData.mobileNumber || '0000000000',
           communication_type: 'Office'
-        }, { transaction });
+        };
+        console.log('Address creation payload:', JSON.stringify(addressPayload, null, 2));
+        const address = await Address.create(addressPayload, { transaction });
         addressId = address.id;
         stockistRecordData.address_id = addressId;
         console.log('Address record created with ID:', addressId);
@@ -609,11 +613,12 @@ const updateStockist = async (req, res) => {
 
         if (stockist.address_id) {
           console.log('Updating existing Address record:', stockist.address_id);
-          await Address.update({
+          const addressUpdatePayload = {
             address_name: stockistData.firmName || stockist.firm_name || 'Stockist Office',
             address_line_1: stockistData.addressLine1,
             address_line_2: stockistData.addressLine2,
-            area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
+            area_locality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'),
+            areaLocality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'),
             pincode: stockistData.pincode,
             post_office: stockistData.postOffice || 'N/A',
             district: stockistData.district || 'N/A',
@@ -621,17 +626,20 @@ const updateStockist = async (req, res) => {
             country: stockistData.country || 'India',
             contact_person_name: stockistData.contactPerson || 'N/A',
             contact_number: stockistData.mobileNumber || '0000000000'
-          }, {
+          };
+          console.log('Address update payload:', JSON.stringify(addressUpdatePayload, null, 2));
+          await Address.update(addressUpdatePayload, {
             where: { id: stockist.address_id },
             transaction
           });
         } else {
           console.log('Creating new Address record for existing stockist...');
-          const address = await Address.create({
+          const addressCreatePayload = {
             address_name: stockistData.firmName || stockist.firm_name || 'Stockist Office',
             address_line_1: stockistData.addressLine1,
             address_line_2: stockistData.addressLine2,
-            area_locality: stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A',
+            area_locality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'),
+            areaLocality: String(stockistData.landmark || stockistData.postOffice || stockistData.addressLine1 || 'N/A'),
             pincode: stockistData.pincode,
             post_office: stockistData.postOffice || 'N/A',
             district: stockistData.district || 'N/A',
@@ -640,7 +648,9 @@ const updateStockist = async (req, res) => {
             contact_person_name: stockistData.contactPerson || 'N/A',
             contact_number: stockistData.mobileNumber || '0000000000',
             communication_type: 'Office'
-          }, { transaction });
+          };
+          console.log('Address creation payload (in update):', JSON.stringify(addressCreatePayload, null, 2));
+          const address = await Address.create(addressCreatePayload, { transaction });
           stockistUpdateData.address_id = address.id;
         }
       }
