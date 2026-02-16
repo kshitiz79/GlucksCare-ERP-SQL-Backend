@@ -530,8 +530,8 @@ const updateStockist = async (req, res) => {
       // Convert field names and collect data for the main stockist record
       const stockistUpdateData = {};
       Object.keys(stockistData).forEach(key => {
-        // Skip annualTurnover as it will be handled separately
-        if (key === 'annualTurnover') return;
+        // Skip annualTurnover and primary keys (id/_id)
+        if (key === 'annualTurnover' || key === 'id' || key === '_id') return;
 
         const dbFieldName = STOCKIST_FIELD_MAPPINGS[key] || key;
         stockistUpdateData[dbFieldName] = stockistData[key];

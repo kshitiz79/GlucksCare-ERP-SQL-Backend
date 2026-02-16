@@ -17,6 +17,8 @@ const ForwardingNote = (sequelize) => {
                 model: 'invoice_tracking',
                 key: 'id'
             },
+            onDelete: 'CASCADE',
+            onUpdate: 'CASCADE',
             comment: 'Reference to InvoiceTracking'
         },
 

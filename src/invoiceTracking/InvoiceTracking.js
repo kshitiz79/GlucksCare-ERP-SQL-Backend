@@ -21,6 +21,8 @@ const InvoiceTracking = (sequelize) => {
         model: 'stockists',
         key: 'id'
       },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
       comment: 'Reference to stockist table'
     },
     invoice_number: {
