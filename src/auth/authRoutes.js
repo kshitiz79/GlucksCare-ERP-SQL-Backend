@@ -4,7 +4,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const { User, HeadOffice } = require('../config/database');
+const { User, HeadOffice, Address, sequelize } = require('../config/database');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -52,7 +52,14 @@ router.post('/register', upload.any(), async (req, res) => {
             designation,
             employmentType,
             managers,
-            areaManagers
+            areaManagers,
+            addressLine1,
+            addressLine2,
+            landmark,
+            pincode,
+            postOffice,
+            district,
+            country
         } = req.body;
 
         // Parse JSON strings if coming from FormData (multipart)
@@ -114,109 +121,159 @@ router.post('/register', upload.any(), async (req, res) => {
             });
         }
 
-        // Create user
-        const user = await User.create({
-            name,
-            email,
-            password_hash: password, // Will be hashed by the model hook
-            mobile_number: mobileNumber || phone,
-            // Only set head_office_id if headOffices array is not provided
-            head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : (headOffice || null),
-            employee_code: employeeCode,
-            role,
-            gender,
-            salary_type: salaryType,
-            salary_amount: salaryAmount && !isNaN(salaryAmount) ? parseFloat(salaryAmount) : null,
-            address,
-            date_of_birth: dateOfBirth ? new Date(dateOfBirth) : null,
-            date_of_joining: dateOfJoining ? new Date(dateOfJoining) : null,
-            bank_details: parsedBankDetails || {},
-            emergency_contact: parsedEmergencyContact || {},
-            reference: parsedReference || {},
-            state_id: state || null,
-            branch_id: branch || null,
-            department_id: department || null,
-            designation_id: designation || null,
-            employment_type_id: employmentType || null,
-            legal_documents: legal_documents,
-            // Admin-created accounts are automatically email verified
-            email_verified: true,
-            email_verified_at: new Date()
-        });
+        // Initialize transaction
+        const transaction = await sequelize.transaction();
 
-        // Handle headOffices array if provided
-        if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0) {
-            // Create UserHeadOffice entries for each head office
-            const { UserHeadOffice } = require('../config/database');
-            const userHeadOfficeRecords = parsedHeadOffices.map(headOfficeId => ({
-                user_id: user.id,
-                head_office_id: headOfficeId
-            }));
-            await UserHeadOffice.bulkCreate(userHeadOfficeRecords);
-        }
-
-        // Handle Managers if provided
-        if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0) {
-            const { UserManager } = require('../config/database');
-            const managerRecords = parsedManagers.map(managerId => ({
-                user_id: user.id,
-                manager_id: managerId,
-                manager_type: 'manager'
-            }));
-            await UserManager.bulkCreate(managerRecords);
-        }
-
-        // Handle Area Managers if provided
-        if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0) {
-            const { UserManager } = require('../config/database');
-            const areaManagerRecords = parsedAreaManagers.map(areaManagerId => ({
-                user_id: user.id,
-                manager_id: areaManagerId,
-                manager_type: 'area_manager'
-            }));
-            await UserManager.bulkCreate(areaManagerRecords);
-        }
-
-        // Generate JWT token
-        const token = jwt.sign(
-            { id: user.id, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '60h' }
-        );
-
-        // Populate headOffices for response
-        const populatedUser = await User.findByPk(user.id, {
-            include: [
-                {
-                    model: HeadOffice,
-                    as: 'headOffices',
-                    through: { attributes: [] },
-                    attributes: ['id', 'name']
-                }
-            ]
-        });
-
-        // Get all head offices for the user
-        let responseHeadOffices = [];
-
-        if (populatedUser.headOffices && populatedUser.headOffices.length > 0) {
-            // User has multiple head offices through many-to-many relationship
-            responseHeadOffices = populatedUser.headOffices.map(ho => ({
-                id: ho.id,
-                name: ho.name
-            }));
-        }
-
-        res.json({
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                headOffices: responseHeadOffices
+        try {
+            // Check if structured address is provided
+            let addressId = null;
+            if (addressLine1 && pincode) {
+                const addressPayload = {
+                    address_name: name || 'User Address',
+                    address_line_1: addressLine1,
+                    address_line_2: addressLine2,
+                    area_locality: landmark || postOffice || 'N/A',
+                    post_office: postOffice || 'N/A',
+                    district: district || 'N/A',
+                    state: state || 'N/A',
+                    pincode: pincode,
+                    country: country || 'India',
+                    contact_person_name: name,
+                    contact_number: mobileNumber || phone || '0000000000',
+                    communication_type: 'Home'
+                };
+                const createdAddress = await Address.create(addressPayload, { transaction });
+                addressId = createdAddress.id;
             }
-        });
+
+            // Function to check if a string is a UUID
+            const isUUID = (str) => {
+                return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+            };
+
+            // Create user
+            const user = await User.create({
+                name,
+                email,
+                password_hash: password, // Will be hashed by the model hook
+                mobile_number: mobileNumber || phone,
+                head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : (headOffice && isUUID(headOffice) ? headOffice : null),
+                employee_code: employeeCode,
+                role,
+                gender,
+                salary_type: salaryType,
+                salary_amount: salaryAmount && !isNaN(salaryAmount) ? parseFloat(salaryAmount) : null,
+                address: address || addressLine1, // Compatibility with legacy text address
+                address_id: addressId,
+                date_of_birth: dateOfBirth ? new Date(dateOfBirth) : null,
+                date_of_joining: dateOfJoining ? new Date(dateOfJoining) : null,
+                bank_details: parsedBankDetails || {},
+                emergency_contact: parsedEmergencyContact || {},
+                reference: parsedReference || {},
+                state_id: (state && isUUID(state)) ? state : null,
+                branch_id: (branch && isUUID(branch)) ? branch : null,
+                department_id: (department && isUUID(department)) ? department : null,
+                designation_id: (designation && isUUID(designation)) ? designation : null,
+                employment_type_id: (employmentType && isUUID(employmentType)) ? employmentType : null,
+                legal_documents: legal_documents,
+                // Admin-created accounts are automatically email verified
+                email_verified: true,
+                email_verified_at: new Date()
+            }, { transaction });
+
+            // Handle headOffices array if provided
+            if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0) {
+                // Create UserHeadOffice entries for each head office
+                const { UserHeadOffice } = require('../config/database');
+                const userHeadOfficeRecords = parsedHeadOffices
+                    .filter(hoId => hoId && isUUID(hoId))
+                    .map(headOfficeId => ({
+                        user_id: user.id,
+                        head_office_id: headOfficeId
+                    }));
+
+                if (userHeadOfficeRecords.length > 0) {
+                    await UserHeadOffice.bulkCreate(userHeadOfficeRecords, { transaction });
+                }
+            }
+
+            // Handle Managers if provided
+            if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0) {
+                const { UserManager } = require('../config/database');
+                const managerRecords = parsedManagers
+                    .filter(mId => mId && isUUID(mId))
+                    .map(managerId => ({
+                        user_id: user.id,
+                        manager_id: managerId,
+                        manager_type: 'manager'
+                    }));
+
+                if (managerRecords.length > 0) {
+                    await UserManager.bulkCreate(managerRecords, { transaction });
+                }
+            }
+
+            // Handle Area Managers if provided
+            if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0) {
+                const { UserManager } = require('../config/database');
+                const areaManagerRecords = parsedAreaManagers
+                    .filter(amId => amId && isUUID(amId))
+                    .map(areaManagerId => ({
+                        user_id: user.id,
+                        manager_id: areaManagerId,
+                        manager_type: 'area_manager'
+                    }));
+
+                if (areaManagerRecords.length > 0) {
+                    await UserManager.bulkCreate(areaManagerRecords, { transaction });
+                }
+            }
+
+            // Commit transaction
+            await transaction.commit();
+
+            // Generate JWT token
+            const token = jwt.sign(
+                { id: user.id, role: user.role },
+                process.env.JWT_SECRET,
+                { expiresIn: '60h' }
+            );
+
+            // Populate headOffices for response
+            const populatedUser = await User.findByPk(user.id, {
+                include: [
+                    {
+                        model: HeadOffice,
+                        as: 'headOffices',
+                        through: { attributes: [] },
+                        attributes: ['id', 'name']
+                    }
+                ]
+            });
+
+            // Get all head offices for the user
+            let responseHeadOffices = [];
+            if (populatedUser && populatedUser.headOffices && populatedUser.headOffices.length > 0) {
+                responseHeadOffices = populatedUser.headOffices.map(ho => ({
+                    id: ho.id,
+                    name: ho.name
+                }));
+            }
+
+            res.json({
+                token,
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    headOffices: responseHeadOffices
+                }
+            });
+        } catch (dbError) {
+            if (transaction) await transaction.rollback();
+            throw dbError;
+        }
     } catch (err) {
         console.error('Register error:', err);
 

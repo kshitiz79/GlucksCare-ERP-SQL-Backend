@@ -646,7 +646,7 @@ const createUser = async (req, res) => {
     const userData = {};
     Object.keys(req.body).forEach(key => {
       // Skip relationship fields for now
-      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'addressId'].includes(key)) return;
+      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'addressId', 'headOffice'].includes(key)) return;
 
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 
@@ -657,6 +657,19 @@ const createUser = async (req, res) => {
         userData[snakeCaseKey] = req.body[key];
       }
     });
+
+    // Helper to check if a string is a UUID
+    const isUUID = (str) => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    // Explicitly handle relationship IDs if provided as UUIDs
+    if (req.body.designation && isUUID(req.body.designation)) userData.designation_id = req.body.designation;
+    if (req.body.branch && isUUID(req.body.branch)) userData.branch_id = req.body.branch;
+    if (req.body.department && isUUID(req.body.department)) userData.department_id = req.body.department;
+    if (req.body.employmentType && isUUID(req.body.employmentType)) userData.employment_type_id = req.body.employmentType;
+    if (req.body.state && isUUID(req.body.state)) userData.state_id = req.body.state;
+    if (req.body.headOffice && isUUID(req.body.headOffice)) userData.head_office_id = req.body.headOffice;
 
     // Set default values for admin-created users
     userData.email_verified = true;
@@ -762,6 +775,19 @@ const updateUser = async (req, res) => {
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       updateData[snakeCaseKey] = req.body[key];
     });
+
+    // Helper to check if a string is a UUID
+    const isUUID = (str) => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    // Explicitly handle relationship IDs if provided as UUIDs
+    if (req.body.designation && isUUID(req.body.designation)) updateData.designation_id = req.body.designation;
+    if (req.body.branch && isUUID(req.body.branch)) updateData.branch_id = req.body.branch;
+    if (req.body.department && isUUID(req.body.department)) updateData.department_id = req.body.department;
+    if (req.body.employmentType && isUUID(req.body.employmentType)) updateData.employment_type_id = req.body.employmentType;
+    if (req.body.state && isUUID(req.body.state)) updateData.state_id = req.body.state;
+    if (req.body.headOffice && isUUID(req.body.headOffice)) updateData.head_office_id = req.body.headOffice;
 
     if (req.body.addressId) {
       updateData['address_id'] = req.body.addressId;
