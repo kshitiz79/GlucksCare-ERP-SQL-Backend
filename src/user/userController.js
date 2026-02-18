@@ -98,7 +98,6 @@ const getUsersByState = async (req, res) => {
         role: user.role,
         state: user.state_id,
         salaryAmount: user.salary_amount,
-        address: user.address,
         dateOfBirth: user.date_of_birth,
         dateOfJoining: user.date_of_joining,
         bankDetails: user.bank_details,
@@ -113,7 +112,21 @@ const getUsersByState = async (req, res) => {
         updatedAt: user.updated_at,
         branch: user.branch_id,
         department: user.department_id,
-        employmentType: user.employment_type_id
+        employmentType: user.employment_type_id,
+        addressId: user.address_id,
+        masterAddress: user.masterAddress ? {
+          id: user.masterAddress.id,
+          addressName: user.masterAddress.address_name,
+          addressLine1: user.masterAddress.address_line_1,
+          addressLine2: user.masterAddress.address_line_2,
+          areaLocality: user.masterAddress.area_locality,
+          postOffice: user.masterAddress.post_office,
+          district: user.masterAddress.district,
+          state: user.masterAddress.state,
+          pincode: user.masterAddress.pincode,
+          contactPersonName: user.masterAddress.contact_person_name,
+          contactNumber: user.masterAddress.contact_number
+        } : null
       };
 
       // Add headOffices array from map
@@ -172,6 +185,12 @@ const getUsersByRole = async (req, res) => {
         is_active: true
       },
       attributes: { exclude: ['password_hash'] }, // Don't send password
+      include: [
+        {
+          model: req.app.get('models').Address,
+          as: 'masterAddress'
+        }
+      ],
       order: [['created_at', 'DESC']]
     });
 
@@ -230,7 +249,6 @@ const getUsersByRole = async (req, res) => {
         role: user.role,
         state: user.state_id, // This should be the state ID
         salaryAmount: user.salary_amount,
-        address: user.address,
         dateOfBirth: user.date_of_birth,
         dateOfJoining: user.date_of_joining,
         bankDetails: user.bank_details,
@@ -245,7 +263,21 @@ const getUsersByRole = async (req, res) => {
         updatedAt: user.updated_at,
         branch: user.branch_id,
         department: user.department_id,
-        employmentType: user.employment_type_id
+        employmentType: user.employment_type_id,
+        addressId: user.address_id,
+        masterAddress: user.masterAddress ? {
+          id: user.masterAddress.id,
+          addressName: user.masterAddress.address_name,
+          addressLine1: user.masterAddress.address_line_1,
+          addressLine2: user.masterAddress.address_line_2,
+          areaLocality: user.masterAddress.area_locality,
+          postOffice: user.masterAddress.post_office,
+          district: user.masterAddress.district,
+          state: user.masterAddress.state,
+          pincode: user.masterAddress.pincode,
+          contactPersonName: user.masterAddress.contact_person_name,
+          contactNumber: user.masterAddress.contact_number
+        } : null
       };
 
       // Add headOffices array from map
@@ -339,6 +371,10 @@ const getAllUsers = async (req, res) => {
           model: HeadOffice,
           as: 'headOffices',
           through: { attributes: [] } // Don't include junction table attributes
+        },
+        {
+          model: models.Address,
+          as: 'masterAddress'
         }
       ],
       limit,
@@ -410,7 +446,6 @@ const getAllUsers = async (req, res) => {
         role: user.role,
         state: user.state_id,
         salaryAmount: user.salary_amount,
-        address: user.address,
         dateOfBirth: user.date_of_birth,
         dateOfJoining: user.date_of_joining,
         bankDetails: user.bank_details,
@@ -426,6 +461,20 @@ const getAllUsers = async (req, res) => {
         branch: user.branch_id,
         department: user.department_id,
         employmentType: user.employment_type_id,
+        addressId: user.address_id,
+        masterAddress: user.masterAddress ? {
+          id: user.masterAddress.id,
+          addressName: user.masterAddress.address_name,
+          addressLine1: user.masterAddress.address_line_1,
+          addressLine2: user.masterAddress.address_line_2,
+          areaLocality: user.masterAddress.area_locality,
+          postOffice: user.masterAddress.post_office,
+          district: user.masterAddress.district,
+          state: user.masterAddress.state,
+          pincode: user.masterAddress.pincode,
+          contactPersonName: user.masterAddress.contact_person_name,
+          contactNumber: user.masterAddress.contact_number
+        } : null,
         // Add last_location from locationMap
         last_location: locationMap[user.id] || null,
         is_online: locationMap[user.id] ? isUserOnline(locationMap[user.id].timestamp) : false
@@ -485,6 +534,10 @@ const getUserById = async (req, res) => {
           model: HeadOffice,
           as: 'headOffices',
           through: { attributes: [] }
+        },
+        {
+          model: req.app.get('models').Address,
+          as: 'masterAddress'
         }
       ]
     });
@@ -508,7 +561,6 @@ const getUserById = async (req, res) => {
       role: user.role,
       state: user.state_id,
       salaryAmount: user.salary_amount,
-      address: user.address,
       dateOfBirth: user.date_of_birth,
       dateOfJoining: user.date_of_joining,
       bankDetails: user.bank_details,
@@ -523,7 +575,21 @@ const getUserById = async (req, res) => {
       updatedAt: user.updated_at,
       branch: user.branch_id,
       department: user.department_id,
-      employmentType: user.employment_type_id
+      employmentType: user.employment_type_id,
+      addressId: user.address_id,
+      masterAddress: user.masterAddress ? {
+        id: user.masterAddress.id,
+        addressName: user.masterAddress.address_name,
+        addressLine1: user.masterAddress.address_line_1,
+        addressLine2: user.masterAddress.address_line_2,
+        areaLocality: user.masterAddress.area_locality,
+        postOffice: user.masterAddress.post_office,
+        district: user.masterAddress.district,
+        state: user.masterAddress.state,
+        pincode: user.masterAddress.pincode,
+        contactPersonName: user.masterAddress.contact_person_name,
+        contactNumber: user.masterAddress.contact_number
+      } : null
     };
 
     // Add headOffices array if exists
@@ -580,7 +646,7 @@ const createUser = async (req, res) => {
     const userData = {};
     Object.keys(req.body).forEach(key => {
       // Skip relationship fields for now
-      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state'].includes(key)) return;
+      if (['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'addressId'].includes(key)) return;
 
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 
@@ -597,43 +663,75 @@ const createUser = async (req, res) => {
     userData.email_verified_at = new Date();
     userData.is_active = true;
 
-    const user = await User.create(userData);
+    // Start a transaction for user and address creation
+    const sequelize = req.app.get('sequelize');
+    const { Address } = req.app.get('models');
+    const transaction = await sequelize.transaction();
 
-    // Transform user to match MongoDB format
-    const transformedUser = {
-      _id: user.id,
-      id: user.id,
-      employeeCode: user.employee_code,
-      name: user.name,
-      email: user.email,
-      mobileNumber: user.mobile_number,
-      gender: user.gender,
-      role: user.role,
-      headOffice: user.head_office_id,
-      state: user.state_id,
-      salaryAmount: user.salary_amount,
-      address: user.address,
-      dateOfBirth: user.date_of_birth,
-      dateOfJoining: user.date_of_joining,
-      bankDetails: user.bank_details,
-      legalDocuments: user.legal_documents,
-      emergencyContact: user.emergency_contact,
-      reference: user.reference,
-      isActive: user.is_active,
-      emailVerified: user.email_verified,
-      otp: user.otp,
-      otpExpire: user.otp_expire,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
-      branch: user.branch_id,
-      department: user.department_id,
-      employmentType: user.employment_type_id
-    };
+    try {
+      // Create Address if address fields are provided
+      if (req.body.addressLine1 && req.body.pincode) {
+        const addressPayload = {
+          address_name: req.body.name || 'User Address',
+          address_line_1: req.body.addressLine1,
+          address_line_2: req.body.addressLine2,
+          area_locality: req.body.landmark || req.body.areaLocality || req.body.postOffice || 'N/A',
+          pincode: req.body.pincode,
+          post_office: req.body.postOffice || 'N/A',
+          district: req.body.district || 'N/A',
+          state: req.body.state || 'N/A',
+          country: req.body.country || 'India',
+          contact_person_name: req.body.name || 'N/A',
+          contact_number: req.body.mobileNumber || '0000000000',
+          communication_type: 'Home'
+        };
+        const address = await Address.create(addressPayload, { transaction });
+        userData.address_id = address.id;
+      }
 
-    res.status(201).json({
-      success: true,
-      data: transformedUser
-    });
+      const user = await User.create(userData, { transaction });
+
+      // Commit transaction
+      await transaction.commit();
+
+      // Transform user to match MongoDB format
+      const transformedUser = {
+        _id: user.id,
+        id: user.id,
+        employeeCode: user.employee_code,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobile_number,
+        gender: user.gender,
+        role: user.role,
+        headOffice: user.head_office_id,
+        state: user.state_id,
+        salaryAmount: user.salary_amount,
+        dateOfBirth: user.date_of_birth,
+        dateOfJoining: user.date_of_joining,
+        bankDetails: user.bank_details,
+        legalDocuments: user.legal_documents,
+        emergencyContact: user.emergency_contact,
+        reference: user.reference,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        otp: user.otp,
+        otpExpire: user.otp_expire,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        branch: user.branch_id,
+        department: user.department_id,
+        employmentType: user.employment_type_id
+      };
+
+      res.status(201).json({
+        success: true,
+        data: transformedUser
+      });
+    } catch (error) {
+      if (transaction) await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -659,83 +757,108 @@ const updateUser = async (req, res) => {
     const updateData = {};
     Object.keys(req.body).forEach(key => {
       // Skip password field and relationship fields for this endpoint
-      if (key === 'password' || ['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice'].includes(key)) return;
+      if (key === 'password' || ['headOffices', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice', 'addressId'].includes(key)) return;
 
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       updateData[snakeCaseKey] = req.body[key];
     });
 
-    await user.update(updateData);
-
-    // Handle headOffices relationship if provided
-    if (req.body.headOffices && Array.isArray(req.body.headOffices)) {
-      const { HeadOffice } = req.app.get('models');
-      const sequelize = req.app.get('sequelize');
-
-      try {
-        // Clear existing head office associations
-        await sequelize.query(
-          'DELETE FROM user_head_offices WHERE user_id = :userId',
-          {
-            replacements: { userId: user.id },
-            type: sequelize.QueryTypes.DELETE
-          }
-        );
-
-        // Add new head office associations
-        if (req.body.headOffices.length > 0) {
-          const values = req.body.headOffices.map(hoId =>
-            `('${user.id}', '${hoId}')`
-          ).join(', ');
-
-          await sequelize.query(
-            `INSERT INTO user_head_offices (user_id, head_office_id) VALUES ${values}`,
-            { type: sequelize.QueryTypes.INSERT }
-          );
-        }
-
-        console.log(`✅ Updated head offices for user ${user.id}: ${req.body.headOffices.length} offices`);
-      } catch (hoError) {
-        console.error('Error updating head offices:', hoError);
-        // Continue even if head office update fails
-      }
+    if (req.body.addressId) {
+      updateData['address_id'] = req.body.addressId;
     }
 
-    // Transform user to match MongoDB format
-    const transformedUser = {
-      _id: user.id,
-      id: user.id,
-      employeeCode: user.employee_code,
-      name: user.name,
-      email: user.email,
-      mobileNumber: user.mobile_number,
-      gender: user.gender,
-      role: user.role,
-      headOffice: user.head_office_id,
-      state: user.state_id,
-      salaryAmount: user.salary_amount,
-      address: user.address,
-      dateOfBirth: user.date_of_birth,
-      dateOfJoining: user.date_of_joining,
-      bankDetails: user.bank_details,
-      legalDocuments: user.legal_documents,
-      emergencyContact: user.emergency_contact,
-      reference: user.reference,
-      isActive: user.is_active,
-      emailVerified: user.email_verified,
-      otp: user.otp,
-      otpExpire: user.otp_expire,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
-      branch: user.branch_id,
-      department: user.department_id,
-      employmentType: user.employment_type_id
-    };
+    // Start a transaction for user and address update
+    const sequelize = req.app.get('sequelize');
+    const { Address, HeadOffice } = req.app.get('models');
+    const transaction = await sequelize.transaction();
 
-    res.json({
-      success: true,
-      data: transformedUser
-    });
+    try {
+      // Create or Update Address if address fields are provided
+      if (req.body.addressLine1 && req.body.pincode) {
+        const addressPayload = {
+          address_name: req.body.name || user.name || 'User Address',
+          address_line_1: req.body.addressLine1,
+          address_line_2: req.body.addressLine2,
+          area_locality: req.body.landmark || req.body.areaLocality || req.body.postOffice || 'N/A',
+          pincode: req.body.pincode,
+          post_office: req.body.postOffice || 'N/A',
+          district: req.body.district || 'N/A',
+          state: req.body.state || 'N/A',
+          country: req.body.country || 'India',
+          contact_person_name: req.body.name || user.name || 'N/A',
+          contact_number: req.body.mobileNumber || user.mobile_number || '0000000000',
+          communication_type: 'Home'
+        };
+
+        if (user.address_id) {
+          await Address.update(addressPayload, {
+            where: { id: user.address_id },
+            transaction
+          });
+        } else {
+          const address = await Address.create(addressPayload, { transaction });
+          updateData.address_id = address.id;
+        }
+      }
+
+      await user.update(updateData, { transaction });
+
+      // Handle headOffices association
+      if (req.body.headOffices && Array.isArray(req.body.headOffices)) {
+        try {
+          const headOffices = await HeadOffice.findAll({
+            where: { id: req.body.headOffices },
+            transaction
+          });
+          await user.setHeadOffices(headOffices, { transaction });
+          console.log(`✅ Updated head offices for user ${user.id}: ${req.body.headOffices.length} offices`);
+        } catch (hoError) {
+          console.error('Error updating head offices:', hoError);
+          // Continue even if head office update fails
+        }
+      }
+
+      // Commit transaction
+      await transaction.commit();
+
+      // Transform user to match MongoDB format
+      const transformedUser = {
+        _id: user.id,
+        id: user.id,
+        employeeCode: user.employee_code,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobile_number,
+        gender: user.gender,
+        role: user.role,
+        headOffice: user.head_office_id,
+        state: user.state_id,
+        salaryAmount: user.salary_amount,
+        dateOfBirth: user.date_of_birth,
+        dateOfJoining: user.date_of_joining,
+        bankDetails: user.bank_details,
+        legalDocuments: user.legal_documents,
+        emergencyContact: user.emergency_contact,
+        reference: user.reference,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        otp: user.otp,
+        otpExpire: user.otp_expire,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        branch: user.branch_id,
+        department: user.department_id,
+        employmentType: user.employment_type_id
+      };
+
+      res.json({
+        success: true,
+        data: transformedUser
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
     res.status(400).json({
       success: false,

@@ -50,14 +50,30 @@ router.post('/register', upload.any(), async (req, res) => {
             branch,
             department,
             designation,
-            employmentType
+            employmentType,
+            managers,
+            areaManagers
         } = req.body;
 
-        // Parse JSON strings if coming from FormData
-        const parsedBankDetails = typeof bankDetails === 'string' ? JSON.parse(bankDetails) : bankDetails;
-        const parsedEmergencyContact = typeof emergencyContact === 'string' ? JSON.parse(emergencyContact) : emergencyContact;
-        const parsedReference = typeof reference === 'string' ? JSON.parse(reference) : reference;
-        const parsedHeadOffices = typeof headOffices === 'string' ? JSON.parse(headOffices) : headOffices;
+        // Parse JSON strings if coming from FormData (multipart)
+        const parseJSON = (data) => {
+            if (typeof data === 'string') {
+                try {
+                    return JSON.parse(data);
+                } catch (e) {
+                    console.error('JSON Parse error:', e);
+                    return null;
+                }
+            }
+            return data;
+        };
+
+        const parsedBankDetails = parseJSON(bankDetails);
+        const parsedEmergencyContact = parseJSON(emergencyContact);
+        const parsedReference = parseJSON(reference);
+        const parsedHeadOffices = parseJSON(headOffices);
+        const parsedManagers = parseJSON(managers);
+        const parsedAreaManagers = parseJSON(areaManagers);
 
         // Validate required fields
         if (!name) return res.status(400).json({ msg: 'Name is required' });
@@ -110,7 +126,7 @@ router.post('/register', upload.any(), async (req, res) => {
             role,
             gender,
             salary_type: salaryType,
-            salary_amount: salaryAmount ? parseFloat(salaryAmount) : null,
+            salary_amount: salaryAmount && !isNaN(salaryAmount) ? parseFloat(salaryAmount) : null,
             address,
             date_of_birth: dateOfBirth ? new Date(dateOfBirth) : null,
             date_of_joining: dateOfJoining ? new Date(dateOfJoining) : null,
@@ -137,6 +153,28 @@ router.post('/register', upload.any(), async (req, res) => {
                 head_office_id: headOfficeId
             }));
             await UserHeadOffice.bulkCreate(userHeadOfficeRecords);
+        }
+
+        // Handle Managers if provided
+        if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0) {
+            const { UserManager } = require('../config/database');
+            const managerRecords = parsedManagers.map(managerId => ({
+                user_id: user.id,
+                manager_id: managerId,
+                manager_type: 'manager'
+            }));
+            await UserManager.bulkCreate(managerRecords);
+        }
+
+        // Handle Area Managers if provided
+        if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0) {
+            const { UserManager } = require('../config/database');
+            const areaManagerRecords = parsedAreaManagers.map(areaManagerId => ({
+                user_id: user.id,
+                manager_id: areaManagerId,
+                manager_type: 'area_manager'
+            }));
+            await UserManager.bulkCreate(areaManagerRecords);
         }
 
         // Generate JWT token

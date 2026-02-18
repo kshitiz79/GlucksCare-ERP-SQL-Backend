@@ -102,8 +102,12 @@ const User = (sequelize) => {
     salary_amount: {
       type: DataTypes.DECIMAL(12, 2)
     },
-    address: {
-      type: DataTypes.TEXT
+    address_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'addresses',
+        key: 'id'
+      }
     },
     date_of_birth: {
       type: DataTypes.DATE
