@@ -9,9 +9,24 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+const upload = require('../middleware/upload');
+
 // REGISTER
-router.post('/register', async (req, res) => {
+router.post('/register', upload.any(), async (req, res) => {
     try {
+        console.log('Register req.body:', req.body);
+        console.log('Register req.files:', req.files);
+
+        // Extract files if any
+        let legal_documents = {};
+        if (req.files && req.files.length > 0) {
+            // Logic to handle uploaded files (e.g., upload to Cloudinary)
+            // For now, let's assume they are handled or we just store metadata
+            req.files.forEach(file => {
+                legal_documents[file.fieldname] = file.path || file.originalname;
+            });
+        }
+
         const {
             name,
             email,
@@ -31,8 +46,18 @@ router.post('/register', async (req, res) => {
             emergencyContact,
             reference,
             state,
-            headOffices
+            headOffices,
+            branch,
+            department,
+            designation,
+            employmentType
         } = req.body;
+
+        // Parse JSON strings if coming from FormData
+        const parsedBankDetails = typeof bankDetails === 'string' ? JSON.parse(bankDetails) : bankDetails;
+        const parsedEmergencyContact = typeof emergencyContact === 'string' ? JSON.parse(emergencyContact) : emergencyContact;
+        const parsedReference = typeof reference === 'string' ? JSON.parse(reference) : reference;
+        const parsedHeadOffices = typeof headOffices === 'string' ? JSON.parse(headOffices) : headOffices;
 
         // Validate required fields
         if (!name) return res.status(400).json({ msg: 'Name is required' });
@@ -62,7 +87,9 @@ router.post('/register', async (req, res) => {
             'Zonal Manager',
             'Area Manager',
             'Manager',
-            'User'
+            'User',
+            'Accounts',
+            'Logistics'
         ];
 
         if (role && !validRoles.includes(role)) {
@@ -78,7 +105,7 @@ router.post('/register', async (req, res) => {
             password_hash: password, // Will be hashed by the model hook
             mobile_number: mobileNumber || phone,
             // Only set head_office_id if headOffices array is not provided
-            head_office_id: (headOffices && headOffices.length > 0) ? null : (headOffice || null),
+            head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : (headOffice || null),
             employee_code: employeeCode,
             role,
             gender,
@@ -87,20 +114,25 @@ router.post('/register', async (req, res) => {
             address,
             date_of_birth: dateOfBirth ? new Date(dateOfBirth) : null,
             date_of_joining: dateOfJoining ? new Date(dateOfJoining) : null,
-            bank_details: bankDetails || {},
-            emergency_contact: emergencyContact || {},
-            reference: reference || {},
+            bank_details: parsedBankDetails || {},
+            emergency_contact: parsedEmergencyContact || {},
+            reference: parsedReference || {},
             state_id: state || null,
+            branch_id: branch || null,
+            department_id: department || null,
+            designation_id: designation || null,
+            employment_type_id: employmentType || null,
+            legal_documents: legal_documents,
             // Admin-created accounts are automatically email verified
             email_verified: true,
             email_verified_at: new Date()
         });
 
         // Handle headOffices array if provided
-        if (headOffices && Array.isArray(headOffices) && headOffices.length > 0) {
+        if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0) {
             // Create UserHeadOffice entries for each head office
             const { UserHeadOffice } = require('../config/database');
-            const userHeadOfficeRecords = headOffices.map(headOfficeId => ({
+            const userHeadOfficeRecords = parsedHeadOffices.map(headOfficeId => ({
                 user_id: user.id,
                 head_office_id: headOfficeId
             }));

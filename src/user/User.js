@@ -45,7 +45,7 @@ const User = (sequelize) => {
       type: DataTypes.STRING(50),
       allowNull: false,
       validate: {
-        isIn: [['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User']]
+        isIn: [['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User', 'Accounts', 'Logistics']]
       }
     },
     // References

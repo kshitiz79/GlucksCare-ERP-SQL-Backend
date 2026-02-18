@@ -585,6 +585,14 @@ const updateStockist = async (req, res) => {
         }
       });
 
+      // 4.1 Handle Geo-image update or removal
+      if (uploadedImageUrl) {
+        stockistUpdateData.geo_image_url = uploadedImageUrl;
+      } else if (stockistData.remove_geo_image === 'true' || stockistData.remove_geo_image === true) {
+        stockistUpdateData.geo_image_url = null;
+        console.log('User requested removal of geo_image');
+      }
+
       // 5. Ensure annualTurnover is also parsed if present
       if (typeof stockistData.annualTurnover === 'string' && stockistData.annualTurnover.trim() !== '') {
         try {

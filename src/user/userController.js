@@ -56,7 +56,7 @@ const getUsersByState = async (req, res) => {
         SELECT uho.user_id, ho.*
         FROM user_head_offices uho
         JOIN head_offices ho ON uho.head_office_id = ho.id
-        WHERE uho.user_id = ANY(:userIds)
+        WHERE uho.user_id IN (:userIds)
         `,
         {
           replacements: { userIds },
@@ -188,7 +188,7 @@ const getUsersByRole = async (req, res) => {
         SELECT uho.user_id, ho.*
         FROM user_head_offices uho
         JOIN head_offices ho ON uho.head_office_id = ho.id
-        WHERE uho.user_id = ANY(:userIds)
+        WHERE uho.user_id IN (:userIds)
         `,
         {
           replacements: { userIds },
@@ -363,7 +363,7 @@ const getAllUsers = async (req, res) => {
           SELECT DISTINCT ON (user_id)
             user_id, latitude, longitude, timestamp, accuracy, battery_level, network_type
           FROM locations
-          WHERE user_id = ANY(:userIds)
+          WHERE user_id IN (:userIds)
           ORDER BY user_id, timestamp DESC
           `,
           {
