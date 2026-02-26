@@ -14,6 +14,12 @@ const Doctor = (sequelize) => {
     specialization: {
       type: DataTypes.STRING(255)
     },
+    clinic_name: {
+      type: DataTypes.STRING(255)
+    },
+    clinic_address: {
+      type: DataTypes.TEXT
+    },
     location: {
       type: DataTypes.STRING(255)
     },
@@ -37,6 +43,15 @@ const Doctor = (sequelize) => {
     },
     date_of_birth: {
       type: DataTypes.DATE
+    },
+    qualification: {
+      type: DataTypes.STRING(255)
+    },
+    consultation_fee: {
+      type: DataTypes.DECIMAL(10, 2)
+    },
+    available_timings: {
+      type: DataTypes.STRING(255)
     },
     geo_image_url: {
       type: DataTypes.STRING(500),
