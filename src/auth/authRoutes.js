@@ -4,7 +4,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const { User, HeadOffice, Address, sequelize } = require('../config/database');
+const { User, HeadOffice, Address, UserHeadOffice, UserManager, sequelize } = require('../config/database');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -128,6 +128,7 @@ router.post('/register', upload.any(), async (req, res) => {
             // Check if structured address is provided
             let addressId = null;
             if (addressLine1 && pincode) {
+                console.log('Creating structured address...');
                 const addressPayload = {
                     address_name: name || 'User Address',
                     address_line_1: addressLine1,
@@ -144,13 +145,25 @@ router.post('/register', upload.any(), async (req, res) => {
                 };
                 const createdAddress = await Address.create(addressPayload, { transaction });
                 addressId = createdAddress.id;
+                console.log('✅ Structured address created with ID:', addressId);
+            } else {
+                console.log('Skipping structured address creation (missing addressLine1 or pincode)');
             }
+
+            console.log('Final addressId for User:', addressId);
 
             // Function to check if a string is a UUID
             const isUUID = (str) => {
-                return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+                if (!str || typeof str !== 'string' || str.trim() === '') return false;
+                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+                const simpleRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                return simpleRegex.test(str);
             };
 
+            const hofficeId = (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : (headOffice && isUUID(headOffice) ? headOffice : null);
+            console.log('Head Office ID to use:', hofficeId);
+
+            console.log('Creating User record...');
             // Create user
             const user = await User.create({
                 name,
@@ -162,7 +175,7 @@ router.post('/register', upload.any(), async (req, res) => {
                 role,
                 gender,
                 salary_type: salaryType,
-                salary_amount: salaryAmount && !isNaN(salaryAmount) ? parseFloat(salaryAmount) : null,
+                salary_amount: (salaryAmount && !isNaN(salaryAmount) && salaryAmount.toString().trim() !== '') ? parseFloat(salaryAmount) : null,
                 address: address || addressLine1, // Compatibility with legacy text address
                 address_id: addressId,
                 date_of_birth: dateOfBirth ? new Date(dateOfBirth) : null,
@@ -181,10 +194,11 @@ router.post('/register', upload.any(), async (req, res) => {
                 email_verified_at: new Date()
             }, { transaction });
 
+            console.log('✅ User record created with ID:', user.id);
+
             // Handle headOffices array if provided
             if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0) {
                 // Create UserHeadOffice entries for each head office
-                const { UserHeadOffice } = require('../config/database');
                 const userHeadOfficeRecords = parsedHeadOffices
                     .filter(hoId => hoId && isUUID(hoId))
                     .map(headOfficeId => ({
@@ -199,7 +213,6 @@ router.post('/register', upload.any(), async (req, res) => {
 
             // Handle Managers if provided
             if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0) {
-                const { UserManager } = require('../config/database');
                 const managerRecords = parsedManagers
                     .filter(mId => mId && isUUID(mId))
                     .map(managerId => ({
@@ -215,7 +228,6 @@ router.post('/register', upload.any(), async (req, res) => {
 
             // Handle Area Managers if provided
             if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0) {
-                const { UserManager } = require('../config/database');
                 const areaManagerRecords = parsedAreaManagers
                     .filter(amId => amId && isUUID(amId))
                     .map(areaManagerId => ({
@@ -230,15 +242,20 @@ router.post('/register', upload.any(), async (req, res) => {
             }
 
             // Commit transaction
+            console.log('Committing transaction...');
             await transaction.commit();
+            console.log('✅ Transaction committed successfully');
 
+            console.log('Generating JWT token...');
             // Generate JWT token
             const token = jwt.sign(
                 { id: user.id, role: user.role },
-                process.env.JWT_SECRET,
+                process.env.JWT_SECRET || 'fallback-secret-for-debug',
                 { expiresIn: '60h' }
             );
+            console.log('✅ JWT token generated');
 
+            console.log('Fetching populated user for response...');
             // Populate headOffices for response
             const populatedUser = await User.findByPk(user.id, {
                 include: [
@@ -271,7 +288,11 @@ router.post('/register', upload.any(), async (req, res) => {
                 }
             });
         } catch (dbError) {
-            if (transaction) await transaction.rollback();
+            console.error('❌ Database/Internal Error during registration:', dbError);
+            if (transaction) {
+                console.log('Rolling back transaction...');
+                await transaction.rollback();
+            }
             throw dbError;
         }
     } catch (err) {
@@ -279,12 +300,26 @@ router.post('/register', upload.any(), async (req, res) => {
 
         if (err.name === 'SequelizeUniqueConstraintError') {
             const field = err.errors[0].path;
+            const message = `${field === 'email' ? 'Email' : field === 'employee_code' ? 'Employee Code' : field} already exists`;
             return res.status(400).json({
-                msg: `${field} already exists`
+                msg: message,
+                error: message
             });
         }
 
-        res.status(500).json({ msg: 'Server error' });
+        if (err.name === 'SequelizeValidationError') {
+            const messages = err.errors.map(e => e.message);
+            return res.status(400).json({
+                msg: messages[0],
+                errors: messages
+            });
+        }
+
+        res.status(500).json({
+            msg: 'Server error',
+            error: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
     console.log('Register req.body:', req.body);
 });
