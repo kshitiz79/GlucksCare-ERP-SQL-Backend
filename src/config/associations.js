@@ -104,7 +104,12 @@ module.exports = (db) => {
   db.StockistAnnualTurnover.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'Stockist' });
 
   // Product associations
-
+  db.Product.belongsTo(db.Salt, { foreignKey: 'salt_id', as: 'saltMaster' });
+  db.Product.belongsTo(db.Unit, { foreignKey: 'unit_id', as: 'unitMaster' });
+  db.Product.belongsTo(db.StripSize, { foreignKey: 'stripsize_id', as: 'stripSizeMaster' });
+  db.Product.belongsTo(db.Hsn, { foreignKey: 'hsn_id', as: 'hsnMaster' });
+  db.Product.belongsTo(db.Gst, { foreignKey: 'gst_id', as: 'gstMaster' });
+  db.Product.belongsTo(db.PackSize, { foreignKey: 'packsize_id', as: 'packSizeMaster' });
 
   db.Product.hasMany(db.DoctorVisit, { foreignKey: 'product_id' });
   db.Product.hasMany(db.VisitProductPromoted, { foreignKey: 'product_id' });

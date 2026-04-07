@@ -1,15 +1,21 @@
-const db = require('./src/config/database');
-const { sequelize, PartyExpense } = db;
+const { sequelize, PartyExpense, Salt, Unit, StripSize, Hsn, Gst, PackSize, Product } = require('./src/config/database');
 
-async function syncDb() {
-  try {
-    await PartyExpense.sync({ alter: true });
-    console.log("PartyExpense table synced successfully!");
-  } catch (error) {
-    console.error("Error syncing PartyExpensetable:", error);
-  } finally {
-    process.exit(0);
-  }
-}
+const syncAll = async () => {
+    try {
+        await PartyExpense.sync({ alter: true });
+        await Salt.sync({ alter: true });
+        await Unit.sync({ alter: true });
+        await StripSize.sync({ alter: true });
+        await Hsn.sync({ alter: true });
+        await Gst.sync({ alter: true });
+        await PackSize.sync({ alter: true });
+        await Product.sync({ alter: true });
+        console.log('All tables synced successfully!');
+    } catch (e) {
+        console.error('Error syncing:', e);
+    } finally {
+        process.exit(0);
+    }
+};
 
-syncDb();
+syncAll();

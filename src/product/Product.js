@@ -11,6 +11,25 @@ const Product = (sequelize) => {
       type: DataTypes.STRING(255),
       allowNull: false
     },
+    salt_id: {
+      type: DataTypes.UUID
+    },
+    unit_id: {
+      type: DataTypes.UUID
+    },
+    stripsize_id: {
+      type: DataTypes.UUID
+    },
+    hsn_id: {
+      type: DataTypes.UUID
+    },
+    gst_id: {
+      type: DataTypes.UUID
+    },
+    packsize_id: {
+      type: DataTypes.UUID
+    },
+    // kept for legacy temporarily
     salt: {
       type: DataTypes.STRING(255)
     },

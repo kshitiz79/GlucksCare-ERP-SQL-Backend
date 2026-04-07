@@ -95,6 +95,7 @@ const MobImage = require('../mobimgupload/MobImage');
 
 const Address = require('../Address/Address');
 const PartyExpense = require('../partyExpense/PartyExpense');
+const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/ProductMasters');
 
 // Initialize models
 const models = {
@@ -151,7 +152,13 @@ const models = {
     MobImage: MobImage(sequelize),
 
     Address: Address(sequelize),
-    PartyExpense: PartyExpense(sequelize)
+    PartyExpense: PartyExpense(sequelize),
+    Salt: Salt(sequelize),
+    Unit: Unit(sequelize),
+    StripSize: StripSize(sequelize),
+    Hsn: Hsn(sequelize),
+    Gst: Gst(sequelize),
+    PackSize: PackSize(sequelize)
 };
 
 // Set up hooks

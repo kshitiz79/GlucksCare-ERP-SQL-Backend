@@ -25,8 +25,17 @@ const uploadImageToCloudinary = (buffer) => {
 // GET all products
 const getAllProducts = async (req, res) => {
   try {
-    const { Product } = req.app.get('models'); // Get Product model from app context
-    const products = await Product.findAll();
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models'); // Get Product model from app context
+    const products = await Product.findAll({
+      include: [
+        { model: Salt, as: 'saltMaster', attributes: ['id', 'name'] },
+        { model: Unit, as: 'unitMaster', attributes: ['id', 'name'] },
+        { model: StripSize, as: 'stripSizeMaster', attributes: ['id', 'name'] },
+        { model: Hsn, as: 'hsnMaster', attributes: ['id', 'name'] },
+        { model: Gst, as: 'gstMaster', attributes: ['id', 'name'] },
+        { model: PackSize, as: 'packSizeMaster', attributes: ['id', 'name'] }
+      ]
+    });
     res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -62,7 +71,10 @@ const getProductById = async (req, res) => {
 const createProduct = async (req, res) => {
   try {
     const { Product } = req.app.get('models'); // Get Product model from app context
-    const { name, salt, description, dosage } = req.body;
+    const { 
+      name, salt, description, dosage, 
+      salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id 
+    } = req.body;
     let image = null;
 
     // Handle image upload if provided
@@ -81,7 +93,13 @@ const createProduct = async (req, res) => {
       salt: salt || null,
       description: description || null,
       dosage: dosage || null,
-      image: image || null
+      image: image || null,
+      salt_id: salt_id || null,
+      unit_id: unit_id || null,
+      stripsize_id: stripsize_id || null,
+      hsn_id: hsn_id || null,
+      gst_id: gst_id || null,
+      packsize_id: packsize_id || null
     });
 
     res.status(201).json(product);
@@ -106,7 +124,10 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    const { name, salt, description, dosage } = req.body;
+    const { 
+      name, salt, description, dosage,
+      salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id
+    } = req.body;
     let image = product.image; // Keep existing image by default
 
     // Handle image upload if provided
@@ -126,7 +147,13 @@ const updateProduct = async (req, res) => {
       salt: salt !== undefined ? salt : product.salt,
       description: description !== undefined ? description : product.description,
       dosage: dosage !== undefined ? dosage : product.dosage,
-      image: image !== undefined ? image : product.image
+      image: image !== undefined ? image : product.image,
+      salt_id: salt_id !== undefined ? salt_id : product.salt_id,
+      unit_id: unit_id !== undefined ? unit_id : product.unit_id,
+      stripsize_id: stripsize_id !== undefined ? stripsize_id : product.stripsize_id,
+      hsn_id: hsn_id !== undefined ? hsn_id : product.hsn_id,
+      gst_id: gst_id !== undefined ? gst_id : product.gst_id,
+      packsize_id: packsize_id !== undefined ? packsize_id : product.packsize_id
     });
 
     res.json(product);
