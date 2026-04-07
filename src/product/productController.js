@@ -49,8 +49,17 @@ const getAllProducts = async (req, res) => {
 // GET product by ID
 const getProductById = async (req, res) => {
   try {
-    const { Product } = req.app.get('models'); // Get Product model from app context
-    const product = await Product.findByPk(req.params.id);
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models');
+    const product = await Product.findByPk(req.params.id, {
+      include: [
+        { model: Salt, as: 'saltMaster', attributes: ['id', 'name'] },
+        { model: Unit, as: 'unitMaster', attributes: ['id', 'name'] },
+        { model: StripSize, as: 'stripSizeMaster', attributes: ['id', 'name'] },
+        { model: Hsn, as: 'hsnMaster', attributes: ['id', 'name'] },
+        { model: Gst, as: 'gstMaster', attributes: ['id', 'name'] },
+        { model: PackSize, as: 'packSizeMaster', attributes: ['id', 'name'] }
+      ]
+    });
     if (!product) {
       return res.status(404).json({
         success: false,

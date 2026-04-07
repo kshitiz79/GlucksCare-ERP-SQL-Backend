@@ -308,6 +308,11 @@ const getMonthlyAttendance = async (req, res) => {
         day,
         date: dateStr,
         hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0.0,
+        status: attendance?.status || 'absent',
+        firstPunchIn: attendance?.first_punch_in,
+        lastPunchOut: attendance?.last_punch_out,
+        totalWorkingMinutes: attendance?.total_working_minutes || 0,
+        adminRemarks: attendance?.admin_remarks,
         hasShiftAssigned: !!attendance?.shift_id
       });
     }
@@ -640,6 +645,135 @@ const deleteAttendance = async (req, res) => {
   }
 };
 
+// Admin: Upsert attendance (Create or Update by date and userId)
+const upsertAttendance = async (req, res) => {
+  try {
+    const { Attendance } = req.app.get('models');
+    const { userId, date, status, firstPunchIn, lastPunchOut, totalWorkingMinutes, adminComment } = req.body;
+
+    if (!userId || !date) {
+      return res.status(400).json({ success: false, message: 'User ID and Date are required' });
+    }
+
+    let attendance = await Attendance.findOne({
+      where: { user_id: userId, date: date }
+    });
+
+    const updateData = {
+      status: status || 'present',
+      first_punch_in: firstPunchIn || null,
+      last_punch_out: lastPunchOut || null,
+      total_working_minutes: totalWorkingMinutes || 0,
+      admin_remarks: adminComment || null
+    };
+
+    if (attendance) {
+      await attendance.update(updateData);
+    } else {
+      attendance = await Attendance.create({
+        user_id: userId,
+        date: date,
+        ...updateData,
+        punch_sessions: [],
+        current_session: -1
+      });
+    }
+
+    res.json({ success: true, data: attendance });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET detailed attendance report for admin
+const getAttendanceReport = async (req, res) => {
+  try {
+    const { Attendance, User, Shift } = req.app.get('models');
+    const { startDate, endDate, userId, status } = req.query;
+    const { Op } = require('sequelize');
+
+    const where = {};
+    if (startDate && endDate) {
+      where.date = { [Op.between]: [startDate, endDate] };
+    } else if (startDate) {
+      where.date = startDate;
+    }
+
+    if (userId) where.user_id = userId;
+    if (status) where.status = status;
+
+    const attendance = await Attendance.findAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'employee_code']
+        },
+        {
+          model: Shift,
+          as: 'shift',
+          attributes: ['id', 'name', 'start_time', 'end_time']
+        }
+      ],
+      order: [['date', 'DESC'], ['user_id', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      data: attendance
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Bulk Attendance Update
+const bulkUpdateAttendance = async (req, res) => {
+  try {
+    const { Attendance } = req.app.get('models');
+    const { updates } = req.body; // Array of objects { userId, date, status, ... }
+
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ success: false, message: 'Updates must be an array' });
+    }
+
+    const results = [];
+    for (const update of updates) {
+      const { userId, date, status, adminRemarks, firstPunchIn, lastPunchOut, totalWorkingMinutes } = update;
+      
+      let attendance = await Attendance.findOne({
+        where: { user_id: userId, date: date }
+      });
+
+      const updateData = {
+        status,
+        admin_remarks: adminRemarks || null,
+        first_punch_in: firstPunchIn || null,
+        last_punch_out: lastPunchOut || null,
+        total_working_minutes: totalWorkingMinutes || 0
+      };
+
+      if (attendance) {
+        await attendance.update(updateData);
+      } else {
+        attendance = await Attendance.create({
+          user_id: userId,
+          date,
+          ...updateData,
+          punch_sessions: [],
+          current_session: -1
+        });
+      }
+      results.push(attendance);
+    }
+
+    res.json({ success: true, message: `Successfully updated ${results.length} records`, data: results });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAllAttendance,
   getAttendanceById,
@@ -652,5 +786,8 @@ module.exports = {
   getMonthlyAttendance,
   getAttendanceStats,
   togglePunch,
+  upsertAttendance,
+  getAttendanceReport,
+  bulkUpdateAttendance,
   calculateBreaks // Export for testing
 };

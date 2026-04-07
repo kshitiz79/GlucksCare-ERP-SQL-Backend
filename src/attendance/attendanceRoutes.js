@@ -13,7 +13,10 @@ const {
   getWeeklyAttendance,
   getMonthlyAttendance,
   getAttendanceStats,
-  togglePunch
+  togglePunch,
+  upsertAttendance,
+  getAttendanceReport,
+  bulkUpdateAttendance
 } = require('./attendanceController');
 
 // GET all attendance records
@@ -45,6 +48,15 @@ router.post('/', createAttendance);
 
 // UPDATE an attendance record
 router.put('/:id', updateAttendance);
+
+// Admin: Upsert attendance (Create or Update by date and userId)
+router.post('/admin/upsert', upsertAttendance);
+
+// Admin: Get attendance report
+router.get('/admin/report', getAttendanceReport);
+
+// Admin: Bulk update attendance
+router.post('/admin/bulk-update', bulkUpdateAttendance);
 
 // DELETE an attendance record
 router.delete('/:id', deleteAttendance);
