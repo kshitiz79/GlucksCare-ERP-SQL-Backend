@@ -94,6 +94,7 @@ const AdvanceRepayment = require('../advance/AdvanceRepayment');
 const MobImage = require('../mobimgupload/MobImage');
 
 const Address = require('../Address/Address');
+const PartyExpense = require('../partyExpense/PartyExpense');
 
 // Initialize models
 const models = {
@@ -149,7 +150,8 @@ const models = {
     AdvanceRepayment: AdvanceRepayment(sequelize),
     MobImage: MobImage(sequelize),
 
-    Address: Address(sequelize)
+    Address: Address(sequelize),
+    PartyExpense: PartyExpense(sequelize)
 };
 
 // Set up hooks

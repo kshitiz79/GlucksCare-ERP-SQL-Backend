@@ -160,6 +160,7 @@ async function startServer() {
     const productRoutes = require('./src/product/productRoutes');
 
     const addressRoutes = require('./src/Address/AddressRoute');
+    const partyExpenseRoutes = require('./src/partyExpense/partyExpenseRoutes');
 
     // Version routes
     const versionRoutes = require('./src/version/versionRoutes');
@@ -270,6 +271,7 @@ async function startServer() {
 
 
     app.use('/api/addresses', addressRoutes);
+    app.use('/api/party-expenses', partyExpenseRoutes);
 
 
     // Root endpoint
