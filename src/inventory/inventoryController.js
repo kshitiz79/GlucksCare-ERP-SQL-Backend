@@ -20,7 +20,7 @@ exports.createInventoryItem = async (req, res) => {
 exports.getInventoryItems = async (req, res) => {
   try {
     const items = await InventoryItem.findAll({
-      order: [['created_at', 'DESC']]
+      order: [['createdAt', 'DESC']]
     });
     res.status(200).json({ success: true, data: items });
   } catch (error) {
