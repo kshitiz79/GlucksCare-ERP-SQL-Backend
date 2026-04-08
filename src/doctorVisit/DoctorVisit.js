@@ -37,6 +37,12 @@ const DoctorVisit = (sequelize) => {
     },
     product_id: {
       type: DataTypes.UUID
+    },
+    products_detailed: {
+      type: DataTypes.JSONB
+    },
+    gifts_given: {
+      type: DataTypes.JSONB
     }
   }, {
     tableName: 'doctor_visits',

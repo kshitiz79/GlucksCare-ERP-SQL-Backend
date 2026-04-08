@@ -310,9 +310,13 @@ const deleteDoctorVisit = async (req, res) => {
 // CONFIRM a doctor visit
 const confirmDoctorVisit = async (req, res) => {
   try {
-    const { DoctorVisit, Product, Doctor } = req.app.get('models'); // Get models from app context
+    const { DoctorVisit, Product, Doctor, UserInventory } = req.app.get('models'); // Get models from app context
+    const sequelize = req.app.get('sequelize');
     const { id } = req.params;
-    let { userLatitude, userLongitude, product_id, remark } = req.body;
+    let { userLatitude, userLongitude, product_id, products_detailed, gifts_given, remark } = req.body;
+    
+    // We will wrap the updates in a transaction if there are gifts to deduct
+    const transaction = gifts_given && gifts_given.length > 0 ? await sequelize.transaction() : null;
 
     const visit = await DoctorVisit.findByPk(id, {
       include: [{
@@ -378,12 +382,46 @@ const confirmDoctorVisit = async (req, res) => {
       visit.remark = remark;
     }
 
+    // Validate and process multiple products
+    if (products_detailed && Array.isArray(products_detailed)) {
+      visit.products_detailed = products_detailed;
+    }
+
+    // Process gifts
+    if (gifts_given && Array.isArray(gifts_given) && gifts_given.length > 0) {
+      for (const gift of gifts_given) {
+        if (!gift.item_id || !gift.quantity || gift.quantity <= 0) continue;
+        
+        let userInv = await UserInventory.findOne({
+          where: { user_id: visit.user_id, inventory_item_id: gift.item_id },
+          transaction
+        });
+        
+        if (!userInv || userInv.assigned_stock < gift.quantity) {
+          if (transaction) await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Not enough stock for gift item ID ${gift.item_id}`
+          });
+        }
+        
+        userInv.assigned_stock -= gift.quantity;
+        await userInv.save({ transaction });
+      }
+      visit.gifts_given = gifts_given;
+    }
+
     // Confirm the visit and save user's location
     visit.confirmed = true;
     visit.latitude = userLatitude || null;
     visit.longitude = userLongitude || null;
 
-    await visit.save();
+    if (transaction) {
+      await visit.save({ transaction });
+      await transaction.commit();
+    } else {
+      await visit.save();
+    }
 
     res.status(200).json({
       status: true,
@@ -392,6 +430,9 @@ const confirmDoctorVisit = async (req, res) => {
       visit: visit
     });
   } catch (error) {
+    if (typeof transaction !== 'undefined' && transaction) {
+       try { await transaction.rollback(); } catch(e) {}
+    }
     console.error('Confirm visit error:', error);
     res.status(400).json({
       success: false,

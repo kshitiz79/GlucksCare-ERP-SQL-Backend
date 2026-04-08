@@ -270,5 +270,12 @@ module.exports = (db) => {
   db.Stockist.belongsTo(db.Address, { foreignKey: 'address_id', as: 'address' });
   db.Address.hasMany(db.Stockist, { foreignKey: 'address_id', as: 'stockists' });
 
+  // Inventory associations
+  db.InventoryItem.hasMany(db.UserInventory, { foreignKey: 'inventory_item_id', as: 'userInventories' });
+  db.UserInventory.belongsTo(db.InventoryItem, { foreignKey: 'inventory_item_id', as: 'inventoryItem' });
+  
+  db.User.hasMany(db.UserInventory, { foreignKey: 'user_id', as: 'userInventories' });
+  db.UserInventory.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+
   return db;
 };
