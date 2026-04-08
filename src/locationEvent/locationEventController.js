@@ -89,6 +89,7 @@ const createLocationEvent = async (req, res) => {
         },
         include: [{
           model: User,
+          as: 'user',
           attributes: ['id', 'name', 'email', 'role']
         }]
       });
@@ -103,6 +104,7 @@ const createLocationEvent = async (req, res) => {
           where: { device_id },
           include: [{
             model: User,
+            as: 'user',
             attributes: ['id', 'name', 'email', 'role']
           }],
           order: [['timestamp', 'DESC']]
