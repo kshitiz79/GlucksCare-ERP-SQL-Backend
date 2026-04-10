@@ -284,19 +284,17 @@ const getMonthlyAttendance = async (req, res) => {
     const { Attendance } = req.app.get('models');
     const { userId } = req.params;
 
-    // Get current month dates in IST
+    // Use query params if provided, otherwise fallback to current month
     const today = new Date(getISTDateTime());
-    const year = today.getFullYear();
-    const month = today.getMonth();
+    const year = req.query.year ? parseInt(req.query.year) : today.getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) - 1 : today.getMonth(); // month is 0-indexed
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     const monthlyData = [];
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
-      // Ensure we get the correct date string in IST context
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
       const attendance = await Attendance.findOne({
         where: {
           user_id: userId,
@@ -649,21 +647,34 @@ const deleteAttendance = async (req, res) => {
 const upsertAttendance = async (req, res) => {
   try {
     const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
     const { userId, date, status, firstPunchIn, lastPunchOut, totalWorkingMinutes, adminComment } = req.body;
 
     if (!userId || !date) {
       return res.status(400).json({ success: false, message: 'User ID and Date are required' });
     }
 
+    let resolvedMinutes = totalWorkingMinutes || 0;
+    let resolvedPunchIn = firstPunchIn || null;
+    let resolvedPunchOut = lastPunchOut || null;
+
+    // Auto-calculate from shift if status is present/half_day and no manual times provided
+    if ((status === 'present' || status === 'half_day') && !firstPunchIn && !lastPunchOut) {
+      const shiftData = await getShiftWorkingMinutes(models, userId, date, status);
+      resolvedMinutes = shiftData.minutes;
+      resolvedPunchIn = shiftData.punchIn;
+      resolvedPunchOut = shiftData.punchOut;
+    }
+
     let attendance = await Attendance.findOne({
-      where: { user_id: userId, date: date }
+      where: { user_id: userId, date }
     });
 
     const updateData = {
       status: status || 'present',
-      first_punch_in: firstPunchIn || null,
-      last_punch_out: lastPunchOut || null,
-      total_working_minutes: totalWorkingMinutes || 0,
+      first_punch_in: resolvedPunchIn,
+      last_punch_out: resolvedPunchOut,
+      total_working_minutes: resolvedMinutes,
       admin_remarks: adminComment || null
     };
 
@@ -672,7 +683,7 @@ const upsertAttendance = async (req, res) => {
     } else {
       attendance = await Attendance.create({
         user_id: userId,
-        date: date,
+        date,
         ...updateData,
         punch_sessions: [],
         current_session: -1
@@ -728,11 +739,60 @@ const getAttendanceReport = async (req, res) => {
   }
 };
 
+// Helper: calculate working minutes from shift for a given status and date
+const getShiftWorkingMinutes = async (models, userId, date, status) => {
+  try {
+    const { UserShift, Shift } = models;
+
+    // Find user's assigned shift
+    const userShift = await UserShift.findOne({
+      where: { user_id: userId },
+      include: [{ model: Shift, as: 'shift' }]
+    });
+
+    if (!userShift || !userShift.shift) return { minutes: 0, punchIn: null, punchOut: null };
+
+    const shift = userShift.shift;
+
+    // Parse shift start/end times (stored as HH:MM:SS, treated as IST)
+    const [startH, startM] = shift.start_time.split(':').map(Number);
+    const [endH, endM] = shift.end_time.split(':').map(Number);
+
+    // Store times as-is in UTC — frontend will display raw UTC hours as IST
+    // e.g. shift 10:00-18:00 IST → stored as 10:00 UTC → displayed as 10:00 AM
+    const punchIn  = new Date(Date.UTC(
+      ...date.split('-').map((v, i) => i === 1 ? Number(v) - 1 : Number(v)),
+      startH, startM, 0
+    ));
+    const punchOut = new Date(Date.UTC(
+      ...date.split('-').map((v, i) => i === 1 ? Number(v) - 1 : Number(v)),
+      endH, endM, 0
+    ));
+
+    if (status === 'present') {
+      const minutes = Math.round(parseFloat(shift.minimum_hours) * 60);
+      return { minutes, punchIn, punchOut };
+    }
+
+    if (status === 'half_day') {
+      const halfMinutes = Math.round(parseFloat(shift.half_day_threshold) * 60);
+      const halfPunchOut = new Date(punchIn.getTime() + halfMinutes * 60 * 1000);
+      return { minutes: halfMinutes, punchIn, punchOut: halfPunchOut };
+    }
+
+    return { minutes: 0, punchIn: null, punchOut: null };
+  } catch (err) {
+    console.error('getShiftWorkingMinutes error:', err.message);
+    return { minutes: 0, punchIn: null, punchOut: null };
+  }
+};
+
 // Admin: Bulk Attendance Update
 const bulkUpdateAttendance = async (req, res) => {
   try {
     const { Attendance } = req.app.get('models');
-    const { updates } = req.body; // Array of objects { userId, date, status, ... }
+    const models = req.app.get('models');
+    const { updates } = req.body;
 
     if (!Array.isArray(updates)) {
       return res.status(400).json({ success: false, message: 'Updates must be an array' });
@@ -740,18 +800,30 @@ const bulkUpdateAttendance = async (req, res) => {
 
     const results = [];
     for (const update of updates) {
-      const { userId, date, status, adminRemarks, firstPunchIn, lastPunchOut, totalWorkingMinutes } = update;
-      
+      const { userId, date, status, adminRemarks } = update;
+
+      // Auto-calculate working hours from shift if status is present or half_day
+      let totalWorkingMinutes = 0;
+      let firstPunchIn = null;
+      let lastPunchOut = null;
+
+      if (status === 'present' || status === 'half_day') {
+        const shiftData = await getShiftWorkingMinutes(models, userId, date, status);
+        totalWorkingMinutes = shiftData.minutes;
+        firstPunchIn = shiftData.punchIn;
+        lastPunchOut = shiftData.punchOut;
+      }
+
       let attendance = await Attendance.findOne({
-        where: { user_id: userId, date: date }
+        where: { user_id: userId, date }
       });
 
       const updateData = {
         status,
         admin_remarks: adminRemarks || null,
-        first_punch_in: firstPunchIn || null,
-        last_punch_out: lastPunchOut || null,
-        total_working_minutes: totalWorkingMinutes || 0
+        first_punch_in: firstPunchIn,
+        last_punch_out: lastPunchOut,
+        total_working_minutes: totalWorkingMinutes
       };
 
       if (attendance) {

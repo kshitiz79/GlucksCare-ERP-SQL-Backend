@@ -14,7 +14,7 @@ const uploadImageToCloudinary = (buffer) => {
         }
       }
     );
-    
+
     const readable = new Readable();
     readable.push(buffer);
     readable.push(null);
@@ -80,14 +80,14 @@ const getProductById = async (req, res) => {
 const createProduct = async (req, res) => {
   try {
     const { Product } = req.app.get('models'); // Get Product model from app context
-    const { 
-      name, salt, description, dosage, 
+    const {
+      name, salt, description, dosage,
       salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id,
       salt_name, unit_name, stripsize_name, hsn_name, gst_name, packsize_name
     } = req.body;
-    
+
     const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models');
-    
+
     let final_salt_id = salt_id;
     let final_unit_id = unit_id;
     let final_stripsize_id = stripsize_id;
@@ -160,7 +160,7 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    const { 
+    const {
       name, salt, description, dosage,
       salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id,
       salt_name, unit_name, stripsize_name, hsn_name, gst_name, packsize_name
@@ -233,7 +233,7 @@ const deleteProduct = async (req, res) => {
         message: 'Product not found'
       });
     }
-    
+
     await product.destroy();
     res.json({
       success: true,

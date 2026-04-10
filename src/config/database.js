@@ -92,6 +92,10 @@ const ForwardingNote = require('../forwardingNote/forwardingNote');
 const Advance = require('../advance/Advance');
 const AdvanceRepayment = require('../advance/AdvanceRepayment');
 const MobImage = require('../mobimgupload/MobImage');
+const Purchase = require('../purchase/Purchase');
+const PurchaseItem = require('../purchase/PurchaseItem');
+const Challan = require('../challan/Challan');
+const ChallanItem = require('../challan/ChallanItem');
 
 const Address = require('../Address/Address');
 const PartyExpense = require('../partyExpense/PartyExpense');
@@ -162,7 +166,11 @@ const models = {
     Gst: Gst(sequelize),
     PackSize: PackSize(sequelize),
     InventoryItem: InventoryItem(sequelize),
-    UserInventory: UserInventory(sequelize)
+    UserInventory: UserInventory(sequelize),
+    Purchase: Purchase(sequelize),
+    PurchaseItem: PurchaseItem(sequelize),
+    Challan: Challan(sequelize),
+    ChallanItem: ChallanItem(sequelize)
 };
 
 // Set up hooks

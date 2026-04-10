@@ -21,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'https://test.gluckscare.com', // Add this for development
+            'https://api.gluckscare.com', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            'https://test.gluckscare.com' // Add this for production frontend
+            'https://api.gluckscare.com' // Add this for production frontend
         ],
         methods: ['GET', 'POST'],
         credentials: true,
@@ -45,11 +45,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'https://test.gluckscare.com', // Add this for development
+    'https://api.gluckscare.com', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    'https://test.gluckscare.com' // Add this for production frontend
+    'https://api.gluckscare.com' // Add this for production frontend
 ];
 
 app.use(cors({
@@ -162,6 +162,9 @@ async function startServer() {
     const addressRoutes = require('./src/Address/AddressRoute');
     const partyExpenseRoutes = require('./src/partyExpense/partyExpenseRoutes');
     const productMasterRoutes = require('./src/productMaster/productMasterRoutes');
+    const partyRoutes = require('./src/party/PartyRoute');
+
+
 
     // Version routes
     const versionRoutes = require('./src/version/versionRoutes');
@@ -275,6 +278,11 @@ async function startServer() {
     app.use('/api/forwarding-notes', forwardingNoteRoutes);
     app.use('/api/party-expenses', partyExpenseRoutes);
     app.use('/api/product-masters', productMasterRoutes);
+    app.use('/api/parties', partyRoutes);
+    const purchaseRoutes = require('./src/purchase/purchaseRoutes');
+    app.use('/api/purchases', purchaseRoutes);
+    const challanRoutes = require('./src/challan/challanRoutes');
+    app.use('/api/challans', challanRoutes);
 
     // Inventory routes
     const inventoryRoutes = require('./src/inventory/inventoryRoutes');
@@ -304,6 +312,7 @@ async function startServer() {
                 uptime: process.uptime(),
                 message: 'Server is running with automatic restart enabled!'
             });
+
         } catch (error) {
             res.status(500).json({
                 status: 'error',

@@ -277,5 +277,21 @@ module.exports = (db) => {
   db.User.hasMany(db.UserInventory, { foreignKey: 'user_id', as: 'userInventories' });
   db.UserInventory.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
 
+  // Product and InventoryItem association
+  db.Product.hasOne(db.InventoryItem, { foreignKey: 'product_id', as: 'inventoryStock' });
+  db.InventoryItem.belongsTo(db.Product, { foreignKey: 'product_id', as: 'product' });
+
+  // Challan associations
+  db.Purchase.hasMany(db.PurchaseItem, { foreignKey: 'purchase_id', as: 'items' });
+  db.PurchaseItem.belongsTo(db.Purchase, { foreignKey: 'purchase_id', as: 'purchase' });
+  db.PurchaseItem.belongsTo(db.Product, { foreignKey: 'product_id', as: 'product' });
+  db.Product.hasMany(db.PurchaseItem, { foreignKey: 'product_id', as: 'purchaseItems' });
+
+  // Challan associations
+  db.Challan.hasMany(db.ChallanItem, { foreignKey: 'challan_id', as: 'items' });
+  db.ChallanItem.belongsTo(db.Challan, { foreignKey: 'challan_id', as: 'challan' });
+  db.ChallanItem.belongsTo(db.Product, { foreignKey: 'product_id', as: 'product' });
+  db.Product.hasMany(db.ChallanItem, { foreignKey: 'product_id', as: 'challanItems' });
+
   return db;
 };

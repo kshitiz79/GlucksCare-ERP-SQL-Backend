@@ -28,6 +28,55 @@ exports.getInventoryItems = async (req, res) => {
   }
 };
 
+exports.getSaleStock = async (req, res) => {
+  try {
+    const { Product, InventoryItem } = require('../config/database');
+    
+    // Fetch both to do a robust manual join (handling legacy name-based data)
+    const allProducts = await Product.findAll();
+    const allInventory = await InventoryItem.findAll();
+
+    const result = allProducts.map(product => {
+      // Find stock by product_id OR by name
+      const stockItem = allInventory.find(inv => {
+        const idMatch = (inv.product_id === product.id);
+        const nameMatch = (inv.name && product.name && inv.name.trim().toLowerCase() === product.name.trim().toLowerCase());
+        return idMatch || nameMatch;
+      });
+
+      console.log(`Matching Product: ${product.name} -> Stock: ${stockItem ? stockItem.total_stock : 'NONE'}`);
+
+      return {
+        id: product.id,
+        name: product.name,
+        total_stock: stockItem ? stockItem.total_stock : 0
+      };
+    });
+    
+    // Also include items that are ONLY in inventory (optional, but good for completeness)
+    const productNames = new Set(allProducts.map(p => p.name.trim().toLowerCase()));
+    allInventory.forEach(inv => {
+      if (inv.name && !productNames.has(inv.name.trim().toLowerCase())) {
+        console.log(`Adding Inventory-only item: ${inv.name} (${inv.total_stock})`);
+        result.push({
+          id: inv.id, // Using inv.id as fallback if no product master
+          name: inv.name,
+          total_stock: inv.total_stock,
+          is_inventory_only: true
+        });
+      }
+    });
+
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error fetching sale stock:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+
 exports.assignInventoryToUser = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
@@ -169,6 +218,35 @@ exports.getAllGiftDistribution = async (req, res) => {
     res.status(200).json({ success: true, data: giftRecords });
   } catch (error) {
     console.error("Gift distribution error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.updateInventoryStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { quantity, action } = req.body; // action: 'add' or 'set'
+
+    const item = await InventoryItem.findByPk(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Item not found' });
+    }
+
+    const qty = parseInt(quantity);
+    if (isNaN(qty)) {
+      return res.status(400).json({ success: false, message: 'Invalid quantity' });
+    }
+
+    if (action === 'set') {
+      item.total_stock = qty;
+    } else {
+      item.total_stock += qty;
+    }
+
+    await item.save();
+    res.json({ success: true, data: item });
+  } catch (error) {
+    console.error('Error updating inventory stock:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

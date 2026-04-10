@@ -7,7 +7,16 @@ const InventoryItem = (sequelize) => {
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true
     },
+    product_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'products',
+        key: 'id'
+      }
+    },
     name: {
+
       type: DataTypes.STRING(255),
       allowNull: false
     },
