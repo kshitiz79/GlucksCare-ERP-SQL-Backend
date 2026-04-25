@@ -1,9 +1,11 @@
+
+require("dotenv").config();
 const { sequelize } = require('../src/config/database');
 
 async function fix() {
   try {
     console.log('Attempting to update attendance status values in database...');
-    
+
     // 1. Try adding values to the Sequelize-generated ENUM type if it exists
     const enumQueries = [
       "ALTER TYPE \"enum_attendance_status\" ADD VALUE IF NOT EXISTS 'week_off'",
