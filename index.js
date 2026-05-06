@@ -21,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'http://localhost:5051', // Add this for development
+            'https://test.gluckscare.com', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            'http://localhost:5051' // Add this for production frontend
+            'https://test.gluckscare.com' // Add this for production frontend
         ],
         methods: ['GET', 'POST'],
         credentials: true,
@@ -45,11 +45,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'http://localhost:5051', // Add this for development
+    'https://test.gluckscare.com', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    'http://localhost:5051' // Add this for production frontend
+    'https://test.gluckscare.com' // Add this for production frontend
 ];
 
 app.use(cors({

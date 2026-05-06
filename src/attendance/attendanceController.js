@@ -306,7 +306,7 @@ const getMonthlyAttendance = async (req, res) => {
         day,
         date: dateStr,
         hours: attendance ? Math.round((attendance.total_working_minutes / 60) * 100) / 100 : 0.0,
-        status: attendance?.status || 'absent',
+        status: attendance?.status || (new Date(dateStr).getDay() === 0 ? 'week_off' : 'absent'),
         firstPunchIn: attendance?.first_punch_in,
         lastPunchOut: attendance?.last_punch_out,
         totalWorkingMinutes: attendance?.total_working_minutes || 0,

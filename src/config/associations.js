@@ -4,11 +4,11 @@
 module.exports = (db) => {
   // User associations
   db.User.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id' });
-  db.User.belongsTo(db.State, { foreignKey: 'state_id' });
-  db.User.belongsTo(db.Branch, { foreignKey: 'branch_id' });
-  db.User.belongsTo(db.Department, { foreignKey: 'department_id' });
+  db.User.belongsTo(db.State, { foreignKey: 'state_id', as: 'State' });
+  db.User.belongsTo(db.Branch, { foreignKey: 'branch_id', as: 'Branch' });
+  db.User.belongsTo(db.Department, { foreignKey: 'department_id', as: 'Department' });
   db.User.belongsTo(db.Designation, { foreignKey: 'designation_id', as: 'designation' });
-  db.User.belongsTo(db.EmploymentType, { foreignKey: 'employment_type_id' });
+  db.User.belongsTo(db.EmploymentType, { foreignKey: 'employment_type_id', as: 'EmploymentType' });
   db.User.hasMany(db.DoctorVisitHistory, { foreignKey: 'sales_rep_id' });
 
   db.User.hasMany(db.SalesTarget, { foreignKey: 'user_id' });

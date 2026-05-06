@@ -538,6 +538,26 @@ const getUserById = async (req, res) => {
         {
           model: req.app.get('models').Address,
           as: 'masterAddress'
+        },
+        {
+          model: req.app.get('models').State,
+          as: 'State'
+        },
+        {
+          model: req.app.get('models').Department,
+          as: 'Department'
+        },
+        {
+          model: req.app.get('models').Designation,
+          as: 'designation'
+        },
+        {
+          model: req.app.get('models').Branch,
+          as: 'Branch'
+        },
+        {
+          model: req.app.get('models').EmploymentType,
+          as: 'EmploymentType'
         }
       ]
     });
@@ -559,7 +579,8 @@ const getUserById = async (req, res) => {
       mobileNumber: user.mobile_number,
       gender: user.gender,
       role: user.role,
-      state: user.state_id,
+      state: user.State?.name || user.state_id,
+      stateId: user.state_id,
       salaryAmount: user.salary_amount,
       dateOfBirth: user.date_of_birth,
       dateOfJoining: user.date_of_joining,
@@ -573,9 +594,14 @@ const getUserById = async (req, res) => {
       otpExpire: user.otp_expire,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
-      branch: user.branch_id,
-      department: user.department_id,
-      employmentType: user.employment_type_id,
+      branch: user.Branch?.name || user.branch_id,
+      branchId: user.branch_id,
+      department: user.Department?.name || user.department_id,
+      departmentId: user.department_id,
+      designation: user.designation?.name || user.designation_id,
+      designationId: user.designation_id,
+      employmentType: user.EmploymentType?.name || user.employment_type_id,
+      employmentTypeId: user.employment_type_id,
       addressId: user.address_id,
       masterAddress: user.masterAddress ? {
         id: user.masterAddress.id,
