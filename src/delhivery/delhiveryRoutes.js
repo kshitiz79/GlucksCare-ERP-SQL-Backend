@@ -493,4 +493,133 @@ router.get('/label/:waybill', authMiddleware, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/delhivery/b2b-track
+// Track a B2B LTL shipment by LR number
+//
+// Uses Delhivery One internal API (discovered via Network tab):
+//   POST https://ucp-egw.delhivery.com/101/api/v1/lrn/shipment/list
+//
+// Token is a short-lived JWT from one.delhivery.com (expires ~10 min).
+// When expired, backend returns token_expired:true so frontend can prompt user.
+// ─────────────────────────────────────────────────────────────────────────────
+const DELHIVERY_B2B_TOKEN     = process.env.DELHIVERY_B2B_TOKEN;
+const DELHIVERY_B2B_CLIENT_ID = process.env.DELHIVERY_B2B_CLIENT_ID || '';
+const DELHIVERY_UCP_HOST      = 'ucp-egw.delhivery.com';
+const DELHIVERY_UCP_PATH      = '/101/api/v1/lrn/shipment/list';
+
+// Helper: POST to Delhivery UCP gateway
+const delhiveryB2BPost = (body) => {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify(body);
+    const options = {
+      hostname: DELHIVERY_UCP_HOST,
+      path:     DELHIVERY_UCP_PATH,
+      method:   'POST',
+      headers: {
+        Authorization:    `Bearer ${DELHIVERY_B2B_TOKEN}`,
+        'Content-Type':   'application/json',
+        Accept:           'application/json, text/plain, */*',
+        'x-hq-client-id': DELHIVERY_B2B_CLIENT_ID,
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+};
+
+router.get('/b2b-track', authMiddleware, async (req, res) => {
+  const { lrnum } = req.query;
+
+  if (!lrnum || lrnum.trim().length < 5) {
+    return res.status(400).json({ success: false, message: 'LR number is required' });
+  }
+
+  const lr = lrnum.trim();
+  const fallback = {
+    tracking_url: `https://one.delhivery.com/shipments/b2b?lrn=${lr}`,
+    public_url:   `https://www.delhivery.com/track/package/${lr}`,
+  };
+
+  if (!DELHIVERY_B2B_TOKEN) {
+    return res.json({
+      success: false, no_token: true,
+      message: 'B2B token not set. Paste fresh token from one.delhivery.com Network tab into DELHIVERY_B2B_TOKEN in .env',
+      fallback,
+    });
+  }
+
+  try {
+    console.log('[Delhivery B2B] tracking LR:', lr);
+    const { status, body } = await delhiveryB2BPost({ lrnNumbers: [lr] });
+    console.log('[Delhivery B2B] response:', status, JSON.stringify(body).slice(0, 200));
+
+    // JWT expired
+    if (status === 401 || (body?.statusCode === 401) || (body?.statusCode === 403)) {
+      return res.json({
+        success: false, token_expired: true,
+        message: 'B2B token expired. Get a fresh token from one.delhivery.com Network tab and update DELHIVERY_B2B_TOKEN in .env',
+        fallback,
+      });
+    }
+
+    if (status !== 200 || !body?.shipment_list) {
+      return res.json({
+        success: false,
+        message: body?.message || `Delhivery B2B API error (${status})`,
+        fallback,
+      });
+    }
+
+    // Find the specific LR in the list (API may return multiple)
+    const shipment = body.shipment_list.find(s => s.lrn === lr) || body.shipment_list[0] || null;
+
+    if (!shipment) {
+      return res.json({ success: false, message: 'LR not found in response', fallback });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        lrnum:           shipment.lrn,
+        mwn:             shipment.mwn,
+        status:          shipment.shipment_status,
+        status_type:     shipment.status_type,
+        consignee:       shipment.consignee_details?.name,
+        origin_city:     shipment.origin?.city,
+        origin_state:    shipment.origin?.state,
+        dest_city:       shipment.destination?.city,
+        dest_state:      shipment.destination?.state,
+        pickup_from:     shipment.pickup_details?.client_warehouse_name,
+        boxes:           shipment.box_count,
+        freight:         shipment.freight_total,
+        payment_mode:    shipment.payment_mode,
+        invoice_num:     shipment.invoice_details?.[0]?.inv_num,
+        invoice_amt:     shipment.invoice_details?.[0]?.inv_amt,
+        picked_at:       shipment.dates?.pickup     ? new Date(shipment.dates.pickup).toISOString()     : null,
+        manifested_at:   shipment.dates?.manifested_at ? new Date(shipment.dates.manifested_at).toISOString() : null,
+        delivered_at:    shipment.dates?.delivered_at   ? new Date(shipment.dates.delivered_at).toISOString()   : null,
+        expected_delivery: shipment.dates?.expected_delivery ? new Date(shipment.dates.expected_delivery).toISOString() : null,
+        fallback,
+      },
+    });
+
+  } catch (err) {
+    console.error('[Delhivery B2B] track error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to reach Delhivery B2B API', fallback });
+  }
+});
+
 module.exports = router;
