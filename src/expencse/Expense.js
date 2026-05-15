@@ -44,22 +44,44 @@ const Expense = (sequelize) => {
     },
     travel_details: {
       type: DataTypes.JSONB,
-      defaultValue: []
+      defaultValue: [],
+      set(value) {
+        if (Array.isArray(value)) {
+          this.setDataValue('travel_details', value.map(leg => ({
+            ...leg,
+            km: Number(leg.km) || 0
+          })));
+        } else {
+          this.setDataValue('travel_details', value || []);
+        }
+      }
     },
     rate_per_km: {
       type: DataTypes.DECIMAL(6, 2),
-      defaultValue: 2.40
+      defaultValue: 2.40,
+      get() {
+        const value = this.getDataValue('rate_per_km');
+        return value === null ? null : parseFloat(value);
+      }
     },
     total_distance_km: {
       type: DataTypes.DECIMAL(8, 2),
-      defaultValue: 0
+      defaultValue: 0,
+      get() {
+        const value = this.getDataValue('total_distance_km');
+        return value === null ? null : parseFloat(value);
+      }
     },
     daily_allowance_type: {
       type: DataTypes.ENUM('headoffice', 'outside')
     },
     amount: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false
+      allowNull: false,
+      get() {
+        const value = this.getDataValue('amount');
+        return value === null ? null : parseFloat(value);
+      }
     },
     edit_count: {
       type: DataTypes.INTEGER,
