@@ -50,7 +50,7 @@ const Expense = (sequelize) => {
         if (Array.isArray(value)) {
           return value.map(leg => ({
             ...leg,
-            km: leg.km ? String(leg.km) : "0"
+            km: leg.km ? Number(leg.km) : 0
           }));
         }
         return value || [];
@@ -59,7 +59,7 @@ const Expense = (sequelize) => {
         if (Array.isArray(value)) {
           this.setDataValue('travel_details', value.map(leg => ({
             ...leg,
-            km: leg.km ? String(leg.km) : "0"
+            km: leg.km ? Number(leg.km) : 0
           })));
         } else {
           this.setDataValue('travel_details', value || []);

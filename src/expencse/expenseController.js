@@ -103,7 +103,7 @@ const getExpenseById = async (req, res) => {
       totalDistanceKm: expenseObj.total_distance_km,
       ratePerKm: expenseObj.rate_per_km,
       amount: expenseObj.amount,
-      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: String(leg.km) || "0" })) : [],
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type,
       UserInfo: undefined
     };
@@ -228,7 +228,7 @@ const createExpense = async (req, res) => {
       totalDistanceKm: expenseObj.total_distance_km,
       ratePerKm: expenseObj.rate_per_km,
       amount: expenseObj.amount,
-      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: String(leg.km) || "0" })) : [],
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -354,7 +354,7 @@ const updateExpense = async (req, res) => {
       totalDistanceKm: expenseObj.total_distance_km,
       ratePerKm: expenseObj.rate_per_km,
       amount: expenseObj.amount,
-      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: String(leg.km) || "0" })) : [],
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -417,7 +417,7 @@ const approveExpense = async (req, res) => {
       totalDistanceKm: expenseObj.total_distance_km,
       ratePerKm: expenseObj.rate_per_km,
       amount: expenseObj.amount,
-      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: String(leg.km) || "0" })) : [],
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -454,7 +454,7 @@ const rejectExpense = async (req, res) => {
       totalDistanceKm: expenseObj.total_distance_km,
       ratePerKm: expenseObj.rate_per_km,
       amount: expenseObj.amount,
-      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: String(leg.km) || "0" })) : [],
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
