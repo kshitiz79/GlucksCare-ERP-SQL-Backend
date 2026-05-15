@@ -55,9 +55,10 @@ const getAllExpenses = async (req, res) => {
         _id: expenseObj.id, // For compatibility with frontend
         user: expenseObj.user_id,
         userName: expenseObj.user_name || (expenseObj.UserInfo ? expenseObj.UserInfo.name : 'Unknown User'),
-        totalDistanceKm: expenseObj.total_distance_km,
-        ratePerKm: expenseObj.rate_per_km,
-        travelDetails: expenseObj.travel_details,
+        totalDistanceKm: Number(expenseObj.total_distance_km),
+        ratePerKm: Number(expenseObj.rate_per_km),
+        amount: Number(expenseObj.amount),
+        travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
         dailyAllowanceType: expenseObj.daily_allowance_type,
         // Remove the nested object
         UserInfo: undefined
@@ -99,9 +100,10 @@ const getExpenseById = async (req, res) => {
       _id: expenseObj.id,
       user: expenseObj.user_id,
       userName: expenseObj.user_name || (expenseObj.UserInfo ? expenseObj.UserInfo.name : 'Unknown User'),
-      totalDistanceKm: expenseObj.total_distance_km,
-      ratePerKm: expenseObj.rate_per_km,
-      travelDetails: expenseObj.travel_details,
+      totalDistanceKm: Number(expenseObj.total_distance_km),
+      ratePerKm: Number(expenseObj.rate_per_km),
+      amount: Number(expenseObj.amount),
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type,
       UserInfo: undefined
     };
@@ -223,9 +225,10 @@ const createExpense = async (req, res) => {
       _id: expenseObj.id,
       user: expenseObj.user_id,
       userName: expenseObj.user_name,
-      totalDistanceKm: expenseObj.total_distance_km,
-      ratePerKm: expenseObj.rate_per_km,
-      travelDetails: expenseObj.travel_details,
+      totalDistanceKm: Number(expenseObj.total_distance_km),
+      ratePerKm: Number(expenseObj.rate_per_km),
+      amount: Number(expenseObj.amount),
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -348,9 +351,10 @@ const updateExpense = async (req, res) => {
       _id: expenseObj.id,
       user: expenseObj.user_id,
       userName: expenseObj.user_name,
-      totalDistanceKm: expenseObj.total_distance_km,
-      ratePerKm: expenseObj.rate_per_km,
-      travelDetails: expenseObj.travel_details,
+      totalDistanceKm: Number(expenseObj.total_distance_km),
+      ratePerKm: Number(expenseObj.rate_per_km),
+      amount: Number(expenseObj.amount),
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -410,9 +414,10 @@ const approveExpense = async (req, res) => {
       _id: expenseObj.id,
       user: expenseObj.user_id,
       userName: expenseObj.user_name,
-      totalDistanceKm: expenseObj.total_distance_km,
-      ratePerKm: expenseObj.rate_per_km,
-      travelDetails: expenseObj.travel_details,
+      totalDistanceKm: Number(expenseObj.total_distance_km),
+      ratePerKm: Number(expenseObj.rate_per_km),
+      amount: Number(expenseObj.amount),
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 
@@ -446,9 +451,10 @@ const rejectExpense = async (req, res) => {
       _id: expenseObj.id,
       user: expenseObj.user_id,
       userName: expenseObj.user_name,
-      totalDistanceKm: expenseObj.total_distance_km,
-      ratePerKm: expenseObj.rate_per_km,
-      travelDetails: expenseObj.travel_details,
+      totalDistanceKm: Number(expenseObj.total_distance_km),
+      ratePerKm: Number(expenseObj.rate_per_km),
+      amount: Number(expenseObj.amount),
+      travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
       dailyAllowanceType: expenseObj.daily_allowance_type
     };
 

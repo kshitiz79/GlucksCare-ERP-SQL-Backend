@@ -45,11 +45,21 @@ const Expense = (sequelize) => {
     travel_details: {
       type: DataTypes.JSONB,
       defaultValue: [],
+      get() {
+        const value = this.getDataValue('travel_details');
+        if (Array.isArray(value)) {
+          return value.map(leg => ({
+            ...leg,
+            km: leg.km ? Number(leg.km) : 0
+          }));
+        }
+        return value || [];
+      },
       set(value) {
         if (Array.isArray(value)) {
           this.setDataValue('travel_details', value.map(leg => ({
             ...leg,
-            km: Number(leg.km) || 0
+            km: leg.km ? Number(leg.km) : 0
           })));
         } else {
           this.setDataValue('travel_details', value || []);
@@ -61,7 +71,7 @@ const Expense = (sequelize) => {
       defaultValue: 2.40,
       get() {
         const value = this.getDataValue('rate_per_km');
-        return value === null ? null : parseFloat(value);
+        return value === null ? null : Number(value);
       }
     },
     total_distance_km: {
@@ -69,7 +79,7 @@ const Expense = (sequelize) => {
       defaultValue: 0,
       get() {
         const value = this.getDataValue('total_distance_km');
-        return value === null ? null : parseFloat(value);
+        return value === null ? null : Number(value);
       }
     },
     daily_allowance_type: {
@@ -80,7 +90,7 @@ const Expense = (sequelize) => {
       allowNull: false,
       get() {
         const value = this.getDataValue('amount');
-        return value === null ? null : parseFloat(value);
+        return value === null ? null : Number(value);
       }
     },
     edit_count: {
