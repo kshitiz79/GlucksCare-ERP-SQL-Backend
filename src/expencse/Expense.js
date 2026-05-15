@@ -50,7 +50,7 @@ const Expense = (sequelize) => {
         if (Array.isArray(value)) {
           return value.map(leg => ({
             ...leg,
-            km: leg.km ? Number(leg.km) : 0
+            km: leg.km ? String(leg.km) : "0"
           }));
         }
         return value || [];
@@ -59,7 +59,7 @@ const Expense = (sequelize) => {
         if (Array.isArray(value)) {
           this.setDataValue('travel_details', value.map(leg => ({
             ...leg,
-            km: leg.km ? Number(leg.km) : 0
+            km: leg.km ? String(leg.km) : "0"
           })));
         } else {
           this.setDataValue('travel_details', value || []);
@@ -68,30 +68,18 @@ const Expense = (sequelize) => {
     },
     rate_per_km: {
       type: DataTypes.DECIMAL(6, 2),
-      defaultValue: 2.40,
-      get() {
-        const value = this.getDataValue('rate_per_km');
-        return value === null ? null : Number(value);
-      }
+      defaultValue: 2.40
     },
     total_distance_km: {
       type: DataTypes.DECIMAL(8, 2),
-      defaultValue: 0,
-      get() {
-        const value = this.getDataValue('total_distance_km');
-        return value === null ? null : Number(value);
-      }
+      defaultValue: 0
     },
     daily_allowance_type: {
       type: DataTypes.ENUM('headoffice', 'outside')
     },
     amount: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      get() {
-        const value = this.getDataValue('amount');
-        return value === null ? null : Number(value);
-      }
+      allowNull: false
     },
     edit_count: {
       type: DataTypes.INTEGER,
