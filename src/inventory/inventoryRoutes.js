@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const inventoryController = require('./inventoryController');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, adminAuth } = require('../middleware/authMiddleware');
 
 // Public Route for Sale Stock (Read only)
 router.get('/sale-stock', inventoryController.getSaleStock);
@@ -13,6 +13,7 @@ router.use(authMiddleware);
 router.post('/items', inventoryController.createInventoryItem);
 router.get('/items', inventoryController.getInventoryItems);
 router.patch('/items/:id/stock', inventoryController.updateInventoryStock);
+router.delete('/items/:id', adminAuth, inventoryController.deleteInventoryItem);
 
 
 

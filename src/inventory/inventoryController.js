@@ -250,3 +250,33 @@ exports.updateInventoryStock = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.deleteInventoryItem = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    
+    const item = await InventoryItem.findByPk(id, { transaction });
+    if (!item) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Item not found' });
+    }
+    
+    // Cascade delete any user inventory assignments
+    await UserInventory.destroy({
+      where: { inventory_item_id: id },
+      transaction
+    });
+    
+    // Delete the inventory item itself
+    await item.destroy({ transaction });
+    
+    await transaction.commit();
+    res.json({ success: true, message: 'Inventory item deleted successfully' });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error deleting inventory item:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
