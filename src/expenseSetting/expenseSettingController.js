@@ -1,8 +1,7 @@
-// GET all expense settings
 const getAllExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
-    const expenseSettings = await ExpenseSetting.findAll();
+    const expenseSettings = await ExpenseSetting.findAll({ order: [['effective_date', 'DESC']] });
     res.json({
       success: true,
       count: expenseSettings.length,

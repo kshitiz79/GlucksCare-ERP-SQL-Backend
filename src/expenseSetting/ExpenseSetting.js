@@ -27,6 +27,12 @@ const ExpenseSetting = (sequelize) => {
       validate: {
         min: 0
       }
+    },
+    effective_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+      unique: true
     }
   }, {
     tableName: 'expense_settings',

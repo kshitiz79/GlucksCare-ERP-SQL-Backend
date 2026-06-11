@@ -145,8 +145,17 @@ const createExpense = async (req, res) => {
       });
     }
 
-    // Get expense settings
-    const settings = await ExpenseSetting.findOne() || {
+    // Get active expense settings for this date
+    const { Op } = require('sequelize');
+    const expenseDate = date || new Date().toISOString().split('T')[0];
+    const settings = await ExpenseSetting.findOne({
+      where: {
+        effective_date: {
+          [Op.lte]: expenseDate
+        }
+      },
+      order: [['effective_date', 'DESC']]
+    }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
       outside_head_office_amount: 175
@@ -281,8 +290,16 @@ const updateExpense = async (req, res) => {
       });
     }
 
-    // Get expense settings
-    const settings = await ExpenseSetting.findOne() || {
+    // Get active expense settings for this date
+    const { Op } = require('sequelize');
+    const settings = await ExpenseSetting.findOne({
+      where: {
+        effective_date: {
+          [Op.lte]: expense.date
+        }
+      },
+      order: [['effective_date', 'DESC']]
+    }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
       outside_head_office_amount: 175
@@ -471,13 +488,23 @@ const rejectExpense = async (req, res) => {
 const getExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
-    const settings = await ExpenseSetting.findOne();
+    const { Op } = require('sequelize');
+    const today = new Date().toISOString().split('T')[0];
+    const settings = await ExpenseSetting.findOne({
+      where: {
+        effective_date: {
+          [Op.lte]: today
+        }
+      },
+      order: [['effective_date', 'DESC']]
+    });
 
     if (!settings) {
       return res.json({
         ratePerKm: 2.40,
         headOfficeAmount: 150,
         outsideHeadOfficeAmount: 175,
+        effectiveDate: '2000-01-01'
       });
     }
 
@@ -486,6 +513,7 @@ const getExpenseSettings = async (req, res) => {
       ratePerKm: settings.rate_per_km,
       headOfficeAmount: settings.head_office_amount,
       outsideHeadOfficeAmount: settings.outside_head_office_amount,
+      effectiveDate: settings.effective_date
     };
 
     res.json(transformedSettings);
@@ -503,14 +531,20 @@ const updateExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
     const { ratePerKm, headOfficeAmount, outsideHeadOfficeAmount } = req.body;
+    const today = new Date().toISOString().split('T')[0];
 
-    let settings = await ExpenseSetting.findOne();
+    let settings = await ExpenseSetting.findOne({
+      where: {
+        effective_date: today
+      }
+    });
 
     if (!settings) {
       settings = await ExpenseSetting.create({
         rate_per_km: ratePerKm,
         head_office_amount: headOfficeAmount,
-        outside_head_office_amount: outsideHeadOfficeAmount
+        outside_head_office_amount: outsideHeadOfficeAmount,
+        effective_date: today
       });
     } else {
       await settings.update({

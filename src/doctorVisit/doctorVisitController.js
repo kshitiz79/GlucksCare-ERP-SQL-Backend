@@ -19,7 +19,7 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 // GET all doctor visits
 const getAllDoctorVisits = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const { DoctorVisit, Doctor, User, Product } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
     const { startDate, endDate, range } = req.query;
@@ -58,6 +58,12 @@ const getAllDoctorVisits = async (req, res) => {
           as: 'UserInfo',
           where: { is_active: true }, // Only include visits from active users
           attributes: ['id', 'name', 'email', 'is_active']
+        },
+        {
+          model: Product,
+          as: 'ProductInfo',
+          attributes: ['id', 'name', 'code', 'mrp'],
+          required: false
         }
       ]
     });
@@ -69,9 +75,11 @@ const getAllDoctorVisits = async (req, res) => {
         ...visitObj,
         doctor: visitObj.DoctorInfo || null,
         user: visitObj.UserInfo || null,
+        product: visitObj.ProductInfo || null,
         // Remove the nested objects
         DoctorInfo: undefined,
-        UserInfo: undefined
+        UserInfo: undefined,
+        ProductInfo: undefined
       };
     });
 
@@ -87,7 +95,7 @@ const getAllDoctorVisits = async (req, res) => {
 // GET doctor visit by ID or all visits for a user
 const getDoctorVisitById = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const { DoctorVisit, Doctor, User, Product } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
     const { id } = req.params;
@@ -109,6 +117,12 @@ const getDoctorVisitById = async (req, res) => {
           as: 'UserInfo',
           attributes: ['id', 'name', 'email'],
           required: false
+        },
+        {
+          model: Product,
+          as: 'ProductInfo',
+          attributes: ['id', 'name', 'code', 'mrp'],
+          required: false
         }
       ]
     });
@@ -122,8 +136,10 @@ const getDoctorVisitById = async (req, res) => {
           ...visitObj,
           doctor: visitObj.DoctorInfo || null,
           user: visitObj.UserInfo || null,
+          product: visitObj.ProductInfo || null,
           DoctorInfo: undefined,
-          UserInfo: undefined
+          UserInfo: undefined,
+          ProductInfo: undefined
         }],
         count: 1,
         type: 'single_visit'
@@ -168,6 +184,12 @@ const getDoctorVisitById = async (req, res) => {
           as: 'UserInfo',
           attributes: ['id', 'name', 'email'],
           required: false
+        },
+        {
+          model: Product,
+          as: 'ProductInfo',
+          attributes: ['id', 'name', 'code', 'mrp'],
+          required: false
         }
       ],
       order: [['date', 'DESC']]
@@ -183,8 +205,10 @@ const getDoctorVisitById = async (req, res) => {
           ...visitObj,
           doctor: visitObj.DoctorInfo || null,
           user: visitObj.UserInfo || null,
+          product: visitObj.ProductInfo || null,
           DoctorInfo: undefined,
-          UserInfo: undefined
+          UserInfo: undefined,
+          ProductInfo: undefined
         };
       });
 
@@ -444,7 +468,7 @@ const confirmDoctorVisit = async (req, res) => {
 // GET visits by user ID
 const getDoctorVisitsByUserId = async (req, res) => {
   try {
-    const { DoctorVisit, Doctor, User } = req.app.get('models');
+    const { DoctorVisit, Doctor, User, Product } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
     const { userId } = req.params;
@@ -499,6 +523,12 @@ const getDoctorVisitsByUserId = async (req, res) => {
           as: 'UserInfo',
           attributes: ['id', 'name', 'email'],
           required: false // Use LEFT JOIN instead of INNER JOIN
+        },
+        {
+          model: Product,
+          as: 'ProductInfo',
+          attributes: ['id', 'name', 'code', 'mrp'],
+          required: false
         }
       ],
       order: [
@@ -525,8 +555,10 @@ const getDoctorVisitsByUserId = async (req, res) => {
           geo_image_url: undefined // Remove URL from response
         } : null,
         user: visitObj.UserInfo || null,
+        product: visitObj.ProductInfo || null,
         DoctorInfo: undefined,
-        UserInfo: undefined
+        UserInfo: undefined,
+        ProductInfo: undefined
       };
     });
 
