@@ -62,7 +62,7 @@ const getAllDoctorVisits = async (req, res) => {
         {
           model: Product,
           as: 'ProductInfo',
-          attributes: ['id', 'name', 'code', 'mrp'],
+          attributes: ['id', 'name'],
           required: false
         }
       ]
@@ -121,7 +121,7 @@ const getDoctorVisitById = async (req, res) => {
         {
           model: Product,
           as: 'ProductInfo',
-          attributes: ['id', 'name', 'code', 'mrp'],
+          attributes: ['id', 'name'],
           required: false
         }
       ]
@@ -188,7 +188,7 @@ const getDoctorVisitById = async (req, res) => {
         {
           model: Product,
           as: 'ProductInfo',
-          attributes: ['id', 'name', 'code', 'mrp'],
+          attributes: ['id', 'name'],
           required: false
         }
       ],
@@ -527,7 +527,7 @@ const getDoctorVisitsByUserId = async (req, res) => {
         {
           model: Product,
           as: 'ProductInfo',
-          attributes: ['id', 'name', 'code', 'mrp'],
+          attributes: ['id', 'name'],
           required: false
         }
       ],
