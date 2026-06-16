@@ -55,6 +55,14 @@ const Chemist = (sequelize) => {
         model: 'head_offices',
         key: 'id'
       }
+    },
+    area_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'areas',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'chemists',

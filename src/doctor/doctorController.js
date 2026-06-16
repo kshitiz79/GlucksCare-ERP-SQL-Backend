@@ -1,13 +1,20 @@
 // GET all doctors
 const getAllDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice } = req.app.get('models');
+    const { Doctor, HeadOffice, Area } = req.app.get('models');
     const doctors = await Doctor.findAll({
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name'] // Only include necessary fields
-      }],
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
       distinct: true // This prevents duplicates when using includes
     });
 
@@ -17,11 +24,14 @@ const getAllDoctors = async (req, res) => {
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || null,
+        area: doctorObj.Area || null,
+        is_assigned_to_area: !!doctorObj.areaId,
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
-        geo_image_status: !!doctorObj.geo_image_url // true if geo_image_url exists, false otherwise
-        // Keep HeadOffice for frontend compatibility
+        geo_image_status: !!doctorObj.geo_image_url,
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -42,13 +52,20 @@ const getAllDoctors = async (req, res) => {
 // GET doctor by ID
 const getDoctorById = async (req, res) => {
   try {
-    const { Doctor, HeadOffice } = req.app.get('models');
+    const { Doctor, HeadOffice, Area } = req.app.get('models');
     const doctor = await Doctor.findByPk(req.params.id, {
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name']
-      }]
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ]
     });
     if (!doctor) {
       return res.status(404).json({
@@ -62,12 +79,15 @@ const getDoctorById = async (req, res) => {
     const transformedDoctor = {
       ...doctorObj,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+      area: doctorObj.Area || null,
+      is_assigned_to_area: !!doctorObj.areaId,
       _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       geo_image_status: !!doctorObj.geo_image_url,
       // Remove the nested objects
-      HeadOffice: undefined
+      HeadOffice: undefined,
+      Area: undefined
     };
 
     res.json({
@@ -113,6 +133,17 @@ const createDoctor = async (req, res) => {
       doctorData.headOfficeId = doctorData.headOffice;
       delete doctorData.headOffice;
       console.log('Converted headOffice to headOfficeId:', doctorData.headOfficeId);
+    }
+
+    // Handle area ID field conversion
+    if (doctorData.areaId) {
+      // Keep as is
+    } else if (doctorData.area_id) {
+      doctorData.areaId = doctorData.area_id;
+      delete doctorData.area_id;
+    } else if (doctorData.area) {
+      doctorData.areaId = doctorData.area;
+      delete doctorData.area;
     }
 
     // Validate and set priority field
@@ -183,11 +214,18 @@ const createDoctor = async (req, res) => {
 
     // Fetch the created doctor with associations
     const createdDoctor = await Doctor.findByPk(doctor.id, {
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name']
-      }]
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ]
     });
 
     // Transform the response to match the MongoDB format
@@ -195,11 +233,14 @@ const createDoctor = async (req, res) => {
     const transformedDoctor = {
       ...doctorObj,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+      area: doctorObj.Area || null,
+      is_assigned_to_area: !!doctorObj.areaId,
       _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       // Remove the nested objects
-      HeadOffice: undefined
+      HeadOffice: undefined,
+      Area: undefined
     };
 
     res.status(201).json({
@@ -274,6 +315,10 @@ const updateDoctor = async (req, res) => {
       doctorData.head_office_id = doctorData.headOffice;
       delete doctorData.headOffice;
     }
+    if (doctorData.area && !doctorData.area_id) {
+      doctorData.area_id = doctorData.area;
+      delete doctorData.area;
+    }
 
     // Validate and set priority field if provided
     if (doctorData.priority) {
@@ -303,11 +348,18 @@ const updateDoctor = async (req, res) => {
 
     // Fetch the updated doctor with associations
     const updatedDoctor = await Doctor.findByPk(doctor.id, {
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name']
-      }]
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ]
     });
 
     // Transform the response to match the MongoDB format
@@ -315,11 +367,14 @@ const updateDoctor = async (req, res) => {
     const transformedDoctor = {
       ...doctorObj,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+      area: doctorObj.Area || null,
+      is_assigned_to_area: !!doctorObj.areaId,
       _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       // Remove the nested objects
-      HeadOffice: undefined
+      HeadOffice: undefined,
+      Area: undefined
     };
 
     res.json({
@@ -363,17 +418,24 @@ const deleteDoctor = async (req, res) => {
 // GET doctors by head office ID
 const getDoctorsByHeadOffice = async (req, res) => {
   try {
-    const { Doctor, HeadOffice } = req.app.get('models');
+    const { Doctor, HeadOffice, Area } = req.app.get('models');
     const { headOfficeId } = req.params;
     const doctors = await Doctor.findAll({
       where: {
         headOfficeId: headOfficeId
       },
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name']
-      }],
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
       distinct: true // This prevents duplicates when using includes
     });
 
@@ -383,12 +445,15 @@ const getDoctorsByHeadOffice = async (req, res) => {
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+        area: doctorObj.Area || null,
+        is_assigned_to_area: !!doctorObj.areaId,
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
         geo_image_status: !!doctorObj.geo_image_url,
         // Remove the nested objects
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -408,7 +473,7 @@ const getDoctorsByHeadOffice = async (req, res) => {
 // GET doctors for current user's head offices
 const getMyDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, User } = req.app.get('models');
+    const { Doctor, HeadOffice, User, Area } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
@@ -449,11 +514,18 @@ const getMyDoctors = async (req, res) => {
       where: {
         headOfficeId: { [require('sequelize').Op.in]: headOfficeIds }
       },
-      include: [{
-        model: HeadOffice,
-        as: 'HeadOffice',
-        attributes: ['id', 'name']
-      }],
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
       distinct: true // This prevents duplicates when using includes
     });
 
@@ -463,12 +535,15 @@ const getMyDoctors = async (req, res) => {
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+        area: doctorObj.Area || null,
+        is_assigned_to_area: !!doctorObj.areaId,
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
         geo_image_status: !!doctorObj.geo_image_url,
         // Remove the nested objects
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -608,11 +683,18 @@ const createBulkDoctors = async (req, res) => {
         where: {
           id: { [require('sequelize').Op.in]: doctorIds }
         },
-        include: [{
-          model: HeadOffice,
-          as: 'HeadOffice',
-          attributes: ['id', 'name']
-        }]
+        include: [
+          {
+            model: HeadOffice,
+            as: 'HeadOffice',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
+          }
+        ]
       });
 
       // Transform the response to match the MongoDB format
@@ -621,11 +703,14 @@ const createBulkDoctors = async (req, res) => {
         return {
           ...doctorObj,
           headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+          area: doctorObj.Area || null,
+          is_assigned_to_area: !!doctorObj.areaId,
           _id: doctorObj.id,
           createdAt: doctorObj.created_at,
           updatedAt: doctorObj.updated_at,
           // Remove the nested objects
-          HeadOffice: undefined
+          HeadOffice: undefined,
+          Area: undefined
         };
       });
 

@@ -102,6 +102,7 @@ const PartyExpense = require('../partyExpense/PartyExpense');
 const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/ProductMasters');
 const InventoryItem = require('../inventory/InventoryItem');
 const UserInventory = require('../inventory/UserInventory');
+const Area = require('../area/Area');
 
 // Initialize models
 const models = {
@@ -170,7 +171,8 @@ const models = {
     Purchase: Purchase(sequelize),
     PurchaseItem: PurchaseItem(sequelize),
     Challan: Challan(sequelize),
-    ChallanItem: ChallanItem(sequelize)
+    ChallanItem: ChallanItem(sequelize),
+    Area: Area(sequelize)
 };
 
 // Set up hooks

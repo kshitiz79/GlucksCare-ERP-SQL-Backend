@@ -80,8 +80,10 @@ module.exports = (db) => {
 
   // Doctor associations
   db.Doctor.belongsTo(db.HeadOffice, { foreignKey: 'headOfficeId', as: 'HeadOffice' });
+  db.Doctor.belongsTo(db.Area, { foreignKey: 'areaId', as: 'Area' });
   db.Doctor.hasMany(db.DoctorVisitHistory, { foreignKey: 'doctor_id' });
   db.Doctor.hasMany(db.DoctorVisit, { foreignKey: 'doctor_id' });
+  db.Area.hasMany(db.Doctor, { foreignKey: 'areaId', as: 'Doctors' });
 
   // DoctorVisitHistory associations
   db.DoctorVisitHistory.belongsTo(db.Doctor, { foreignKey: 'doctor_id' });
@@ -89,16 +91,20 @@ module.exports = (db) => {
 
   // Chemist associations
   db.Chemist.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
+  db.Chemist.belongsTo(db.Area, { foreignKey: 'area_id', as: 'Area' });
   db.Chemist.hasMany(db.ChemistAnnualTurnover, { foreignKey: 'chemist_id', as: 'AnnualTurnovers' });
   db.Chemist.hasMany(db.ChemistVisit, { foreignKey: 'chemist_id' });
+  db.Area.hasMany(db.Chemist, { foreignKey: 'area_id', as: 'Chemists' });
 
   // ChemistAnnualTurnover associations
   db.ChemistAnnualTurnover.belongsTo(db.Chemist, { foreignKey: 'chemist_id', as: 'Chemist' });
 
   // Stockist associations
   db.Stockist.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
+  db.Stockist.belongsTo(db.Area, { foreignKey: 'area_id', as: 'Area' });
   db.Stockist.hasMany(db.StockistAnnualTurnover, { foreignKey: 'stockist_id', as: 'AnnualTurnovers' });
   db.Stockist.hasMany(db.StockistVisit, { foreignKey: 'stockist_id' });
+  db.Area.hasMany(db.Stockist, { foreignKey: 'area_id', as: 'Stockists' });
 
   // StockistAnnualTurnover associations
   db.StockistAnnualTurnover.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'Stockist' });
@@ -261,6 +267,10 @@ module.exports = (db) => {
   // ForwardingNote associations
   db.ForwardingNote.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_tracking_id', as: 'invoiceTracking' });
   db.InvoiceTracking.hasMany(db.ForwardingNote, { foreignKey: 'invoice_tracking_id', as: 'forwardingNotes' });
+
+  // Area associations
+  db.Area.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
+  db.HeadOffice.hasMany(db.Area, { foreignKey: 'head_office_id', as: 'Areas' });
 
   // User and Address associations
   db.User.belongsTo(db.Address, { foreignKey: 'address_id', as: 'masterAddress' });

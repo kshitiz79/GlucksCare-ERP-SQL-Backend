@@ -4,10 +4,10 @@ const { DataTypes } = require('sequelize');
 const getAllChemists = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
 
     const chemists = await Chemist.findAll({
       include: [
@@ -20,6 +20,11 @@ const getAllChemists = async (req, res) => {
           model: ChemistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -33,12 +38,15 @@ const getAllChemists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         geo_image_status: !!chemistObj.geo_image_url,
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -60,10 +68,10 @@ const getAllChemists = async (req, res) => {
 const getChemistById = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
 
     const chemist = await Chemist.findByPk(req.params.id, {
       include: [
@@ -76,6 +84,11 @@ const getChemistById = async (req, res) => {
           model: ChemistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -95,12 +108,15 @@ const getChemistById = async (req, res) => {
         amount: parseFloat(turnover.amount)
       })) : [],
       headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+      area: chemistObj.Area || null,
+      is_assigned_to_area: !!chemistObj.area_id,
       _id: chemistObj.id,
       createdAt: chemistObj.created_at,
       updatedAt: chemistObj.updated_at,
       geo_image_status: !!chemistObj.geo_image_url,
       AnnualTurnovers: undefined,
-      HeadOffice: undefined
+      HeadOffice: undefined,
+      Area: undefined
     };
 
     res.json({
@@ -158,7 +174,9 @@ const createChemist = async (req, res) => {
       drugLicenseNumber: 'drug_license_number',
       gstNo: 'gst_no',
       yearsInBusiness: 'years_in_business',
-      headOfficeId: 'head_office_id'
+      headOfficeId: 'head_office_id',
+      areaId: 'area_id',
+      area: 'area_id'
     };
 
     // Convert field names and collect data for the main chemist record
@@ -258,6 +276,11 @@ const createChemist = async (req, res) => {
             model: ChemistAnnualTurnover,
             as: 'AnnualTurnovers',
             attributes: ['year', 'amount']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
           }
         ],
         transaction
@@ -280,12 +303,15 @@ const createChemist = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
 
       res.status(201).json({
@@ -380,7 +406,9 @@ const updateChemist = async (req, res) => {
         drugLicenseNumber: 'drug_license_number',
         gstNo: 'gst_no',
         yearsInBusiness: 'years_in_business',
-        headOfficeId: 'head_office_id'
+        headOfficeId: 'head_office_id',
+        areaId: 'area_id',
+        area: 'area_id'
       };
 
       // Convert field names and collect data for the main chemist record
@@ -436,6 +464,11 @@ const updateChemist = async (req, res) => {
             model: ChemistAnnualTurnover,
             as: 'AnnualTurnovers',
             attributes: ['year', 'amount']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
           }
         ],
         transaction
@@ -458,12 +491,15 @@ const updateChemist = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
 
       res.json({
@@ -547,7 +583,7 @@ const getMyChemists = async (req, res) => {
     if (!models || !models.Chemist || !models.HeadOffice || !models.User || !models.ChemistAnnualTurnover) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, User, ChemistAnnualTurnover } = models;
+    const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area } = models;
 
     const user = await User.findByPk(req.user.id, {
       include: [
@@ -594,6 +630,11 @@ const getMyChemists = async (req, res) => {
           model: ChemistAnnualTurnover,
           as: 'AnnualTurnovers',
           attributes: ['year', 'amount']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -607,12 +648,15 @@ const getMyChemists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         geo_image_status: !!chemistObj.geo_image_url,
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -738,11 +782,18 @@ const createBulkChemists = async (req, res) => {
         where: {
           id: { [require('sequelize').Op.in]: chemistIds }
         },
-        include: [{
-          model: HeadOffice,
-          as: 'HeadOffice',
-          attributes: ['id', 'name']
-        }]
+        include: [
+          {
+            model: HeadOffice,
+            as: 'HeadOffice',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
+          }
+        ]
       });
 
       // Transform the response
@@ -751,10 +802,13 @@ const createBulkChemists = async (req, res) => {
         return {
           ...chemistObj,
           headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+          area: chemistObj.Area || null,
+          is_assigned_to_area: !!chemistObj.area_id,
           _id: chemistObj.id,
           createdAt: chemistObj.created_at,
           updatedAt: chemistObj.updated_at,
-          HeadOffice: undefined
+          HeadOffice: undefined,
+          Area: undefined
         };
       });
 

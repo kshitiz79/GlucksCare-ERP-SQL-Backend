@@ -102,6 +102,14 @@ const Stockist = (sequelize) => {
         key: 'id'
       }
     },
+    area_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'areas',
+        key: 'id'
+      }
+    },
     // Document image URLs
     gst_certificate_url: {
       type: DataTypes.STRING(500),

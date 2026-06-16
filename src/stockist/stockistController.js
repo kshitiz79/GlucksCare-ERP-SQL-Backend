@@ -23,13 +23,15 @@ const STOCKIST_FIELD_MAPPINGS = {
   drugLicenseUrl: 'drug_license_url',
   panCardUrl: 'pan_card_url',
   cancelledChequeUrl: 'cancelled_cheque_url',
-  businessProfileUrl: 'business_profile_url'
+  businessProfileUrl: 'business_profile_url',
+  areaId: 'area_id',
+  area: 'area_id'
 };
 
 // GET all stockists
 const getAllStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = req.app.get('models');
 
     const stockists = await Stockist.findAll({
       include: [
@@ -46,6 +48,11 @@ const getAllStockists = async (req, res) => {
         {
           model: Address,
           as: 'address'
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -61,13 +68,16 @@ const getAllStockists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        area: stockistObj.Area || null,
+        is_assigned_to_area: !!stockistObj.area_id,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         geo_image_status: !!stockistObj.geo_image_url,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -88,7 +98,7 @@ const getAllStockists = async (req, res) => {
 // GET stockist by ID
 const getStockistById = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = req.app.get('models');
 
     const stockist = await Stockist.findByPk(req.params.id, {
       include: [
@@ -105,6 +115,11 @@ const getStockistById = async (req, res) => {
         {
           model: Address,
           as: 'address'
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -126,13 +141,16 @@ const getStockistById = async (req, res) => {
         amount: parseFloat(turnover.amount)
       })) : [],
       headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+      area: stockistObj.Area || null,
+      is_assigned_to_area: !!stockistObj.area_id,
       _id: stockistObj.id,
       createdAt: stockistObj.created_at,
       updatedAt: stockistObj.updated_at,
       geo_image_status: !!stockistObj.geo_image_url,
       // Remove the nested objects
       AnnualTurnovers: undefined,
-      HeadOffice: undefined
+      HeadOffice: undefined,
+      Area: undefined
     };
 
     res.json({
@@ -410,6 +428,11 @@ const createStockist = async (req, res) => {
           {
             model: Address,
             as: 'address'
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
           }
         ],
         transaction
@@ -432,12 +455,15 @@ const createStockist = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        area: stockistObj.Area || null,
+        is_assigned_to_area: !!stockistObj.area_id,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
 
       res.status(201).json({
@@ -703,6 +729,11 @@ const updateStockist = async (req, res) => {
           {
             model: Address,
             as: 'address'
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
           }
         ],
         transaction
@@ -725,12 +756,15 @@ const updateStockist = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        area: stockistObj.Area || null,
+        is_assigned_to_area: !!stockistObj.area_id,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
 
       res.json({
@@ -804,7 +838,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 // GET stockists for current user's head offices
 const getMyStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address } = req.app.get('models');
+    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
@@ -859,6 +893,11 @@ const getMyStockists = async (req, res) => {
         {
           model: Address,
           as: 'address'
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
         }
       ]
     });
@@ -874,13 +913,16 @@ const getMyStockists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        area: stockistObj.Area || null,
+        is_assigned_to_area: !!stockistObj.area_id,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         geo_image_status: !!stockistObj.geo_image_url,
         // Remove the nested objects
         AnnualTurnovers: undefined,
-        HeadOffice: undefined
+        HeadOffice: undefined,
+        Area: undefined
       };
     });
 
@@ -1002,15 +1044,23 @@ const createBulkStockists = async (req, res) => {
 
       // Fetch created stockists with associations
       const stockistIds = createdStockists.map(stockist => stockist.id);
+      const { Area } = req.app.get('models');
       const stockistsWithAssociations = await Stockist.findAll({
         where: {
           id: { [require('sequelize').Op.in]: stockistIds }
         },
-        include: [{
-          model: HeadOffice,
-          as: 'HeadOffice',
-          attributes: ['id', 'name']
-        }]
+        include: [
+          {
+            model: HeadOffice,
+            as: 'HeadOffice',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
+          }
+        ]
       });
 
       // Transform the response
@@ -1019,10 +1069,13 @@ const createBulkStockists = async (req, res) => {
         return {
           ...stockistObj,
           headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+          area: stockistObj.Area || null,
+          is_assigned_to_area: !!stockistObj.area_id,
           _id: stockistObj.id,
           createdAt: stockistObj.created_at,
           updatedAt: stockistObj.updated_at,
-          HeadOffice: undefined
+          HeadOffice: undefined,
+          Area: undefined
         };
       });
 

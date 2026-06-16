@@ -82,6 +82,14 @@ const Doctor = (sequelize) => {
         model: 'head_offices',
         key: 'id'
       }
+    },
+    areaId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'areas',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'doctors',
