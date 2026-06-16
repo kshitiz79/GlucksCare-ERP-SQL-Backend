@@ -49,7 +49,7 @@ const DoctorVisit = (sequelize) => {
     timestamps: true,
     underscored: true
   });
-  
+
   // Define associations
   model.associate = (models) => {
     model.belongsTo(models.Doctor, {
@@ -67,7 +67,7 @@ const DoctorVisit = (sequelize) => {
       });
     }
   };
-  
+
   return model;
 };
 

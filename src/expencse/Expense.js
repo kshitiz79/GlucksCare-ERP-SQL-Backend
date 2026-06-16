@@ -20,7 +20,7 @@ const Expense = (sequelize) => {
       allowNull: false
     },
     category: {
-      type: DataTypes.ENUM('travel', 'daily'),
+      type: DataTypes.ENUM('travel', 'daily', 'extra'),
       allowNull: false
     },
     description: {
@@ -75,7 +75,7 @@ const Expense = (sequelize) => {
       defaultValue: 0
     },
     daily_allowance_type: {
-      type: DataTypes.ENUM('headoffice', 'outside')
+      type: DataTypes.ENUM('headoffice', 'outside', 'ex-headquarters')
     },
     amount: {
       type: DataTypes.DECIMAL(10, 2),

@@ -158,6 +158,7 @@ const createExpense = async (req, res) => {
     }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
+      ex_headquarters_amount: 200,
       outside_head_office_amount: 175
     };
 
@@ -186,6 +187,14 @@ const createExpense = async (req, res) => {
       }
     }
 
+    // Enforce bill upload requirement for extra category
+    if (category === 'extra' && !billUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bill upload is required for Extra expenses (gifts/materialistic items).'
+      });
+    }
+
     // Calculate amount based on category
     let computedAmount = 0;
     let totalDistance = 0;
@@ -197,15 +206,21 @@ const createExpense = async (req, res) => {
     if (manualAmount && Number(manualAmount) > 0) {
       // Use manual amount for Quick Add (when amount is explicitly provided)
       computedAmount = Number(manualAmount);
+    } else if (category === 'extra') {
+      computedAmount = Number(req.body.amount) || 0;
     } else if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
       // Auto-calculate for Standard Travel Expense
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
       // Auto-calculate for Daily Allowance
-      computedAmount = dailyAllowanceType === 'headoffice'
-        ? (settings.head_office_amount || 150)
-        : (settings.outside_head_office_amount || 175);
+      if (dailyAllowanceType === 'headoffice') {
+        computedAmount = settings.head_office_amount || 150;
+      } else if (dailyAllowanceType === 'ex-headquarters') {
+        computedAmount = settings.ex_headquarters_amount || 200;
+      } else {
+        computedAmount = settings.outside_head_office_amount || 175;
+      }
     }
 
     const expenseData = {
@@ -261,7 +276,8 @@ const updateExpense = async (req, res) => {
       description,
       bill,
       travelDetails,
-      dailyAllowanceType
+      dailyAllowanceType,
+      amount
     } = req.body;
 
     const expense = await Expense.findByPk(req.params.id);
@@ -302,6 +318,7 @@ const updateExpense = async (req, res) => {
     }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
+      ex_headquarters_amount: 200,
       outside_head_office_amount: 175
     };
 
@@ -330,6 +347,14 @@ const updateExpense = async (req, res) => {
       }
     }
 
+    // Enforce bill upload requirement for extra category
+    if (category === 'extra' && !billUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bill upload is required for Extra expenses (gifts/materialistic items).'
+      });
+    }
+
     // Calculate amount based on category
     let computedAmount = 0;
     let totalDistance = 0;
@@ -339,9 +364,15 @@ const updateExpense = async (req, res) => {
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
-      computedAmount = dailyAllowanceType === 'headoffice'
-        ? (settings.head_office_amount || 150)
-        : (settings.outside_head_office_amount || 175);
+      if (dailyAllowanceType === 'headoffice') {
+        computedAmount = settings.head_office_amount || 150;
+      } else if (dailyAllowanceType === 'ex-headquarters') {
+        computedAmount = settings.ex_headquarters_amount || 200;
+      } else {
+        computedAmount = settings.outside_head_office_amount || 175;
+      }
+    } else if (category === 'extra') {
+      computedAmount = Number(amount) || expense.amount;
     }
 
     // Update expense data
@@ -503,6 +534,7 @@ const getExpenseSettings = async (req, res) => {
       return res.json({
         ratePerKm: 2.40,
         headOfficeAmount: 150,
+        exHeadquartersAmount: 200,
         outsideHeadOfficeAmount: 175,
         effectiveDate: '2000-01-01'
       });
@@ -512,6 +544,7 @@ const getExpenseSettings = async (req, res) => {
     const transformedSettings = {
       ratePerKm: settings.rate_per_km,
       headOfficeAmount: settings.head_office_amount,
+      exHeadquartersAmount: settings.ex_headquarters_amount || 200,
       outsideHeadOfficeAmount: settings.outside_head_office_amount,
       effectiveDate: settings.effective_date
     };
@@ -530,7 +563,7 @@ const getExpenseSettings = async (req, res) => {
 const updateExpenseSettings = async (req, res) => {
   try {
     const { ExpenseSetting } = req.app.get('models');
-    const { ratePerKm, headOfficeAmount, outsideHeadOfficeAmount } = req.body;
+    const { ratePerKm, headOfficeAmount, exHeadquartersAmount, outsideHeadOfficeAmount } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
     let settings = await ExpenseSetting.findOne({
@@ -543,6 +576,7 @@ const updateExpenseSettings = async (req, res) => {
       settings = await ExpenseSetting.create({
         rate_per_km: ratePerKm,
         head_office_amount: headOfficeAmount,
+        ex_headquarters_amount: exHeadquartersAmount,
         outside_head_office_amount: outsideHeadOfficeAmount,
         effective_date: today
       });
@@ -550,6 +584,7 @@ const updateExpenseSettings = async (req, res) => {
       await settings.update({
         rate_per_km: ratePerKm,
         head_office_amount: headOfficeAmount,
+        ex_headquarters_amount: exHeadquartersAmount,
         outside_head_office_amount: outsideHeadOfficeAmount
       });
     }
@@ -558,6 +593,7 @@ const updateExpenseSettings = async (req, res) => {
     const transformedSettings = {
       ratePerKm: settings.rate_per_km,
       headOfficeAmount: settings.head_office_amount,
+      exHeadquartersAmount: settings.ex_headquarters_amount || 200,
       outsideHeadOfficeAmount: settings.outside_head_office_amount,
     };
 
