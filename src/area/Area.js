@@ -13,7 +13,8 @@ const Area = (sequelize) => {
     },
     pincode: {
       type: DataTypes.STRING(10),
-      allowNull: false
+      allowNull: false,
+      unique: true
     },
     post_office: {
       type: DataTypes.STRING(255),

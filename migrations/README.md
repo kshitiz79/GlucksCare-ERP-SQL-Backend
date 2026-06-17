@@ -53,6 +53,7 @@ mysql -u root -p your_database_name < migration_file.sql
 ## Migration Status
 
 - [ ] add_advance_date_to_advances.sql - **PENDING** (Model field is active)
+- [ ] add_is_active_to_inventory_items.sql - **PENDING** (Model field is active, column missing in production database)
 
 ## Notes
 
