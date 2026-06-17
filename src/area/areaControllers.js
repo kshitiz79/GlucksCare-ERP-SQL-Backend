@@ -75,6 +75,15 @@ const createArea = async (req, res) => {
       });
     }
 
+    // Check if an area with this pincode already exists
+    const existingArea = await Area.findOne({ where: { pincode } });
+    if (existingArea) {
+      return res.status(400).json({
+        success: false,
+        message: 'An area with this pincode already exists'
+      });
+    }
+
     const area = await Area.create({
       name,
       pincode,
@@ -124,6 +133,16 @@ const updateArea = async (req, res) => {
         return res.status(404).json({
           success: false,
           message: 'Head Office not found'
+        });
+      }
+    }
+
+    if (pincode && pincode !== area.pincode) {
+      const existingArea = await Area.findOne({ where: { pincode } });
+      if (existingArea) {
+        return res.status(400).json({
+          success: false,
+          message: 'An area with this pincode already exists'
         });
       }
     }
@@ -182,10 +201,43 @@ const deleteArea = async (req, res) => {
   }
 };
 
+const getAreasByHeadOffice = async (req, res) => {
+  try {
+    const { Area, HeadOffice } = req.app.get('models');
+    const { headOfficeId } = req.params;
+
+    const areas = await Area.findAll({
+      where: {
+        head_office_id: headOfficeId
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        }
+      ],
+      order: [['name', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      count: areas.length,
+      data: areas
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllAreas,
   getAreaById,
   createArea,
   updateArea,
-  deleteArea
+  deleteArea,
+  getAreasByHeadOffice
 };
