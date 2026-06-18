@@ -106,10 +106,10 @@ const getDoctorById = async (req, res) => {
 const createDoctor = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Doctor || !models.HeadOffice) {
+    if (!models || !models.Doctor || !models.HeadOffice || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice } = models;
+    const { Doctor, HeadOffice, Area } = models;
 
     // Log the incoming request body for debugging
     console.log('Incoming doctor data:', JSON.stringify(req.body, null, 2));
@@ -260,10 +260,10 @@ const createDoctor = async (req, res) => {
 const updateDoctor = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Doctor || !models.HeadOffice) {
+    if (!models || !models.Doctor || !models.HeadOffice || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice } = models;
+    const { Doctor, HeadOffice, Area } = models;
 
     const doctor = await Doctor.findByPk(req.params.id);
     if (!doctor) {
@@ -309,15 +309,22 @@ const updateDoctor = async (req, res) => {
       }
     }
 
-    // Map headOffice to head_office_id if needed
+    // Map headOffice and area inputs to the camelCase attributes used in Doctor model definition
     const doctorData = { ...req.body };
-    if (doctorData.headOffice && !doctorData.head_office_id) {
-      doctorData.head_office_id = doctorData.headOffice;
+    if (doctorData.headOffice) {
+      doctorData.headOfficeId = doctorData.headOffice;
       delete doctorData.headOffice;
+    } else if (doctorData.head_office_id) {
+      doctorData.headOfficeId = doctorData.head_office_id;
+      delete doctorData.head_office_id;
     }
-    if (doctorData.area && !doctorData.area_id) {
-      doctorData.area_id = doctorData.area;
+
+    if (doctorData.area) {
+      doctorData.areaId = doctorData.area;
       delete doctorData.area;
+    } else if (doctorData.area_id) {
+      doctorData.areaId = doctorData.area_id;
+      delete doctorData.area_id;
     }
 
     // Validate and set priority field if provided
@@ -332,11 +339,16 @@ const updateDoctor = async (req, res) => {
       doctorData.priority = priority;
     }
 
-    // Handle camelCase to snake_case conversion
+    // Handle camelCase to snake_case conversion for other database columns,
+    // while keeping headOfficeId and areaId in camelCase to match Doctor model attributes.
     const convertedData = {};
     Object.keys(doctorData).forEach(key => {
-      const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-      convertedData[snakeCaseKey] = doctorData[key];
+      if (key === 'headOfficeId' || key === 'areaId') {
+        convertedData[key] = doctorData[key];
+      } else {
+        const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+        convertedData[snakeCaseKey] = doctorData[key];
+      }
     });
 
     // Add uploaded image URL if available

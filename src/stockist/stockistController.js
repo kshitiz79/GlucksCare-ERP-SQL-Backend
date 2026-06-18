@@ -170,10 +170,10 @@ const createStockist = async (req, res) => {
   try {
     const models = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !sequelize) {
+    if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = models;
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = models;
 
     // Log the incoming request body for debugging
     console.log('Incoming stockist data:', JSON.stringify(req.body, null, 2));
@@ -489,10 +489,10 @@ const updateStockist = async (req, res) => {
   try {
     const models = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !sequelize) {
+    if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address } = models;
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = models;
 
     const stockist = await Stockist.findByPk(req.params.id);
     if (!stockist) {

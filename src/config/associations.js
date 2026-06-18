@@ -303,5 +303,42 @@ module.exports = (db) => {
   db.ChallanItem.belongsTo(db.Product, { foreignKey: 'product_id', as: 'product' });
   db.Product.hasMany(db.ChallanItem, { foreignKey: 'product_id', as: 'challanItems' });
 
+  // Beat associations
+  db.User.hasMany(db.Beat, { foreignKey: 'user_id', as: 'beats' });
+  db.Beat.belongsTo(db.User, { foreignKey: 'user_id', as: 'creator' });
+
+  db.Beat.belongsToMany(db.Area, {
+    through: db.BeatArea,
+    foreignKey: 'beat_id',
+    otherKey: 'area_id',
+    as: 'areas'
+  });
+  db.Area.belongsToMany(db.Beat, {
+    through: db.BeatArea,
+    foreignKey: 'area_id',
+    otherKey: 'beat_id',
+    as: 'beats'
+  });
+
+  db.Beat.hasMany(db.BeatArea, { foreignKey: 'beat_id', as: 'beatAreas' });
+  db.BeatArea.belongsTo(db.Beat, { foreignKey: 'beat_id', as: 'beat' });
+
+  db.Area.hasMany(db.BeatArea, { foreignKey: 'area_id', as: 'beatAreas' });
+  db.BeatArea.belongsTo(db.Area, { foreignKey: 'area_id', as: 'area' });
+
+  // TourPlan associations
+  db.User.hasMany(db.TourPlan, { foreignKey: 'user_id', as: 'tourPlans' });
+  db.TourPlan.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+
+  db.User.hasMany(db.TourPlan, { foreignKey: 'approved_by_id', as: 'approvedTourPlans' });
+  db.TourPlan.belongsTo(db.User, { foreignKey: 'approved_by_id', as: 'approver' });
+
+  db.TourPlan.hasMany(db.TourPlanDay, { foreignKey: 'tour_plan_id', as: 'days', onDelete: 'CASCADE' });
+  db.TourPlanDay.belongsTo(db.TourPlan, { foreignKey: 'tour_plan_id', as: 'tourPlan' });
+
+  db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'beat_id_1', as: 'beat1' });
+  db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'beat_id_2', as: 'beat2' });
+  db.TourPlanDay.belongsTo(db.User, { foreignKey: 'joint_work_with_user_id', as: 'jointWorkWith' });
+
   return db;
 };

@@ -137,10 +137,10 @@ const createChemist = async (req, res) => {
   try {
     const models = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !sequelize) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
 
     // Log the incoming request body for debugging
     console.log('Incoming chemist data:', JSON.stringify(req.body, null, 2));
@@ -337,10 +337,10 @@ const updateChemist = async (req, res) => {
   try {
     const models = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !sequelize) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
 
     const chemist = await Chemist.findByPk(req.params.id);
     if (!chemist) {

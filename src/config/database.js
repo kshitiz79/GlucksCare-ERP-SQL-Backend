@@ -103,6 +103,10 @@ const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/
 const InventoryItem = require('../inventory/InventoryItem');
 const UserInventory = require('../inventory/UserInventory');
 const Area = require('../area/Area');
+const Beat = require('../beat/Beat');
+const BeatArea = require('../beat/BeatArea');
+const TourPlan = require('../tourPlan/TourPlan');
+const TourPlanDay = require('../tourPlan/TourPlanDay');
 
 // Initialize models
 const models = {
@@ -172,7 +176,11 @@ const models = {
     PurchaseItem: PurchaseItem(sequelize),
     Challan: Challan(sequelize),
     ChallanItem: ChallanItem(sequelize),
-    Area: Area(sequelize)
+    Area: Area(sequelize),
+    Beat: Beat(sequelize),
+    BeatArea: BeatArea(sequelize),
+    TourPlan: TourPlan(sequelize),
+    TourPlanDay: TourPlanDay(sequelize)
 };
 
 // Set up hooks

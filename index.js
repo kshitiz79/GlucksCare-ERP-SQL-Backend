@@ -21,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'https://api.gluckscare.com', // Add this for development
+            'http://localhost:5051', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            'https://api.gluckscare.com',
+            'http://localhost:5051',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -46,11 +46,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'https://api.gluckscare.com', // Add this for development
+    'http://localhost:5051', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    'https://api.gluckscare.com', // Add this for production frontend
+    'http://localhost:5051', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -166,6 +166,8 @@ async function startServer() {
     const productMasterRoutes = require('./src/productMaster/productMasterRoutes');
     const partyRoutes = require('./src/party/PartyRoute');
     const areaRoutes = require('./src/area/areaRoutes');
+    const beatRoutes = require('./src/beat/beatRoutes');
+    const tourPlanRoutes = require('./src/tourPlan/tourPlanRoutes');
 
 
 
@@ -283,6 +285,8 @@ async function startServer() {
     app.use('/api/product-masters', productMasterRoutes);
     app.use('/api/parties', partyRoutes);
     app.use('/api/areas', areaRoutes);
+    app.use('/api/beats', beatRoutes);
+    app.use('/api/tour-plans', tourPlanRoutes);
     const purchaseRoutes = require('./src/purchase/purchaseRoutes');
     app.use('/api/purchases', purchaseRoutes);
     const challanRoutes = require('./src/challan/challanRoutes');
