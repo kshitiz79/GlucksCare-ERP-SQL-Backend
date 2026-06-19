@@ -79,7 +79,8 @@ const createBeat = async (req, res) => {
 
   try {
     const { Beat, BeatArea, Area } = req.app.get('models');
-    const { name, area_ids } = req.body;
+    const { name, area_ids, areaIds } = req.body;
+    const finalAreaIds = area_ids || areaIds;
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -88,7 +89,7 @@ const createBeat = async (req, res) => {
       });
     }
 
-    if (!area_ids || !Array.isArray(area_ids) || area_ids.length === 0) {
+    if (!finalAreaIds || !Array.isArray(finalAreaIds) || finalAreaIds.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'At least one area must be assigned to the beat'
@@ -97,7 +98,7 @@ const createBeat = async (req, res) => {
 
     // Check for duplicate areas in the input array
     const duplicateCheck = new Set();
-    for (const areaId of area_ids) {
+    for (const areaId of finalAreaIds) {
       if (duplicateCheck.has(areaId)) {
         return res.status(400).json({
           success: false,
@@ -108,8 +109,8 @@ const createBeat = async (req, res) => {
     }
 
     // Verify all areas exist
-    const areasCount = await Area.count({ where: { id: area_ids } });
-    if (areasCount !== area_ids.length) {
+    const areasCount = await Area.count({ where: { id: finalAreaIds } });
+    if (areasCount !== finalAreaIds.length) {
       return res.status(400).json({
         success: false,
         message: 'One or more selected areas do not exist in the database'
@@ -123,7 +124,7 @@ const createBeat = async (req, res) => {
     }, { transaction: t });
 
     // Create BeatArea entries
-    const beatAreasData = area_ids.map(areaId => ({
+    const beatAreasData = finalAreaIds.map(areaId => ({
       beat_id: beat.id,
       area_id: areaId
     }));
@@ -164,7 +165,8 @@ const updateBeat = async (req, res) => {
 
   try {
     const { Beat, BeatArea, Area } = req.app.get('models');
-    const { name, area_ids } = req.body;
+    const { name, area_ids, areaIds } = req.body;
+    const finalAreaIds = area_ids || areaIds;
 
     const beat = await Beat.findByPk(req.params.id);
     if (!beat) {
@@ -197,8 +199,8 @@ const updateBeat = async (req, res) => {
     }
 
     // If updating areas
-    if (area_ids) {
-      if (!Array.isArray(area_ids) || area_ids.length === 0) {
+    if (finalAreaIds) {
+      if (!Array.isArray(finalAreaIds) || finalAreaIds.length === 0) {
         await t.rollback();
         return res.status(400).json({
           success: false,
@@ -208,7 +210,7 @@ const updateBeat = async (req, res) => {
 
       // Check for duplicates
       const duplicateCheck = new Set();
-      for (const areaId of area_ids) {
+      for (const areaId of finalAreaIds) {
         if (duplicateCheck.has(areaId)) {
           await t.rollback();
           return res.status(400).json({
@@ -220,8 +222,8 @@ const updateBeat = async (req, res) => {
       }
 
       // Verify all areas exist
-      const areasCount = await Area.count({ where: { id: area_ids } });
-      if (areasCount !== area_ids.length) {
+      const areasCount = await Area.count({ where: { id: finalAreaIds } });
+      if (areasCount !== finalAreaIds.length) {
         await t.rollback();
         return res.status(400).json({
           success: false,
@@ -236,7 +238,7 @@ const updateBeat = async (req, res) => {
       });
 
       // Create new beat areas
-      const beatAreasData = area_ids.map(areaId => ({
+      const beatAreasData = finalAreaIds.map(areaId => ({
         beat_id: beat.id,
         area_id: areaId
       }));
