@@ -536,4 +536,38 @@ router.get('/roles', authMiddleware, async (req, res) => {
     }
 });
 
+// GET all model enums
+router.get('/enums', authMiddleware, async (req, res) => {
+    try {
+        const sequelize = req.app.get('sequelize');
+        const enums = {};
+        
+        Object.keys(sequelize.models).forEach(modelName => {
+            const model = sequelize.models[modelName];
+            const attributes = model.rawAttributes;
+            Object.keys(attributes).forEach(attrName => {
+                const attribute = attributes[attrName];
+                if (attribute.type && (attribute.type.values || attribute.type.constructor.name === 'ENUM')) {
+                    if (!enums[modelName]) {
+                        enums[modelName] = {};
+                    }
+                    enums[modelName][attrName] = attribute.type.values || [];
+                }
+            });
+        });
+
+        res.json({
+            success: true,
+            data: enums
+        });
+    } catch (error) {
+        console.error('Get model enums error:', error);
+        res.status(500).json({
+            success: false,
+            msg: 'Server error',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
