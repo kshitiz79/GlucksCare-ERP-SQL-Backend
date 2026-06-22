@@ -309,6 +309,8 @@ const getChemistVisitsByUserId = async (req, res) => {
       const visitObj = visit.toJSON();
       return {
         ...visitObj,
+        headOfficeId: visitObj.Chemist ? (visitObj.Chemist.head_office_id || visitObj.Chemist.headOfficeId) : null,
+        head_office_id: visitObj.Chemist ? (visitObj.Chemist.head_office_id || visitObj.Chemist.headOfficeId) : null,
         Chemist: visitObj.Chemist ? {
           ...visitObj.Chemist,
           geo_image_status: !!visitObj.Chemist.geo_image_url,

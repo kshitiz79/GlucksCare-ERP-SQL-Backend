@@ -557,6 +557,8 @@ const getDoctorVisitsByUserId = async (req, res) => {
       const visitObj = visit.toJSON();
       return {
         ...visitObj,
+        headOfficeId: visitObj.DoctorInfo ? (visitObj.DoctorInfo.headOfficeId || visitObj.DoctorInfo.head_office_id) : null,
+        head_office_id: visitObj.DoctorInfo ? (visitObj.DoctorInfo.headOfficeId || visitObj.DoctorInfo.head_office_id) : null,
         doctor: visitObj.DoctorInfo ? {
           ...visitObj.DoctorInfo,
           geo_image_status: !!visitObj.DoctorInfo.geo_image_url,

@@ -309,6 +309,8 @@ const getStockistVisitsByUserId = async (req, res) => {
       const visitObj = visit.toJSON();
       return {
         ...visitObj,
+        headOfficeId: visitObj.Stockist ? (visitObj.Stockist.head_office_id || visitObj.Stockist.headOfficeId) : null,
+        head_office_id: visitObj.Stockist ? (visitObj.Stockist.head_office_id || visitObj.Stockist.headOfficeId) : null,
         Stockist: visitObj.Stockist ? {
           ...visitObj.Stockist,
           geo_image_status: !!visitObj.Stockist.geo_image_url,
