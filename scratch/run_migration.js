@@ -7,7 +7,7 @@ async function run() {
     await sequelize.authenticate();
     console.log('Connected successfully to database.');
     
-    const sqlPath = path.join(__dirname, '../migrations/add_unique_constraint_to_areas_pincode.sql');
+    const sqlPath = path.join(__dirname, '../migrations/change_areas_pincode_uniqueness.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
     
     console.log('Running migration:');

@@ -75,12 +75,12 @@ const createArea = async (req, res) => {
       });
     }
 
-    // Check if an area with this pincode already exists
-    const existingArea = await Area.findOne({ where: { pincode } });
+    // Check if an area with this pincode and name already exists
+    const existingArea = await Area.findOne({ where: { pincode, name } });
     if (existingArea) {
       return res.status(400).json({
         success: false,
-        message: 'An area with this pincode already exists'
+        message: 'An area with this pincode and name already exists'
       });
     }
 
@@ -137,12 +137,22 @@ const updateArea = async (req, res) => {
       }
     }
 
-    if (pincode && pincode !== area.pincode) {
-      const existingArea = await Area.findOne({ where: { pincode } });
+    const targetPincode = pincode !== undefined ? pincode : area.pincode;
+    const targetName = name !== undefined ? name : area.name;
+
+    if (targetPincode !== area.pincode || targetName !== area.name) {
+      const { Op } = require('sequelize');
+      const existingArea = await Area.findOne({
+        where: {
+          pincode: targetPincode,
+          name: targetName,
+          id: { [Op.ne]: area.id }
+        }
+      });
       if (existingArea) {
         return res.status(400).json({
           success: false,
-          message: 'An area with this pincode already exists'
+          message: 'An area with this pincode and name already exists'
         });
       }
     }

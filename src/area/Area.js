@@ -13,8 +13,7 @@ const Area = (sequelize) => {
     },
     pincode: {
       type: DataTypes.STRING(10),
-      allowNull: false,
-      unique: true
+      allowNull: false
     },
     post_office: {
       type: DataTypes.STRING(255),
@@ -35,7 +34,13 @@ const Area = (sequelize) => {
   }, {
     tableName: 'areas',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ['pincode', 'name']
+      }
+    ]
   });
 };
 
