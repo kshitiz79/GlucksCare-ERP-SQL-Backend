@@ -213,13 +213,7 @@ const confirmStockistVisit = async (req, res) => {
       });
     }
 
-    // Check if stockist has an area assigned
-    if (!stockist.area_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'This Stockist does not have an assigned Area. Please update the Stockist to set an Area before confirming the visit.'
-      });
-    }
+
 
     // Check if stockist's location is available for distance calculation
     if (stockist.latitude && stockist.longitude) {
