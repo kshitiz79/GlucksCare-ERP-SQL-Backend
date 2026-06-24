@@ -52,7 +52,7 @@ const getAllDoctors = async (req, res) => {
 // GET doctor by ID
 const getDoctorById = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, Area } = req.app.get('models');
+    const { Doctor, HeadOffice, Area, DoctorVisit, User, Product } = req.app.get('models');
     const doctor = await Doctor.findByPk(req.params.id, {
       include: [
         {
@@ -74,6 +74,48 @@ const getDoctorById = async (req, res) => {
       });
     }
 
+    // Fetch visits history for this doctor
+    const visits = await DoctorVisit.findAll({
+      where: { doctor_id: doctor.id },
+      include: [
+        {
+          model: User,
+          as: 'UserInfo',
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: Product,
+          as: 'ProductInfo',
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ],
+      order: [['date', 'DESC'], ['created_at', 'DESC']]
+    });
+
+    const formattedVisits = visits.map(v => {
+      const vObj = v.toJSON();
+      return {
+        id: vObj.id,
+        date: vObj.date,
+        notes: vObj.notes,
+        latitude: vObj.latitude,
+        longitude: vObj.longitude,
+        confirmed: vObj.confirmed,
+        remark: vObj.remark,
+        products_detailed: vObj.products_detailed,
+        gifts_given: vObj.gifts_given,
+        userName: vObj.UserInfo ? vObj.UserInfo.name : 'Unknown',
+        userEmail: vObj.UserInfo ? vObj.UserInfo.email : null,
+        product: vObj.ProductInfo ? {
+          id: vObj.ProductInfo.id,
+          name: vObj.ProductInfo.name
+        } : null,
+        createdAt: vObj.created_at,
+        updatedAt: vObj.updated_at
+      };
+    });
+
     // Transform the response to match the MongoDB format
     const doctorObj = doctor.toJSON();
     const transformedDoctor = {
@@ -85,6 +127,10 @@ const getDoctorById = async (req, res) => {
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       geo_image_status: !!doctorObj.geo_image_url,
+      
+      // Visit History
+      visit_history: formattedVisits,
+      
       // Remove the nested objects
       HeadOffice: undefined,
       Area: undefined
@@ -430,7 +476,7 @@ const deleteDoctor = async (req, res) => {
 // GET doctors by head office ID
 const getDoctorsByHeadOffice = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, Area } = req.app.get('models');
+    const { Doctor, HeadOffice, Area, DoctorVisit } = req.app.get('models');
     const { headOfficeId } = req.params;
     const doctors = await Doctor.findAll({
       where: {
@@ -448,12 +494,76 @@ const getDoctorsByHeadOffice = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
-      distinct: true // This prevents duplicates when using includes
+      distinct: true,
+
     });
+
+    const doctorIds = doctors.map(d => d.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id']
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      const data = v.toJSON();
+      lastVisitMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id']
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      const data = v.toJSON();
+      lastVisitAnyMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     // Transform the response to match the MongoDB format
     const transformedDoctors = doctors.map(doctor => {
       const doctorObj = doctor.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[doctorObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[doctorObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
@@ -463,6 +573,19 @@ const getDoctorsByHeadOffice = async (req, res) => {
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
         geo_image_status: !!doctorObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         // Remove the nested objects
         HeadOffice: undefined,
         Area: undefined
@@ -485,7 +608,7 @@ const getDoctorsByHeadOffice = async (req, res) => {
 // GET doctors for current user's head offices
 const getMyDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, User, Area } = req.app.get('models');
+    const { Doctor, HeadOffice, User, Area, DoctorVisit } = req.app.get('models');
 
     // Get the current user with their head offices
     const user = await User.findByPk(req.user.id, {
@@ -493,7 +616,7 @@ const getMyDoctors = async (req, res) => {
         {
           model: HeadOffice,
           as: 'headOffices',
-          through: { attributes: [] } // Don't include junction table attributes
+          through: { attributes: [] }
         }
       ]
     });
@@ -538,12 +661,76 @@ const getMyDoctors = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
+
       distinct: true // This prevents duplicates when using includes
     });
+
+    const doctorIds = doctors.map(d => d.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id']
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      const data = v.toJSON();
+      lastVisitMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id']
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      const data = v.toJSON();
+      lastVisitAnyMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     // Transform the response to match the MongoDB format
     const transformedDoctors = doctors.map(doctor => {
       const doctorObj = doctor.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[doctorObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[doctorObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
@@ -553,13 +740,30 @@ const getMyDoctors = async (req, res) => {
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
         geo_image_status: !!doctorObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         // Remove the nested objects
         HeadOffice: undefined,
         Area: undefined
       };
     });
 
-    res.json(transformedDoctors);
+    res.json({
+      success: true,
+      count: transformedDoctors.length,
+      data: transformedDoctors
+    });
   } catch (error) {
     console.error('Get my doctors error:', error);
     res.status(500).json({

@@ -566,7 +566,11 @@ const getChemistsByHeadOffice = async (req, res) => {
         head_office_id: headOfficeId
       }
     });
-    res.json(chemists);
+    res.json({
+      success: true,
+      count: chemists.length,
+      data: chemists
+    });
   } catch (error) {
     console.error('Get chemists by head office error:', error);
     res.status(500).json({

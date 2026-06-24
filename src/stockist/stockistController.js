@@ -826,7 +826,11 @@ const getStockistsByHeadOffice = async (req, res) => {
         }
       ]
     });
-    res.json(stockists);
+    res.json({
+      success: true,
+      count: stockists.length,
+      data: stockists
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -835,18 +839,18 @@ const getStockistsByHeadOffice = async (req, res) => {
   }
 };
 
-// GET stockists for current user's head offices
+
 const getMyStockists = async (req, res) => {
   try {
     const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area } = req.app.get('models');
 
-    // Get the current user with their head offices
+
     const user = await User.findByPk(req.user.id, {
       include: [
         {
           model: HeadOffice,
           as: 'headOffices',
-          through: { attributes: [] } // Don't include junction table attributes
+          through: { attributes: [] } // D 
         }
       ]
     });
