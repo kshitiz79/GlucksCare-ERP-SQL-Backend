@@ -510,13 +510,13 @@ const getDoctorsByHeadOffice = async (req, res) => {
         'doctor_id',
         [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
       ],
-      group: ['doctor_id']
+      group: ['doctor_id'],
+      raw: true
     }) : [];
 
     const lastVisitMap = {};
     lastVisits.forEach(v => {
-      const data = v.toJSON();
-      lastVisitMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+      lastVisitMap[v.doctor_id] = v.last_visit_date;
     });
 
     // Fetch last visits by ANY user
@@ -528,13 +528,13 @@ const getDoctorsByHeadOffice = async (req, res) => {
         'doctor_id',
         [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
       ],
-      group: ['doctor_id']
+      group: ['doctor_id'],
+      raw: true
     }) : [];
 
     const lastVisitAnyMap = {};
     lastVisitsAny.forEach(v => {
-      const data = v.toJSON();
-      lastVisitAnyMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+      lastVisitAnyMap[v.doctor_id] = v.last_visit_date;
     });
 
     const today = new Date();
@@ -677,13 +677,13 @@ const getMyDoctors = async (req, res) => {
         'doctor_id',
         [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
       ],
-      group: ['doctor_id']
+      group: ['doctor_id'],
+      raw: true
     }) : [];
 
     const lastVisitMap = {};
     lastVisits.forEach(v => {
-      const data = v.toJSON();
-      lastVisitMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+      lastVisitMap[v.doctor_id] = v.last_visit_date;
     });
 
     // Fetch last visits by ANY user
@@ -695,13 +695,13 @@ const getMyDoctors = async (req, res) => {
         'doctor_id',
         [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
       ],
-      group: ['doctor_id']
+      group: ['doctor_id'],
+      raw: true
     }) : [];
 
     const lastVisitAnyMap = {};
     lastVisitsAny.forEach(v => {
-      const data = v.toJSON();
-      lastVisitAnyMap[data.doctor_id] = data.last_visit_date || v.getDataValue('last_visit_date');
+      lastVisitAnyMap[v.doctor_id] = v.last_visit_date;
     });
 
     const today = new Date();
