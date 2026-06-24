@@ -586,7 +586,6 @@ router.post('/login', async (req, res) => {
     }
 });
 
-
 // GENERATE OTP (Email-based)
 router.post('/generate-otp', async (req, res) => {
     try {
