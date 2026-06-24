@@ -208,8 +208,8 @@ const getDoctorById = async (req, res) => {
       areaId,
       head_office_id,
       area_id,
-      HeadOffice,
-      Area,
+      HeadOffice: hoDiscard,
+      Area: areaDiscard,
       ...cleanDoctorObj
     } = doctorObj;
 

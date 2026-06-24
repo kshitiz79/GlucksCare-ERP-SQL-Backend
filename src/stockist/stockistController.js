@@ -243,8 +243,22 @@ const getStockistById = async (req, res) => {
 
     // Transform the response to match the MongoDB format
     const stockistObj = stockist.toJSON();
+    const {
+      id,
+      created_at,
+      updated_at,
+      head_office_id,
+      area_id,
+      headOfficeId,
+      areaId,
+      AnnualTurnovers,
+      HeadOffice: hoDiscard,
+      Area: areaDiscard,
+      ...cleanStockistObj
+    } = stockistObj;
+
     const transformedStockist = {
-      ...stockistObj,
+      ...cleanStockistObj,
       // Convert annual_turnover to the format expected by the frontend
       annual_turnover: stockistObj.AnnualTurnovers ? stockistObj.AnnualTurnovers.map(turnover => ({
         year: turnover.year,
@@ -259,19 +273,7 @@ const getStockistById = async (req, res) => {
       geo_image_status: !!stockistObj.geo_image_url,
       
       // Visit History
-      visit_history: formattedVisits,
-      
-      // Remove the nested/duplicate objects
-      id: undefined,
-      created_at: undefined,
-      updated_at: undefined,
-      head_office_id: undefined,
-      area_id: undefined,
-      headOfficeId: undefined,
-      areaId: undefined,
-      AnnualTurnovers: undefined,
-      HeadOffice: undefined,
-      Area: undefined
+      visit_history: formattedVisits
     };
 
     res.json({
@@ -1024,8 +1026,21 @@ const getStockistsByHeadOffice = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        HeadOffice,
+        Area,
+        ...cleanStockistObj
+      } = stockistObj;
+
       return {
-        ...stockistObj,
+        ...cleanStockistObj,
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
         area: stockistObj.Area || null,
         is_assigned_to_area: !!stockistObj.area_id,
@@ -1040,18 +1055,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        // Remove the nested/duplicate objects
-        id: undefined,
-        created_at: undefined,
-        updated_at: undefined,
-        head_office_id: undefined,
-        area_id: undefined,
-        headOfficeId: undefined,
-        areaId: undefined,
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 

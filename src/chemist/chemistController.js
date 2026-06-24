@@ -221,8 +221,8 @@ const getChemistById = async (req, res) => {
       headOfficeId,
       areaId,
       AnnualTurnovers,
-      HeadOffice,
-      Area,
+      HeadOffice: hoDiscard,
+      Area: areaDiscard,
       ...cleanChemistObj
     } = chemistObj;
 
