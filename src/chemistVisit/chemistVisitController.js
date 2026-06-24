@@ -213,13 +213,6 @@ const confirmChemistVisit = async (req, res) => {
       });
     }
 
-    // Check if chemist has an area assigned
-    if (!chemist.area_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'This Chemist does not have an assigned Area. Please update the Chemist to set an Area before confirming the visit.'
-      });
-    }
 
     // Check if chemist's location is available for distance calculation
     if (chemist.latitude && chemist.longitude) {

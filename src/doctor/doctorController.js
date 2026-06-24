@@ -1,7 +1,7 @@
 // GET all doctors
 const getAllDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, Area } = req.app.get('models');
+    const { Doctor, HeadOffice, Area, DoctorVisit } = req.app.get('models');
     const doctors = await Doctor.findAll({
       include: [
         {
@@ -18,9 +18,72 @@ const getAllDoctors = async (req, res) => {
       distinct: true // This prevents duplicates when using includes
     });
 
+    const doctorIds = doctors.map(d => d.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     // Transform the response to match the MongoDB format
     const transformedDoctors = doctors.map(doctor => {
       const doctorObj = doctor.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[doctorObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[doctorObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...doctorObj,
         headOffice: doctorObj.HeadOffice || null,
@@ -30,6 +93,19 @@ const getAllDoctors = async (req, res) => {
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,
         geo_image_status: !!doctorObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         HeadOffice: undefined,
         Area: undefined
       };

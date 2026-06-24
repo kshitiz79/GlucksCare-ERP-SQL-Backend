@@ -365,13 +365,6 @@ const confirmDoctorVisit = async (req, res) => {
       });
     }
 
-    // Check if doctor has an area assigned
-    if (!doctor.areaId) {
-      return res.status(400).json({
-        success: false,
-        message: 'This Doctor does not have an assigned Area. Please update the Doctor to set an Area before confirming the visit.'
-      });
-    }
 
     // Check if doctor's location is available for distance calculation
     if (doctor.latitude && doctor.longitude) {
