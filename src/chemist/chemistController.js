@@ -94,8 +94,22 @@ const getAllChemists = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        AnnualTurnovers,
+        HeadOffice,
+        Area,
+        ...cleanChemistObj
+      } = chemistObj;
+
       return {
-        ...chemistObj,
+        ...cleanChemistObj,
         annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
           year: turnover.year,
           amount: parseFloat(turnover.amount)
@@ -114,11 +128,7 @@ const getAllChemists = async (req, res) => {
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        AnnualTurnovers: undefined,
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 
@@ -202,8 +212,22 @@ const getChemistById = async (req, res) => {
     });
 
     const chemistObj = chemist.toJSON();
+    const {
+      id,
+      created_at,
+      updated_at,
+      head_office_id,
+      area_id,
+      headOfficeId,
+      areaId,
+      AnnualTurnovers,
+      HeadOffice,
+      Area,
+      ...cleanChemistObj
+    } = chemistObj;
+
     const transformedChemist = {
-      ...chemistObj,
+      ...cleanChemistObj,
       annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
         year: turnover.year,
         amount: parseFloat(turnover.amount)
@@ -217,11 +241,7 @@ const getChemistById = async (req, res) => {
       geo_image_status: !!chemistObj.geo_image_url,
       
       // Visit History
-      visit_history: formattedVisits,
-      
-      AnnualTurnovers: undefined,
-      HeadOffice: undefined,
-      Area: undefined
+      visit_history: formattedVisits
     };
 
     res.json({
@@ -749,8 +769,21 @@ const getChemistsByHeadOffice = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        HeadOffice,
+        Area,
+        ...cleanChemistObj
+      } = chemistObj;
+
       return {
-        ...chemistObj,
+        ...cleanChemistObj,
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
         area: chemistObj.Area || null,
         is_assigned_to_area: !!chemistObj.area_id,
@@ -761,18 +794,11 @@ const getChemistsByHeadOffice = async (req, res) => {
 
         // Visited stats (by current requesting user)
         lastVisitedDate: lastVisitedDate,
-
         daysSinceLastVisit: daysSinceLastVisit,
-
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 
@@ -918,8 +944,22 @@ const getMyChemists = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        AnnualTurnovers,
+        HeadOffice,
+        Area,
+        ...cleanChemistObj
+      } = chemistObj;
+
       return {
-        ...chemistObj,
+        ...cleanChemistObj,
         annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
           year: turnover.year,
           amount: parseFloat(turnover.amount)
@@ -938,11 +978,7 @@ const getMyChemists = async (req, res) => {
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        AnnualTurnovers: undefined,
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 

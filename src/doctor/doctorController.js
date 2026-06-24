@@ -84,8 +84,21 @@ const getAllDoctors = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        headOfficeId,
+        areaId,
+        head_office_id,
+        area_id,
+        HeadOffice,
+        Area,
+        ...cleanDoctorObj
+      } = doctorObj;
+
       return {
-        ...doctorObj,
+        ...cleanDoctorObj,
         headOffice: doctorObj.HeadOffice || null,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -100,10 +113,7 @@ const getAllDoctors = async (req, res) => {
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 
@@ -190,8 +200,21 @@ const getDoctorById = async (req, res) => {
 
     // Transform the response to match the MongoDB format
     const doctorObj = doctor.toJSON();
+    const {
+      id,
+      created_at,
+      updated_at,
+      headOfficeId,
+      areaId,
+      head_office_id,
+      area_id,
+      HeadOffice,
+      Area,
+      ...cleanDoctorObj
+    } = doctorObj;
+
     const transformedDoctor = {
-      ...doctorObj,
+      ...cleanDoctorObj,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
       area: doctorObj.Area || null,
       is_assigned_to_area: !!doctorObj.areaId,
@@ -201,11 +224,7 @@ const getDoctorById = async (req, res) => {
       geo_image_status: !!doctorObj.geo_image_url,
       
       // Visit History
-      visit_history: formattedVisits,
-      
-      // Remove the nested objects
-      HeadOffice: undefined,
-      Area: undefined
+      visit_history: formattedVisits
     };
 
     res.json({
@@ -636,8 +655,21 @@ const getDoctorsByHeadOffice = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        headOfficeId,
+        areaId,
+        head_office_id,
+        area_id,
+        HeadOffice,
+        Area,
+        ...cleanDoctorObj
+      } = doctorObj;
+
       return {
-        ...doctorObj,
+        ...cleanDoctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -648,16 +680,11 @@ const getDoctorsByHeadOffice = async (req, res) => {
 
         // Visited stats (by current requesting user)
         lastVisitedDate: lastVisitedDate,
-
         daysSinceLastVisit: daysSinceLastVisit,
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        // Remove the nested objects
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 
@@ -800,8 +827,21 @@ const getMyDoctors = async (req, res) => {
         daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       }
 
+      const {
+        id,
+        created_at,
+        updated_at,
+        headOfficeId,
+        areaId,
+        head_office_id,
+        area_id,
+        HeadOffice,
+        Area,
+        ...cleanDoctorObj
+      } = doctorObj;
+
       return {
-        ...doctorObj,
+        ...cleanDoctorObj,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -816,11 +856,7 @@ const getMyDoctors = async (req, res) => {
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        daysSinceLastVisitAny: daysSinceLastVisitAny,
-
-        // Remove the nested objects
-        HeadOffice: undefined,
-        Area: undefined
+        daysSinceLastVisitAny: daysSinceLastVisitAny
       };
     });
 
