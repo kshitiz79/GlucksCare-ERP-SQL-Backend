@@ -31,7 +31,7 @@ const STOCKIST_FIELD_MAPPINGS = {
 // GET all stockists
 const getAllStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area, StockistVisit } = req.app.get('models');
 
     const stockists = await Stockist.findAll({
       include: [
@@ -57,9 +57,72 @@ const getAllStockists = async (req, res) => {
       ]
     });
 
+    const stockistIds = stockists.map(s => s.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = stockistIds.length > 0 && req.user ? await StockistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = stockistIds.length > 0 ? await StockistVisit.findAll({
+      where: {
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     // Transform the response to match the MongoDB format
     const transformedStockists = stockists.map(stockist => {
       const stockistObj = stockist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[stockistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[stockistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...stockistObj,
         // Convert annual_turnover to the format expected by the frontend
@@ -74,6 +137,19 @@ const getAllStockists = async (req, res) => {
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         geo_image_status: !!stockistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         // Remove the nested objects
         AnnualTurnovers: undefined,
         HeadOffice: undefined,
@@ -98,7 +174,7 @@ const getAllStockists = async (req, res) => {
 // GET stockist by ID
 const getStockistById = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = req.app.get('models');
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area, StockistVisit, User } = req.app.get('models');
 
     const stockist = await Stockist.findByPk(req.params.id, {
       include: [
@@ -131,6 +207,35 @@ const getStockistById = async (req, res) => {
       });
     }
 
+    // Fetch visits history for this stockist
+    const visits = await StockistVisit.findAll({
+      where: { stockist_id: stockist.id },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      order: [['date', 'DESC'], ['created_at', 'DESC']]
+    });
+
+    const formattedVisits = visits.map(v => {
+      const vObj = v.toJSON();
+      return {
+        id: vObj.id,
+        date: vObj.date,
+        notes: vObj.notes,
+        latitude: vObj.latitude,
+        longitude: vObj.longitude,
+        confirmed: vObj.confirmed,
+        userName: vObj.User ? vObj.User.name : 'Unknown',
+        userEmail: vObj.User ? vObj.User.email : null,
+        createdAt: vObj.created_at,
+        updatedAt: vObj.updated_at
+      };
+    });
+
     // Transform the response to match the MongoDB format
     const stockistObj = stockist.toJSON();
     const transformedStockist = {
@@ -147,6 +252,10 @@ const getStockistById = async (req, res) => {
       createdAt: stockistObj.created_at,
       updatedAt: stockistObj.updated_at,
       geo_image_status: !!stockistObj.geo_image_url,
+      
+      // Visit History
+      visit_history: formattedVisits,
+      
       // Remove the nested objects
       AnnualTurnovers: undefined,
       HeadOffice: undefined,
@@ -813,7 +922,7 @@ const deleteStockist = async (req, res) => {
 // GET stockists by head office ID
 const getStockistsByHeadOffice = async (req, res) => {
   try {
-    const { Stockist, Address } = req.app.get('models');
+    const { Stockist, Address, HeadOffice, Area, StockistVisit } = req.app.get('models');
     const { headOfficeId } = req.params;
     const stockists = await Stockist.findAll({
       where: {
@@ -821,15 +930,120 @@ const getStockistsByHeadOffice = async (req, res) => {
       },
       include: [
         {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        },
+        {
           model: Address,
           as: 'address'
         }
       ]
     });
+
+    const stockistIds = stockists.map(s => s.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = stockistIds.length > 0 && req.user ? await StockistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = stockistIds.length > 0 ? await StockistVisit.findAll({
+      where: {
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Transform the response to match the MongoDB format
+    const transformedStockists = stockists.map(stockist => {
+      const stockistObj = stockist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[stockistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[stockistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      return {
+        ...stockistObj,
+        headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        area: stockistObj.Area || null,
+        is_assigned_to_area: !!stockistObj.area_id,
+        _id: stockistObj.id,
+        createdAt: stockistObj.created_at,
+        updatedAt: stockistObj.updated_at,
+        geo_image_status: !!stockistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
+        // Remove the nested objects
+        HeadOffice: undefined,
+        Area: undefined
+      };
+    });
+
     res.json({
       success: true,
-      count: stockists.length,
-      data: stockists
+      count: transformedStockists.length,
+      data: transformedStockists
     });
   } catch (error) {
     res.status(500).json({
@@ -842,7 +1056,7 @@ const getStockistsByHeadOffice = async (req, res) => {
 
 const getMyStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area } = req.app.get('models');
+    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area, StockistVisit } = req.app.get('models');
 
 
     const user = await User.findByPk(req.user.id, {
@@ -906,9 +1120,72 @@ const getMyStockists = async (req, res) => {
       ]
     });
 
+    const stockistIds = stockists.map(s => s.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = stockistIds.length > 0 && req.user ? await StockistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = stockistIds.length > 0 ? await StockistVisit.findAll({
+      where: {
+        stockist_id: { [require('sequelize').Op.in]: stockistIds }
+      },
+      attributes: [
+        'stockist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['stockist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.stockist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     // Transform the response to match the MongoDB format
     const transformedStockists = stockists.map(stockist => {
       const stockistObj = stockist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[stockistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[stockistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...stockistObj,
         // Convert annual_turnover to the format expected by the frontend
@@ -923,6 +1200,19 @@ const getMyStockists = async (req, res) => {
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
         geo_image_status: !!stockistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         // Remove the nested objects
         AnnualTurnovers: undefined,
         HeadOffice: undefined,

@@ -7,7 +7,7 @@ const getAllChemists = async (req, res) => {
     if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area, ChemistVisit } = models;
 
     const chemists = await Chemist.findAll({
       include: [
@@ -29,8 +29,71 @@ const getAllChemists = async (req, res) => {
       ]
     });
 
+    const chemistIds = chemists.map(c => c.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = chemistIds.length > 0 && req.user ? await ChemistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const transformedChemists = chemists.map(chemist => {
       const chemistObj = chemist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[chemistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[chemistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...chemistObj,
         annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
@@ -44,6 +107,19 @@ const getAllChemists = async (req, res) => {
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         geo_image_status: !!chemistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         AnnualTurnovers: undefined,
         HeadOffice: undefined,
         Area: undefined
@@ -68,10 +144,10 @@ const getAllChemists = async (req, res) => {
 const getChemistById = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area || !models.ChemistVisit || !models.User) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area, ChemistVisit, User } = models;
 
     const chemist = await Chemist.findByPk(req.params.id, {
       include: [
@@ -100,6 +176,35 @@ const getChemistById = async (req, res) => {
       });
     }
 
+    // Fetch visits history for this chemist
+    const visits = await ChemistVisit.findAll({
+      where: { chemist_id: chemist.id },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      order: [['date', 'DESC'], ['created_at', 'DESC']]
+    });
+
+    const formattedVisits = visits.map(v => {
+      const vObj = v.toJSON();
+      return {
+        id: vObj.id,
+        date: vObj.date,
+        notes: vObj.notes,
+        latitude: vObj.latitude,
+        longitude: vObj.longitude,
+        confirmed: vObj.confirmed,
+        userName: vObj.User ? vObj.User.name : 'Unknown',
+        userEmail: vObj.User ? vObj.User.email : null,
+        createdAt: vObj.created_at,
+        updatedAt: vObj.updated_at
+      };
+    });
+
     const chemistObj = chemist.toJSON();
     const transformedChemist = {
       ...chemistObj,
@@ -114,6 +219,10 @@ const getChemistById = async (req, res) => {
       createdAt: chemistObj.created_at,
       updatedAt: chemistObj.updated_at,
       geo_image_status: !!chemistObj.geo_image_url,
+      
+      // Visit History
+      visit_history: formattedVisits,
+      
       AnnualTurnovers: undefined,
       HeadOffice: undefined,
       Area: undefined
@@ -555,21 +664,126 @@ const deleteChemist = async (req, res) => {
 const getChemistsByHeadOffice = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Chemist) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.Area || !models.ChemistVisit) {
       throw new Error('Required models are not available');
     }
-    const { Chemist } = models;
+    const { Chemist, HeadOffice, Area, ChemistVisit } = models;
 
     const { headOfficeId } = req.params;
     const chemists = await Chemist.findAll({
       where: {
         head_office_id: headOfficeId
-      }
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ]
     });
+
+    const chemistIds = chemists.map(c => c.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = chemistIds.length > 0 && req.user ? await ChemistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const transformedChemists = chemists.map(chemist => {
+      const chemistObj = chemist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[chemistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[chemistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      return {
+        ...chemistObj,
+        headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
+        _id: chemistObj.id,
+        createdAt: chemistObj.created_at,
+        updatedAt: chemistObj.updated_at,
+        geo_image_status: !!chemistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
+        HeadOffice: undefined,
+        Area: undefined
+      };
+    });
+
     res.json({
       success: true,
-      count: chemists.length,
-      data: chemists
+      count: transformedChemists.length,
+      data: transformedChemists
     });
   } catch (error) {
     console.error('Get chemists by head office error:', error);
@@ -584,10 +798,10 @@ const getChemistsByHeadOffice = async (req, res) => {
 const getMyChemists = async (req, res) => {
   try {
     const models = req.app.get('models');
-    if (!models || !models.Chemist || !models.HeadOffice || !models.User || !models.ChemistAnnualTurnover) {
+    if (!models || !models.Chemist || !models.HeadOffice || !models.User || !models.ChemistAnnualTurnover || !models.ChemistVisit) {
       throw new Error('Required models are not available');
     }
-    const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area } = models;
+    const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area, ChemistVisit } = models;
 
     const user = await User.findByPk(req.user.id, {
       include: [
@@ -643,8 +857,71 @@ const getMyChemists = async (req, res) => {
       ]
     });
 
+    const chemistIds = chemists.map(c => c.id);
+
+    // Fetch last visits by the logged-in user
+    const lastVisits = chemistIds.length > 0 && req.user ? await ChemistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    // Fetch last visits by ANY user
+    const lastVisitsAny = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const transformedChemists = chemists.map(chemist => {
       const chemistObj = chemist.toJSON();
+
+      // Requesting user's last visit
+      const lastVisitedDate = lastVisitMap[chemistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      // Any user's last visit
+      const lastVisitedDateAny = lastVisitAnyMap[chemistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
       return {
         ...chemistObj,
         annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
@@ -658,6 +935,19 @@ const getMyChemists = async (req, res) => {
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,
         geo_image_status: !!chemistObj.geo_image_url,
+
+        // Visited stats (by current requesting user)
+        lastVisitedDate: lastVisitedDate,
+        last_visited_date: lastVisitedDate,
+        daysSinceLastVisit: daysSinceLastVisit,
+        days_since_last_visit: daysSinceLastVisit,
+
+        // Visited stats (by any user)
+        lastVisitedDateAny: lastVisitedDateAny,
+        last_visited_date_any: lastVisitedDateAny,
+        daysSinceLastVisitAny: daysSinceLastVisitAny,
+        days_since_last_visit_any: daysSinceLastVisitAny,
+
         AnnualTurnovers: undefined,
         HeadOffice: undefined,
         Area: undefined
