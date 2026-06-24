@@ -110,15 +110,11 @@ const getAllChemists = async (req, res) => {
 
         // Visited stats (by current requesting user)
         lastVisitedDate: lastVisitedDate,
-        last_visited_date: lastVisitedDate,
         daysSinceLastVisit: daysSinceLastVisit,
-        days_since_last_visit: daysSinceLastVisit,
 
         // Visited stats (by any user)
         lastVisitedDateAny: lastVisitedDateAny,
-        last_visited_date_any: lastVisitedDateAny,
         daysSinceLastVisitAny: daysSinceLastVisitAny,
-        days_since_last_visit_any: daysSinceLastVisitAny,
 
         AnnualTurnovers: undefined,
         HeadOffice: undefined,
