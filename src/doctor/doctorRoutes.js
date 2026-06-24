@@ -9,7 +9,9 @@ const {
   deleteDoctor,
   getDoctorsByHeadOffice,
   getMyDoctors,
-  createBulkDoctors
+  createBulkDoctors,
+  getVisitedDoctorsInRange,
+  getUnvisitedDoctorsInRange
 } = require('./doctorController');
 
 const { uploadDoctorGeoImage } = require('./doctorImageController');
@@ -41,6 +43,10 @@ router.get('/by-head-office/:headOfficeId', authMiddleware, getDoctorsByHeadOffi
 
 // GET doctors for current user's head offices
 router.get('/my-doctors', authMiddleware, getMyDoctors);
+
+// POST filters for visited/unvisited in date range
+router.post('/visited-in-range', authMiddleware, getVisitedDoctorsInRange);
+router.post('/unvisited-in-range', authMiddleware, getUnvisitedDoctorsInRange);
 
 // GET doctor by ID
 router.get('/:id', authMiddleware, getDoctorById);

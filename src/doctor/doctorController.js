@@ -1058,6 +1058,372 @@ const createBulkDoctors = async (req, res) => {
   }
 };
 
+const getVisitedDoctorsInRange = async (req, res) => {
+  try {
+    const { Doctor, HeadOffice, User, Area, DoctorVisit } = req.app.get('models');
+    const { from, to } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both "from" and "to" date parameters are required'
+      });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficeIds = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficeIds = user.headOffices.map(office => office.id);
+    } else if (user.head_office_id) {
+      headOfficeIds = [user.head_office_id];
+    }
+
+    if (headOfficeIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No head office assigned to your account. Please contact an administrator.'
+      });
+    }
+
+    // Find all unique doctor IDs visited in the given range
+    const visits = await DoctorVisit.findAll({
+      where: {
+        date: {
+          [require('sequelize').Op.between]: [from, to]
+        }
+      },
+      attributes: ['doctor_id'],
+      raw: true
+    });
+
+    const visitedIds = [...new Set(visits.map(v => v.doctor_id))];
+
+    if (visitedIds.length === 0) {
+      return res.json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    const doctors = await Doctor.findAll({
+      where: {
+        headOfficeId: { [require('sequelize').Op.in]: headOfficeIds },
+        id: { [require('sequelize').Op.in]: visitedIds }
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      distinct: true
+    });
+
+    const doctorIds = doctors.map(d => d.id);
+    const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    const lastVisitsAny = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const transformedDoctors = doctors.map(doctor => {
+      const doctorObj = doctor.toJSON();
+      const lastVisitedDate = lastVisitMap[doctorObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const lastVisitedDateAny = lastVisitAnyMap[doctorObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const {
+        id,
+        created_at,
+        updated_at,
+        headOfficeId,
+        areaId,
+        head_office_id,
+        area_id,
+        HeadOffice: hoDiscard,
+        Area: areaDiscard,
+        ...cleanDoctorObj
+      } = doctorObj;
+
+      return {
+        ...cleanDoctorObj,
+        headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+        area: doctorObj.Area || null,
+        is_assigned_to_area: !!doctorObj.areaId,
+        _id: doctorObj.id,
+        createdAt: doctorObj.created_at,
+        updatedAt: doctorObj.updated_at,
+        geo_image_status: !!doctorObj.geo_image_url,
+        lastVisitedDate,
+        daysSinceLastVisit,
+        lastVisitedDateAny,
+        daysSinceLastVisitAny
+      };
+    });
+
+    res.json({
+      success: true,
+      count: transformedDoctors.length,
+      data: transformedDoctors
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getUnvisitedDoctorsInRange = async (req, res) => {
+  try {
+    const { Doctor, HeadOffice, User, Area, DoctorVisit } = req.app.get('models');
+    const { from, to } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both "from" and "to" date parameters are required'
+      });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficeIds = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficeIds = user.headOffices.map(office => office.id);
+    } else if (user.head_office_id) {
+      headOfficeIds = [user.head_office_id];
+    }
+
+    if (headOfficeIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No head office assigned to your account. Please contact an administrator.'
+      });
+    }
+
+    // Find all unique doctor IDs visited in the given range
+    const visits = await DoctorVisit.findAll({
+      where: {
+        date: {
+          [require('sequelize').Op.between]: [from, to]
+        }
+      },
+      attributes: ['doctor_id'],
+      raw: true
+    });
+
+    const visitedIds = [...new Set(visits.map(v => v.doctor_id))];
+
+    const whereClause = {
+      headOfficeId: { [require('sequelize').Op.in]: headOfficeIds }
+    };
+    if (visitedIds.length > 0) {
+      whereClause.id = { [require('sequelize').Op.notIn]: visitedIds };
+    }
+
+    const doctors = await Doctor.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      distinct: true
+    });
+
+    const doctorIds = doctors.map(d => d.id);
+    const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    const lastVisitsAny = doctorIds.length > 0 ? await DoctorVisit.findAll({
+      where: {
+        doctor_id: { [require('sequelize').Op.in]: doctorIds }
+      },
+      attributes: [
+        'doctor_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['doctor_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.doctor_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const transformedDoctors = doctors.map(doctor => {
+      const doctorObj = doctor.toJSON();
+      const lastVisitedDate = lastVisitMap[doctorObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const lastVisitedDateAny = lastVisitAnyMap[doctorObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const {
+        id,
+        created_at,
+        updated_at,
+        headOfficeId,
+        areaId,
+        head_office_id,
+        area_id,
+        HeadOffice: hoDiscard,
+        Area: areaDiscard,
+        ...cleanDoctorObj
+      } = doctorObj;
+
+      return {
+        ...cleanDoctorObj,
+        headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+        area: doctorObj.Area || null,
+        is_assigned_to_area: !!doctorObj.areaId,
+        _id: doctorObj.id,
+        createdAt: doctorObj.created_at,
+        updatedAt: doctorObj.updated_at,
+        geo_image_status: !!doctorObj.geo_image_url,
+        lastVisitedDate,
+        daysSinceLastVisit,
+        lastVisitedDateAny,
+        daysSinceLastVisitAny
+      };
+    });
+
+    res.json({
+      success: true,
+      count: transformedDoctors.length,
+      data: transformedDoctors
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllDoctors,
   getDoctorById,
@@ -1066,5 +1432,7 @@ module.exports = {
   deleteDoctor,
   getDoctorsByHeadOffice,
   getMyDoctors,
-  createBulkDoctors
+  createBulkDoctors,
+  getVisitedDoctorsInRange,
+  getUnvisitedDoctorsInRange
 };

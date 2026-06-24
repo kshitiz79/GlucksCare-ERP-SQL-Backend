@@ -9,7 +9,9 @@ const {
   deleteStockist,
   getStockistsByHeadOffice,
   getMyStockists,
-  createBulkStockists
+  createBulkStockists,
+  getVisitedStockistsInRange,
+  getUnvisitedStockistsInRange
 } = require('./stockistController');
 
 const { uploadStockistDocuments, uploadStockistGeoImage } = require('./stockistImageController');
@@ -41,6 +43,10 @@ router.get('/by-head-office/:headOfficeId', authMiddleware, getStockistsByHeadOf
 
 // GET stockists for current user's head offices
 router.get('/my-stockists', authMiddleware, getMyStockists);
+
+// POST filters for visited/unvisited in date range
+router.post('/visited-in-range', authMiddleware, getVisitedStockistsInRange);
+router.post('/unvisited-in-range', authMiddleware, getUnvisitedStockistsInRange);
 
 // GET stockist by ID
 router.get('/:id', authMiddleware, getStockistById);

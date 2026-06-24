@@ -9,7 +9,9 @@ const {
   deleteChemist,
   getChemistsByHeadOffice,
   getMyChemists,
-  createBulkChemists
+  createBulkChemists,
+  getVisitedChemistsInRange,
+  getUnvisitedChemistsInRange
 } = require('./chemistController');
 
 const { uploadChemistGeoImage } = require('./chemistImageController');
@@ -41,6 +43,10 @@ router.get('/by-head-office/:headOfficeId', authMiddleware, getChemistsByHeadOff
 
 // GET chemists for current user's head offices
 router.get('/my-chemists', authMiddleware, getMyChemists);
+
+// POST filters for visited/unvisited in date range
+router.post('/visited-in-range', authMiddleware, getVisitedChemistsInRange);
+router.post('/unvisited-in-range', authMiddleware, getUnvisitedChemistsInRange);
 
 // GET chemist by ID
 router.get('/:id', authMiddleware, getChemistById);

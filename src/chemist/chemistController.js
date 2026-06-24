@@ -1158,6 +1158,392 @@ const createBulkChemists = async (req, res) => {
   }
 };
 
+const getVisitedChemistsInRange = async (req, res) => {
+  try {
+    const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area, ChemistVisit } = req.app.get('models');
+    const { from, to } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both "from" and "to" date parameters are required'
+      });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficeIds = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficeIds = user.headOffices.map(office => office.id);
+    } else if (user.head_office_id) {
+      headOfficeIds = [user.head_office_id];
+    }
+
+    if (headOfficeIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No head office assigned to your account. Please contact an administrator.'
+      });
+    }
+
+    // Find all unique chemist IDs visited in the given range
+    const visits = await ChemistVisit.findAll({
+      where: {
+        date: {
+          [require('sequelize').Op.between]: [from, to]
+        }
+      },
+      attributes: ['chemist_id'],
+      raw: true
+    });
+
+    const visitedIds = [...new Set(visits.map(v => v.chemist_id))];
+
+    if (visitedIds.length === 0) {
+      return res.json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    const chemists = await Chemist.findAll({
+      where: {
+        head_office_id: { [require('sequelize').Op.in]: headOfficeIds },
+        id: { [require('sequelize').Op.in]: visitedIds }
+      },
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: ChemistAnnualTurnover,
+          as: 'AnnualTurnovers',
+          attributes: ['year', 'amount']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      distinct: true
+    });
+
+    const chemistIds = chemists.map(c => c.id);
+    const lastVisits = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const lastVisitsAny = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const transformedChemists = chemists.map(chemist => {
+      const chemistObj = chemist.toJSON();
+      const lastVisitedDate = lastVisitMap[chemistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const lastVisitedDateAny = lastVisitAnyMap[chemistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        AnnualTurnovers,
+        HeadOffice: hoDiscard,
+        Area: areaDiscard,
+        ...cleanChemistObj
+      } = chemistObj;
+
+      return {
+        ...cleanChemistObj,
+        annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
+          year: turnover.year,
+          amount: parseFloat(turnover.amount)
+        })) : [],
+        headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
+        _id: chemistObj.id,
+        createdAt: chemistObj.created_at,
+        updatedAt: chemistObj.updated_at,
+        geo_image_status: !!chemistObj.geo_image_url,
+        lastVisitedDate,
+        daysSinceLastVisit,
+        lastVisitedDateAny,
+        daysSinceLastVisitAny
+      };
+    });
+
+    res.json({
+      success: true,
+      count: transformedChemists.length,
+      data: transformedChemists
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getUnvisitedChemistsInRange = async (req, res) => {
+  try {
+    const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area, ChemistVisit } = req.app.get('models');
+    const { from, to } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Both "from" and "to" date parameters are required'
+      });
+    }
+
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficeIds = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficeIds = user.headOffices.map(office => office.id);
+    } else if (user.head_office_id) {
+      headOfficeIds = [user.head_office_id];
+    }
+
+    if (headOfficeIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No head office assigned to your account. Please contact an administrator.'
+      });
+    }
+
+    // Find all unique chemist IDs visited in the given range
+    const visits = await ChemistVisit.findAll({
+      where: {
+        date: {
+          [require('sequelize').Op.between]: [from, to]
+        }
+      },
+      attributes: ['chemist_id'],
+      raw: true
+    });
+
+    const visitedIds = [...new Set(visits.map(v => v.chemist_id))];
+
+    const whereClause = {
+      head_office_id: { [require('sequelize').Op.in]: headOfficeIds }
+    };
+    if (visitedIds.length > 0) {
+      whereClause.id = { [require('sequelize').Op.notIn]: visitedIds };
+    }
+
+    const chemists = await Chemist.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: ChemistAnnualTurnover,
+          as: 'AnnualTurnovers',
+          attributes: ['year', 'amount']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      distinct: true
+    });
+
+    const chemistIds = chemists.map(c => c.id);
+    const lastVisits = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        user_id: req.user.id,
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitMap = {};
+    lastVisits.forEach(v => {
+      lastVisitMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const lastVisitsAny = chemistIds.length > 0 ? await ChemistVisit.findAll({
+      where: {
+        chemist_id: { [require('sequelize').Op.in]: chemistIds }
+      },
+      attributes: [
+        'chemist_id',
+        [require('sequelize').fn('max', require('sequelize').col('date')), 'last_visit_date']
+      ],
+      group: ['chemist_id'],
+      raw: true
+    }) : [];
+
+    const lastVisitAnyMap = {};
+    lastVisitsAny.forEach(v => {
+      lastVisitAnyMap[v.chemist_id] = v.last_visit_date;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const transformedChemists = chemists.map(chemist => {
+      const chemistObj = chemist.toJSON();
+      const lastVisitedDate = lastVisitMap[chemistObj.id] || null;
+      let daysSinceLastVisit = null;
+      if (lastVisitedDate) {
+        const visitDate = new Date(lastVisitedDate);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisit = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const lastVisitedDateAny = lastVisitAnyMap[chemistObj.id] || null;
+      let daysSinceLastVisitAny = null;
+      if (lastVisitedDateAny) {
+        const visitDate = new Date(lastVisitedDateAny);
+        visitDate.setHours(0, 0, 0, 0);
+        const diffTime = today - visitDate;
+        daysSinceLastVisitAny = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      }
+
+      const {
+        id,
+        created_at,
+        updated_at,
+        head_office_id,
+        area_id,
+        headOfficeId,
+        areaId,
+        AnnualTurnovers,
+        HeadOffice: hoDiscard,
+        Area: areaDiscard,
+        ...cleanChemistObj
+      } = chemistObj;
+
+      return {
+        ...cleanChemistObj,
+        annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
+          year: turnover.year,
+          amount: parseFloat(turnover.amount)
+        })) : [],
+        headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        area: chemistObj.Area || null,
+        is_assigned_to_area: !!chemistObj.area_id,
+        _id: chemistObj.id,
+        createdAt: chemistObj.created_at,
+        updatedAt: chemistObj.updated_at,
+        geo_image_status: !!chemistObj.geo_image_url,
+        lastVisitedDate,
+        daysSinceLastVisit,
+        lastVisitedDateAny,
+        daysSinceLastVisitAny
+      };
+    });
+
+    res.json({
+      success: true,
+      count: transformedChemists.length,
+      data: transformedChemists
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllChemists,
   getChemistById,
@@ -1166,5 +1552,7 @@ module.exports = {
   deleteChemist,
   getChemistsByHeadOffice,
   getMyChemists,
-  createBulkChemists
+  createBulkChemists,
+  getVisitedChemistsInRange,
+  getUnvisitedChemistsInRange
 };
