@@ -142,8 +142,8 @@ const getAllInvoiceTracking = async (req, res) => {
         },
         {
           model: ForwardingNote,
-          as: 'forwardingNotes', // Singular or plural depends on association, associations.js says 'forwardingNotes'
-          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount']
+          as: 'forwardingNotes',
+          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount', 'serial_no', 'customer_name', 'invoice_no', 'invoice_date', 'to_mobile', 'commodity', 'freight_note']
         },
         {
           model: User,
@@ -270,7 +270,7 @@ const getUserInvoiceTracking = async (req, res) => {
         {
           model: ForwardingNote,
           as: 'forwardingNotes',
-          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount']
+          attributes: ['id', 'transport_courier_name', 'origin', 'origin_address', 'destination', 'cases', 'weight', 'eway_bill_no', 'amount', 'serial_no', 'customer_name', 'invoice_no', 'invoice_date', 'to_mobile', 'commodity', 'freight_note']
         },
         {
           model: User,
@@ -542,10 +542,15 @@ const updateInvoiceTracking = async (req, res) => {
 
     await invoiceTracking.update(updateData);
 
-    // Sync amount to forwarding notes if amount has changed
-    if (amount !== undefined) {
+    // Sync invoice changes to forwarding notes if they changed
+    const forwardingNoteUpdates = {};
+    if (amount !== undefined) forwardingNoteUpdates.amount = amount;
+    if (invoice_number !== undefined) forwardingNoteUpdates.invoice_no = invoice_number;
+    if (invoice_date !== undefined) forwardingNoteUpdates.invoice_date = invoice_date;
+    
+    if (Object.keys(forwardingNoteUpdates).length > 0) {
       await ForwardingNote.update(
-        { amount: amount },
+        forwardingNoteUpdates,
         { where: { invoice_tracking_id: id } }
       );
     }

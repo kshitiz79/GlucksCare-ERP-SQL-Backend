@@ -107,6 +107,7 @@ const Beat = require('../beat/Beat');
 const BeatArea = require('../beat/BeatArea');
 const TourPlan = require('../tourPlan/TourPlan');
 const TourPlanDay = require('../tourPlan/TourPlanDay');
+const FinancialYear = require('../financialYear/FinancialYear');
 
 // Initialize models
 const models = {
@@ -180,7 +181,8 @@ const models = {
     Beat: Beat(sequelize),
     BeatArea: BeatArea(sequelize),
     TourPlan: TourPlan(sequelize),
-    TourPlanDay: TourPlanDay(sequelize)
+    TourPlanDay: TourPlanDay(sequelize),
+    FinancialYear: FinancialYear(sequelize)
 };
 
 // Set up hooks

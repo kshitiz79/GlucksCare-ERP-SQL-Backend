@@ -147,6 +147,7 @@ async function startServer() {
     const expenseRoutes = require('./src/expencse/expenseRoutes');
     const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
     const payrollSettingRoutes = require('./src/payrollSetting/payrollSettingRoutes');
+    const financialYearRoutes = require('./src/financialYear/financialYearRoutes');
     const notificationRoutes = require('./src/notification/notificationRoutes');
     const notificationRecipientRoutes = require('./src/notificationRecipient/notificationRecipientRoutes');
     const ticketRoutes = require('./src/ticket/ticketRoutes');
@@ -249,6 +250,7 @@ async function startServer() {
     app.use('/api/expenses', expenseRoutes);
     app.use('/api/expense-settings', expenseSettingRoutes);
     app.use('/api/payroll-settings', payrollSettingRoutes);
+    app.use('/api/financial-years', financialYearRoutes);
     app.use('/api/notifications', notificationRoutes);
     app.use('/api/notification-recipients', notificationRecipientRoutes);
     app.use('/api/tickets', ticketRoutes);
