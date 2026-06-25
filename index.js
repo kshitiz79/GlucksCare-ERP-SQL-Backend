@@ -210,6 +210,10 @@ async function startServer() {
     const forwardingNoteRoutes = require('./src/forwardingNote/forwardingNoteRoutes');
     app.use('/api/forwarding-notes', forwardingNoteRoutes);
 
+    // WhatsApp routes
+    const whatsappRoutes = require('./src/whatsapp/whatsappRoutes');
+    app.use('/api/whatsapp', whatsappRoutes);
+
     // Mount routes
     app.use('/api/auth', authRoutes);
     app.use('/api/users', userRoutes);

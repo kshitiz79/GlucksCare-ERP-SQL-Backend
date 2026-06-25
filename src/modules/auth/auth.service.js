@@ -212,6 +212,18 @@ class AuthService {
             await transaction.commit();
             console.log('✅ Transaction committed successfully');
 
+            // Trigger WhatsApp welcome message template
+            try {
+                const { sendWelcomeMessage } = require('../../services/whatsappService');
+                if (user.mobile_number) {
+                    sendWelcomeMessage(user.mobile_number).catch(err => {
+                        console.error('[WhatsApp Welcome] background register trigger error:', err);
+                    });
+                }
+            } catch (err) {
+                console.error('[WhatsApp Welcome] register trigger error:', err);
+            }
+
             const token = JwtService.generateToken({ id: user.id, role: user.role }, '60h');
 
             const populatedUser = await AuthRepository.findUserById(user.id, {

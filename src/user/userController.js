@@ -874,6 +874,18 @@ const createUser = async (req, res) => {
       // Commit transaction
       await transaction.commit();
 
+      // Trigger WhatsApp welcome message template
+      try {
+        const { sendWelcomeMessage } = require('../services/whatsappService');
+        if (user.mobile_number) {
+          sendWelcomeMessage(user.mobile_number).catch(err => {
+            console.error('[WhatsApp Welcome] background trigger error:', err);
+          });
+        }
+      } catch (err) {
+        console.error('[WhatsApp Welcome] import/trigger error:', err);
+      }
+
       // Transform user to match MongoDB format
       const transformedUser = {
         _id: user.id,
