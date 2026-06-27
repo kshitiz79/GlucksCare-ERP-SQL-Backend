@@ -21,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            'https://api.gluckscare.com ', // Add this for development
+            ' http://localhost:5051 ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            'https://api.gluckscare.com ',
+            ' http://localhost:5051 ',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -46,11 +46,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'https://api.gluckscare.com ', // Add this for development
+    ' http://localhost:5051 ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    'https://api.gluckscare.com ', // Add this for production frontend
+    ' http://localhost:5051 ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -135,6 +135,7 @@ async function startServer() {
     const headOfficeRoutes = require('./src/headoffice/headOfficeRoutes');
     const stateRoutes = require('./src/state/stateRoutes');
     const doctorRoutes = require('./src/doctor/doctorRoutes');
+    const salesRoutes = require('./src/sale/salesRoutes');
 
     const attendanceRoutes = require('./src/attendance/attendanceRoutes');
     const leaveRoutes = require('./src/leave/leaveRoutes');
@@ -221,6 +222,7 @@ async function startServer() {
     app.use('/api/headoffices', headOfficeRoutes);
     app.use('/api/states', stateRoutes);
     app.use('/api/doctors', doctorRoutes);
+    app.use('/api/sales', salesRoutes);
 
     app.use('/api/attendance', attendanceRoutes);
     app.use('/api/leaves', leaveRoutes);
@@ -297,6 +299,10 @@ async function startServer() {
     app.use('/api/purchases', purchaseRoutes);
     const challanRoutes = require('./src/challan/challanRoutes');
     app.use('/api/challans', challanRoutes);
+
+    // Investment request routes
+    const investmentRequestRoutes = require('./src/investmentRequest/investmentRequestRoutes');
+    app.use('/api/investment-requests', investmentRequestRoutes);
 
     // Inventory routes
     const inventoryRoutes = require('./src/inventory/inventoryRoutes');

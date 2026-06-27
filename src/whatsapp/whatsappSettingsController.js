@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
     campaignName: 'welcome_message_sr',
     templateId: '2c807ad8-584c-477e-905a-46cece539244'
   },
-  forwardingNote: {
+  invoiceTracking: {
     campaignName: 'welcome_message_sr',
     templateId: '2c807ad8-584c-477e-905a-46cece539244'
   }
@@ -22,7 +22,12 @@ const loadSettingsHelper = () => {
   try {
     if (fs.existsSync(SETTINGS_FILE_PATH)) {
       const data = fs.readFileSync(SETTINGS_FILE_PATH, 'utf8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      if (parsed && !parsed.invoiceTracking && parsed.forwardingNote) {
+        parsed.invoiceTracking = parsed.forwardingNote;
+        delete parsed.forwardingNote;
+      }
+      return parsed;
     }
   } catch (err) {
     console.error('[WhatsApp Settings] Error reading settings file:', err);
@@ -56,13 +61,13 @@ const getSettings = async (req, res) => {
  */
 const saveSettings = async (req, res) => {
   try {
-    const { userCreation, forwardingNote } = req.body;
+    const { userCreation, invoiceTracking } = req.body;
 
     // Basic validation
-    if (!userCreation || !forwardingNote) {
+    if (!userCreation || !invoiceTracking) {
       return res.status(400).json({
         success: false,
-        message: 'Both userCreation and forwardingNote settings must be provided'
+        message: 'Both userCreation and invoiceTracking settings must be provided'
       });
     }
 
@@ -73,10 +78,10 @@ const saveSettings = async (req, res) => {
       });
     }
 
-    if (!forwardingNote.campaignName || !forwardingNote.templateId) {
+    if (!invoiceTracking.campaignName || !invoiceTracking.templateId) {
       return res.status(400).json({
         success: false,
-        message: 'forwardingNote settings must include campaignName and templateId'
+        message: 'invoiceTracking settings must include campaignName and templateId'
       });
     }
 
@@ -85,9 +90,9 @@ const saveSettings = async (req, res) => {
         campaignName: userCreation.campaignName.trim(),
         templateId: userCreation.templateId.trim()
       },
-      forwardingNote: {
-        campaignName: forwardingNote.campaignName.trim(),
-        templateId: forwardingNote.templateId.trim()
+      invoiceTracking: {
+        campaignName: invoiceTracking.campaignName.trim(),
+        templateId: invoiceTracking.templateId.trim()
       }
     };
 

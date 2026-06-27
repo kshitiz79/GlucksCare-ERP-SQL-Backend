@@ -85,9 +85,24 @@ module.exports = (db) => {
   db.Doctor.hasMany(db.DoctorVisit, { foreignKey: 'doctor_id' });
   db.Area.hasMany(db.Doctor, { foreignKey: 'areaId', as: 'Doctors' });
 
+  // InvestmentRequest associations
+  db.InvestmentRequest.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
+  db.InvestmentRequest.belongsTo(db.Doctor, { foreignKey: 'doctor_id', as: 'doctor' });
+  db.User.hasMany(db.InvestmentRequest, { foreignKey: 'user_id', as: 'investmentRequests' });
+  db.Doctor.hasMany(db.InvestmentRequest, { foreignKey: 'doctor_id', as: 'investmentRequests' });
+
   // DoctorVisitHistory associations
   db.DoctorVisitHistory.belongsTo(db.Doctor, { foreignKey: 'doctor_id' });
   db.DoctorVisitHistory.belongsTo(db.User, { foreignKey: 'sales_rep_id' });
+
+  // Sale associations
+  if (db.Sale) {
+    db.Sale.belongsTo(db.Doctor, { foreignKey: 'doctor_id', as: 'doctor' });
+    db.Sale.belongsTo(db.Chemist, { foreignKey: 'chemist_id', as: 'chemist' });
+    db.Sale.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+    db.Doctor.hasMany(db.Sale, { foreignKey: 'doctor_id', as: 'sales' });
+    db.Chemist.hasMany(db.Sale, { foreignKey: 'chemist_id', as: 'sales' });
+  }
 
   // Chemist associations
   db.Chemist.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });

@@ -90,6 +90,10 @@ const Doctor = (sequelize) => {
         model: 'areas',
         key: 'id'
       }
+    },
+    ucpmp_annual_cap: {
+      type: DataTypes.DECIMAL(12, 2),
+      defaultValue: 10000.00
     }
   }, {
     tableName: 'doctors',

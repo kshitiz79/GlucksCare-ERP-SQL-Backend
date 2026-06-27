@@ -11,7 +11,9 @@ const {
   getMyDoctors,
   createBulkDoctors,
   getVisitedDoctorsInRange,
-  getUnvisitedDoctorsInRange
+  getUnvisitedDoctorsInRange,
+  setGlobalUcpmpCap,
+  setDoctorUcpmpCap
 } = require('./doctorController');
 
 const { uploadDoctorGeoImage } = require('./doctorImageController');
@@ -59,6 +61,12 @@ router.post('/', authMiddleware, upload.single('geo_image'), createDoctor);
 
 // UPLOAD doctor geo-image
 router.post('/:id/geo-image', authMiddleware, upload.single('geo_image'), uploadDoctorGeoImage);
+
+// Set global UCPMP annual cap for all doctors
+router.post('/global-ucpmp-cap', authMiddleware, setGlobalUcpmpCap);
+
+// Set UCPMP annual cap for a specific doctor
+router.put('/:id/ucpmp-cap', authMiddleware, setDoctorUcpmpCap);
 
 // UPDATE a doctor (with optional geo-image upload)
 router.put('/:id', authMiddleware, upload.single('geo_image'), updateDoctor);

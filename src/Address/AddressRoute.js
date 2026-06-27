@@ -7,5 +7,6 @@ router.get('/', addressController.getAllAddresses);
 router.get('/:id', addressController.getAddressById);
 router.put('/:id', addressController.updateAddress);
 router.delete('/:id', addressController.deleteAddress);
+router.put('/:id/set-default-origin', addressController.setDefaultOriginAddress);
 
 module.exports = router;

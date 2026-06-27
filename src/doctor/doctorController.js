@@ -1,7 +1,95 @@
+// Helper function to calculate MTD support value (business generated) for a list of doctors
+const getSupportValueMtdMap = async (models, doctorIds) => {
+  if (!doctorIds || doctorIds.length === 0) return {};
+  
+  const { Sale } = models;
+  if (!Sale) return {};
+
+  const { Op } = require('sequelize');
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const endOfMonth = new Date();
+  endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+  endOfMonth.setDate(0);
+  endOfMonth.setHours(23, 59, 59, 999);
+
+  // Parse dates to date-only string format matching DB
+  const startStr = startOfMonth.toISOString().split('T')[0];
+  const endStr = endOfMonth.toISOString().split('T')[0];
+
+  const sales = await Sale.findAll({
+    where: {
+      doctor_id: { [Op.in]: doctorIds },
+      date: { [Op.between]: [startStr, endStr] }
+    },
+    attributes: ['doctor_id', 'amount'],
+    raw: true
+  });
+
+  const mtdMap = {};
+  doctorIds.forEach(id => {
+    mtdMap[id] = 0.00;
+  });
+
+  sales.forEach(sale => {
+    mtdMap[sale.doctor_id] = (mtdMap[sale.doctor_id] || 0) + Number(sale.amount || 0);
+  });
+
+  return mtdMap;
+};
+
+// Helper function to calculate YTD (current FY) support value for a list of doctors
+const getSupportValueFyMap = async (models, doctorIds) => {
+  if (!doctorIds || doctorIds.length === 0) return {};
+
+  const { InvestmentRequest } = models;
+  if (!InvestmentRequest) return {};
+
+  const { Op } = require('sequelize');
+  const now = new Date();
+  let startYear = now.getFullYear();
+  if (now.getMonth() < 3) { // Jan, Feb, Mar are 0, 1, 2
+    startYear -= 1;
+  }
+  const startOfFY = new Date(startYear, 3, 1, 0, 0, 0, 0); // April 1st
+  const endOfFY = new Date(startYear + 1, 2, 31, 23, 59, 59, 999); // March 31st next year
+
+  const approvedInvestments = await InvestmentRequest.findAll({
+    where: {
+      status: 'Approved',
+      doctor_id: { [Op.in]: doctorIds },
+      created_at: { [Op.between]: [startOfFY, endOfFY] }
+    },
+    attributes: ['doctor_id', 'payment_mode', 'amount', 'items'],
+    raw: true
+  });
+
+  const fyMap = {};
+  doctorIds.forEach(id => {
+    fyMap[id] = 0.00;
+  });
+
+  approvedInvestments.forEach(inv => {
+    let value = 0;
+    if (inv.payment_mode === 'Items/Gift') {
+      const itemsList = Array.isArray(inv.items) ? inv.items : [];
+      value = itemsList.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.value || 0)), 0);
+    } else {
+      value = Number(inv.amount || 0);
+    }
+    fyMap[inv.doctor_id] = (fyMap[inv.doctor_id] || 0) + value;
+  });
+
+  return fyMap;
+};
+
 // GET all doctors
 const getAllDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, Area, DoctorVisit } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Doctor, HeadOffice, Area, DoctorVisit } = models;
     const doctors = await Doctor.findAll({
       include: [
         {
@@ -19,6 +107,8 @@ const getAllDoctors = async (req, res) => {
     });
 
     const doctorIds = doctors.map(d => d.id);
+    const mtdMap = await getSupportValueMtdMap(models, doctorIds);
+    const fyMap = await getSupportValueFyMap(models, doctorIds);
 
     // Fetch last visits by the logged-in user
     const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
@@ -99,6 +189,8 @@ const getAllDoctors = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        support_value_mtd: mtdMap[doctorObj.id] || 0.00,
+        support_value_ytd: fyMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || null,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -213,8 +305,12 @@ const getDoctorById = async (req, res) => {
       ...cleanDoctorObj
     } = doctorObj;
 
+    const mtdMap = await getSupportValueMtdMap(req.app.get('models'), [doctorObj.id]);
+    const fyMap = await getSupportValueFyMap(req.app.get('models'), [doctorObj.id]);
     const transformedDoctor = {
       ...cleanDoctorObj,
+      support_value_mtd: mtdMap[doctorObj.id] || 0.00,
+      support_value_ytd: fyMap[doctorObj.id] || 0.00,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
       area: doctorObj.Area || null,
       is_assigned_to_area: !!doctorObj.areaId,
@@ -590,6 +686,8 @@ const getDoctorsByHeadOffice = async (req, res) => {
     });
 
     const doctorIds = doctors.map(d => d.id);
+    const mtdMap = await getSupportValueMtdMap(req.app.get('models'), doctorIds);
+    const fyMap = await getSupportValueFyMap(req.app.get('models'), doctorIds);
 
     // Fetch last visits by the logged-in user
     const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
@@ -670,6 +768,8 @@ const getDoctorsByHeadOffice = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        support_value_mtd: mtdMap[doctorObj.id] || 0.00,
+        support_value_ytd: fyMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -762,6 +862,8 @@ const getMyDoctors = async (req, res) => {
     });
 
     const doctorIds = doctors.map(d => d.id);
+    const mtdMap = await getSupportValueMtdMap(req.app.get('models'), doctorIds);
+    const fyMap = await getSupportValueFyMap(req.app.get('models'), doctorIds);
 
     // Fetch last visits by the logged-in user
     const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
@@ -842,6 +944,8 @@ const getMyDoctors = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        support_value_mtd: mtdMap[doctorObj.id] || 0.00,
+        support_value_ytd: fyMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -1143,6 +1247,7 @@ const getVisitedDoctorsInRange = async (req, res) => {
     });
 
     const doctorIds = doctors.map(d => d.id);
+    const mtdMap = await getSupportValueMtdMap(req.app.get('models'), doctorIds);
     const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
       where: {
         user_id: req.user.id,
@@ -1216,6 +1321,7 @@ const getVisitedDoctorsInRange = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        support_value_mtd: mtdMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -1324,6 +1430,7 @@ const getUnvisitedDoctorsInRange = async (req, res) => {
     });
 
     const doctorIds = doctors.map(d => d.id);
+    const mtdMap = await getSupportValueMtdMap(req.app.get('models'), doctorIds);
     const lastVisits = doctorIds.length > 0 ? await DoctorVisit.findAll({
       where: {
         user_id: req.user.id,
@@ -1397,6 +1504,7 @@ const getUnvisitedDoctorsInRange = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        support_value_mtd: mtdMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
         area: doctorObj.Area || null,
         is_assigned_to_area: !!doctorObj.areaId,
@@ -1424,6 +1532,62 @@ const getUnvisitedDoctorsInRange = async (req, res) => {
   }
 };
 
+const setGlobalUcpmpCap = async (req, res) => {
+  try {
+    const { ucpmp_annual_cap } = req.body;
+    if (ucpmp_annual_cap === undefined || isNaN(ucpmp_annual_cap) || Number(ucpmp_annual_cap) < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing ucpmp_annual_cap' });
+    }
+
+    if (!['Super Admin', 'Admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied: Only Admins can set global caps' });
+    }
+
+    const { Doctor } = req.app.get('models');
+    await Doctor.update(
+      { ucpmp_annual_cap: Number(ucpmp_annual_cap) },
+      { where: {} } // updates all records
+    );
+
+    res.json({
+      success: true,
+      message: `Global UCPMP annual cap updated to ₹${Number(ucpmp_annual_cap).toFixed(2)} for all doctors`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const setDoctorUcpmpCap = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ucpmp_annual_cap } = req.body;
+
+    if (ucpmp_annual_cap === undefined || isNaN(ucpmp_annual_cap) || Number(ucpmp_annual_cap) < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing ucpmp_annual_cap' });
+    }
+
+    if (!['Super Admin', 'Admin', 'State Head'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied: Only Admins or State Heads can modify caps' });
+    }
+
+    const { Doctor } = req.app.get('models');
+    const doctor = await Doctor.findByPk(id);
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: 'Doctor not found' });
+    }
+
+    await doctor.update({ ucpmp_annual_cap: Number(ucpmp_annual_cap) });
+
+    res.json({
+      success: true,
+      message: `UCPMP annual cap updated to ₹${Number(ucpmp_annual_cap).toFixed(2)} for doctor ${doctor.name}`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAllDoctors,
   getDoctorById,
@@ -1434,5 +1598,9 @@ module.exports = {
   getMyDoctors,
   createBulkDoctors,
   getVisitedDoctorsInRange,
-  getUnvisitedDoctorsInRange
+  getUnvisitedDoctorsInRange,
+  setGlobalUcpmpCap,
+  setDoctorUcpmpCap,
+  getSupportValueMtdMap,
+  getSupportValueFyMap
 };

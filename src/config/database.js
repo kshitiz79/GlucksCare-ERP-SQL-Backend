@@ -49,6 +49,8 @@ const Leave = require('../leave/Leave');
 const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
+const InvestmentRequest = require('../investmentRequest/InvestmentRequest');
+const Sale = require('../sale/Sale');
 
 const Location = require('../location/Location');
 const Branch = require('../branch/Branch');
@@ -119,6 +121,8 @@ const models = {
     LeaveType: LeaveType(sequelize),
     Shift: Shift(sequelize),
     Doctor: Doctor(sequelize),
+    InvestmentRequest: InvestmentRequest(sequelize),
+    Sale: Sale(sequelize),
 
     Location: Location(sequelize),
     Branch: Branch(sequelize),
