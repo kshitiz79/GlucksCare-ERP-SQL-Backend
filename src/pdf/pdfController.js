@@ -22,7 +22,7 @@ const upload = multer({
   }
 });
 
-// Middleware for file upload
+
 const uploadMiddleware = upload.single('pdf');
 
 // GET all PDF files

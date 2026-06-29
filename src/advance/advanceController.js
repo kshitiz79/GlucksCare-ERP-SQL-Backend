@@ -40,10 +40,10 @@ exports.createAdvance = async (req, res) => {
 // Create advance by admin (for any user)
 exports.createAdvanceByAdmin = async (req, res) => {
   try {
-    const { 
-      userId, 
-      requestedAmount, 
-      reason, 
+    const {
+      userId,
+      requestedAmount,
+      reason,
       advanceDate,
       status,
       approvedAmount,
@@ -106,17 +106,17 @@ exports.createAdvanceByAdmin = async (req, res) => {
 exports.getAllAdvances = async (req, res) => {
   try {
     const { status, userId, startDate, endDate } = req.query;
-    
+
     const whereClause = {};
-    
+
     if (status) {
       whereClause.status = status;
     }
-    
+
     if (userId) {
       whereClause.user_id = userId;
     }
-    
+
     if (startDate || endDate) {
       whereClause.request_date = {};
       if (startDate && startDate !== 'undefined') {
@@ -125,7 +125,7 @@ exports.getAllAdvances = async (req, res) => {
       if (endDate && endDate !== 'undefined') {
         whereClause.request_date[Op.lte] = new Date(endDate);
       }
-      
+
       // If the object is empty after checking for undefined, remove it
       if (Object.keys(whereClause.request_date).length === 0) {
         delete whereClause.request_date;
@@ -249,7 +249,7 @@ exports.getMyAdvances = async (req, res) => {
 // Update advance status (Approve/Reject) - Admin only
 exports.updateAdvanceStatus = async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const {
@@ -274,8 +274,8 @@ exports.updateAdvanceStatus = async (req, res) => {
     }
 
     if (advance.status !== 'pending' && status !== 'rejected' && status !== 'approved') {
-       // Allow re-updating if needed, or keep the original check
-       // For now, let's keep it strict but allow processing if it's currently pending
+      // Allow re-updating if needed, or keep the original check
+      // For now, let's keep it strict but allow processing if it's currently pending
     }
 
     if (advance.status !== 'pending') {
@@ -341,7 +341,7 @@ exports.updateAdvanceStatus = async (req, res) => {
 // Add repayment
 exports.addRepayment = async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { advanceId, amount, repaymentDate, paymentMethod, notes } = req.body;
     const createdBy = req.user.id;
@@ -377,7 +377,7 @@ exports.addRepayment = async (req, res) => {
     // Update advance total_repaid and repayment_status
     const newTotalRepaid = parseFloat(advance.total_repaid) + parseFloat(amount);
     const approvedAmount = parseFloat(advance.approved_amount);
-    
+
     let newRepaymentStatus = 'in_progress';
     if (newTotalRepaid >= approvedAmount) {
       newRepaymentStatus = 'completed';
@@ -443,7 +443,7 @@ exports.getRepaymentHistory = async (req, res) => {
 exports.getStatistics = async (req, res) => {
   try {
     const { userId } = req.query;
-    
+
     const whereClause = userId ? { user_id: userId } : {};
 
     const stats = await Advance.findAll({

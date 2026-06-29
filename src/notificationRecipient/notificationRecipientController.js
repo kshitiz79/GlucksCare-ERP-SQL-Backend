@@ -65,7 +65,7 @@ const updateNotificationRecipient = async (req, res) => {
         message: 'Notification recipient not found'
       });
     }
-    
+
     await notificationRecipient.update(req.body);
     res.json({
       success: true,
@@ -89,7 +89,7 @@ const deleteNotificationRecipient = async (req, res) => {
         message: 'Notification recipient not found'
       });
     }
-    
+
     await notificationRecipient.destroy();
     res.json({
       success: true,

@@ -23,4 +23,4 @@ router.put('/:id', updatePayrollSetting);
 // DELETE a payroll setting
 router.delete('/:id', deletePayrollSetting);
 
-module.exports = router;
+module.exports = router;                         
