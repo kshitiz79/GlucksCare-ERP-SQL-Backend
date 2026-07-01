@@ -6,6 +6,7 @@ const {
   createInvestmentRequest,
   updateInvestmentRequest,
   getInvestmentRequests,
+  getInvestmentRequestsByHeadOffice,
   approveInvestmentRequest,
   rejectInvestmentRequest
 } = require('./investmentRequestController');
@@ -18,6 +19,9 @@ router.put('/:id', authMiddleware, upload.single('paymentProof'), updateInvestme
 
 // GET all/filtered investment requests
 router.get('/', authMiddleware, getInvestmentRequests);
+
+// GET investment requests by head office (for managers/team leads)
+router.get('/by-head-office', authMiddleware, getInvestmentRequestsByHeadOffice);
 
 // APPROVE request
 router.put('/:id/approve', authMiddleware, approveInvestmentRequest);

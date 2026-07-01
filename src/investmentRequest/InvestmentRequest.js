@@ -65,6 +65,10 @@ const InvestmentRequest = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    rejection_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     status: {
       type: DataTypes.STRING(50),
       allowNull: false,

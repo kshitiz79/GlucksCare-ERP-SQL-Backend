@@ -191,6 +191,7 @@ async function startServer() {
     const visitProductPromotedRoutes = require('./src/visitProductPromoted/visitProductPromotedRoutes');
     const visitProductAgreedRoutes = require('./src/visitProductAgreed/visitProductAgreedRoutes');
     const visitProductNotAgreedRoutes = require('./src/visitProductNotAgreed/visitProductNotAgreedRoutes');
+    const offlineBgTrackingRoutes = require('./src/offlineBgTracking/OfflineBgRoute');
     // const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
 
     // Add this with the other route imports (around line 95)
@@ -295,6 +296,7 @@ async function startServer() {
     app.use('/api/areas', areaRoutes);
     app.use('/api/beats', beatRoutes);
     app.use('/api/tour-plans', tourPlanRoutes);
+    app.use('/api/offline-bg-tracking', offlineBgTrackingRoutes);
     const purchaseRoutes = require('./src/purchase/purchaseRoutes');
     app.use('/api/purchases', purchaseRoutes);
     const challanRoutes = require('./src/challan/challanRoutes');

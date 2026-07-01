@@ -501,6 +501,95 @@ const getInvestmentRequests = async (req, res) => {
   }
 };
 
+// GET Investment Requests by Head Office associations (for Managers / Team Leaders)
+const getInvestmentRequestsByHeadOffice = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const { InvestmentRequest, Doctor, User, HeadOffice } = models;
+    const { status } = req.query;
+
+    const whereClause = {};
+
+    // Apply status filter if provided
+    if (status) {
+      whereClause.status = status;
+    }
+
+    // Role-based scoping:
+    // Super Admin / Admin / Opps Team / National Head / Accounts / Logistics can see all requests
+    const seeAllRoles = ['Super Admin', 'Admin', 'Opps Team', 'National Head', 'Accounts', 'Logistics'];
+    const headOfficeFilteredRoles = ['State Head', 'Zonal Manager', 'Area Manager', 'Manager'];
+
+    let userIncludeWhere = {};
+
+    if (!seeAllRoles.includes(req.user.role)) {
+      if (headOfficeFilteredRoles.includes(req.user.role)) {
+        // Find all head office IDs associated with the caller using Sequelize associations
+        const caller = await User.findByPk(req.user.id, {
+          include: [{ model: HeadOffice, as: 'headOffices', attributes: ['id'] }]
+        });
+
+        const headOfficeIds = caller.headOffices ? caller.headOffices.map(h => h.id) : [];
+        if (caller.head_office_id) {
+          headOfficeIds.push(caller.head_office_id);
+        }
+
+        const uniqueHeadOfficeIds = Array.from(new Set(headOfficeIds));
+
+        if (uniqueHeadOfficeIds.length > 0) {
+          // Use sequelize includes to filter: user's direct head_office_id OR their headOffices association matches
+          userIncludeWhere = {
+            [Op.or]: [
+              { head_office_id: uniqueHeadOfficeIds },
+              { '$headOffices.id$': uniqueHeadOfficeIds }
+            ]
+          };
+        } else {
+          // If no head offices associated, only see own requests
+          userIncludeWhere = { id: req.user.id };
+        }
+      } else {
+        // Other roles (e.g. User) can only see their own requests
+        userIncludeWhere = { id: req.user.id };
+      }
+    }
+
+    const requests = await InvestmentRequest.findAll({
+      where: whereClause,
+      include: [
+        { model: Doctor, as: 'doctor', attributes: ['id', 'name'] },
+        { 
+          model: User, 
+          as: 'user', 
+          attributes: ['id', 'name', 'email', 'state_id', 'head_office_id'],
+          where: userIncludeWhere,
+          required: true, // Force INNER JOIN to filter by user eligibility
+          include: [
+            {
+              model: HeadOffice,
+              as: 'headOffices',
+              attributes: ['id'],
+              required: false // Keep it as LEFT OUTER JOIN so we don't skip users without many-to-many associations
+            }
+          ]
+        }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    const formatted = requests.map(formatInvestmentRequest);
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      data: formatted
+    });
+  } catch (error) {
+    console.error('Fetch investment requests by head office error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // APPROVE Request
 const approveInvestmentRequest = async (req, res) => {
   try {
@@ -508,15 +597,27 @@ const approveInvestmentRequest = async (req, res) => {
     const { InvestmentRequest, Doctor } = models;
     const { id } = req.params;
 
-    // Check roles: Only Admin/Super Admin/State Head
-    if (!['Super Admin', 'Admin', 'State Head'].includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'Access denied: Only Admins or State Heads can approve requests' });
+    // Check roles
+    const allowedRoles = ['Super Admin', 'Admin', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You do not have permission to approve requests' });
     }
 
     const request = await InvestmentRequest.findByPk(id, {
       include: [
         { model: Doctor, as: 'doctor', attributes: ['id', 'name', 'ucpmp_annual_cap'] },
-        { model: models.User, as: 'user', attributes: ['id', 'name', 'email', 'state_id'] }
+        { 
+          model: models.User, 
+          as: 'user', 
+          attributes: ['id', 'name', 'email', 'state_id', 'head_office_id'],
+          include: [
+            {
+              model: models.HeadOffice,
+              as: 'headOffices',
+              attributes: ['id']
+            }
+          ]
+        }
       ]
     });
 
@@ -531,6 +632,37 @@ const approveInvestmentRequest = async (req, res) => {
       }
       if (request.user && request.user.state_id !== req.user.state_id) {
         return res.status(403).json({ success: false, message: 'Access denied: You can only approve requests from your state' });
+      }
+    }
+
+    // For Zonal Manager, Area Manager, and Manager, restrict to their head offices
+    if (['Zonal Manager', 'Area Manager', 'Manager'].includes(req.user.role)) {
+      // Find all head office IDs associated with the caller
+      const userHeadOffices = await models.UserHeadOffice.findAll({
+        where: { user_id: req.user.id },
+        attributes: ['head_office_id']
+      });
+      const headOfficeIds = userHeadOffices.map(u => u.head_office_id);
+      if (req.user.head_office_id) {
+        headOfficeIds.push(req.user.head_office_id);
+      }
+      const uniqueHeadOfficeIds = Array.from(new Set(headOfficeIds));
+
+      // Get head office IDs of the request's creator
+      const creatorHeadOfficeIds = [];
+      if (request.user) {
+        if (request.user.head_office_id) {
+          creatorHeadOfficeIds.push(request.user.head_office_id);
+        }
+        if (request.user.headOffices) {
+          request.user.headOffices.forEach(h => creatorHeadOfficeIds.push(h.id));
+        }
+      }
+      const uniqueCreatorHeadOfficeIds = Array.from(new Set(creatorHeadOfficeIds));
+
+      const hasCommonHeadOffice = uniqueHeadOfficeIds.some(id => uniqueCreatorHeadOfficeIds.includes(id));
+      if (!hasCommonHeadOffice) {
+        return res.status(403).json({ success: false, message: 'Access denied: You can only approve requests from users in your associated head offices' });
       }
     }
 
@@ -571,15 +703,27 @@ const rejectInvestmentRequest = async (req, res) => {
     const { InvestmentRequest, Doctor } = models;
     const { id } = req.params;
 
-    // Check roles: Only Admin/Super Admin/State Head
-    if (!['Super Admin', 'Admin', 'State Head'].includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'Access denied: Only Admins or State Heads can reject requests' });
+    // Check roles
+    const allowedRoles = ['Super Admin', 'Admin', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You do not have permission to reject requests' });
     }
 
     const request = await InvestmentRequest.findByPk(id, {
       include: [
         { model: Doctor, as: 'doctor', attributes: ['id', 'name'] },
-        { model: models.User, as: 'user', attributes: ['id', 'name', 'email', 'state_id'] }
+        { 
+          model: models.User, 
+          as: 'user', 
+          attributes: ['id', 'name', 'email', 'state_id', 'head_office_id'],
+          include: [
+            {
+              model: models.HeadOffice,
+              as: 'headOffices',
+              attributes: ['id']
+            }
+          ]
+        }
       ]
     });
 
@@ -597,7 +741,46 @@ const rejectInvestmentRequest = async (req, res) => {
       }
     }
 
-    await request.update({ status: 'Rejected' });
+    // For Zonal Manager, Area Manager, and Manager, restrict to their head offices
+    if (['Zonal Manager', 'Area Manager', 'Manager'].includes(req.user.role)) {
+      // Find all head office IDs associated with the caller
+      const userHeadOffices = await models.UserHeadOffice.findAll({
+        where: { user_id: req.user.id },
+        attributes: ['head_office_id']
+      });
+      const headOfficeIds = userHeadOffices.map(u => u.head_office_id);
+      if (req.user.head_office_id) {
+        headOfficeIds.push(req.user.head_office_id);
+      }
+      const uniqueHeadOfficeIds = Array.from(new Set(headOfficeIds));
+
+      // Get head office IDs of the request's creator
+      const creatorHeadOfficeIds = [];
+      if (request.user) {
+        if (request.user.head_office_id) {
+          creatorHeadOfficeIds.push(request.user.head_office_id);
+        }
+        if (request.user.headOffices) {
+          request.user.headOffices.forEach(h => creatorHeadOfficeIds.push(h.id));
+        }
+      }
+      const uniqueCreatorHeadOfficeIds = Array.from(new Set(creatorHeadOfficeIds));
+
+      const hasCommonHeadOffice = uniqueHeadOfficeIds.some(id => uniqueCreatorHeadOfficeIds.includes(id));
+      if (!hasCommonHeadOffice) {
+        return res.status(403).json({ success: false, message: 'Access denied: You can only reject requests from users in your associated head offices' });
+      }
+    }
+
+    const { rejection_reason } = req.body;
+
+    await request.update({ 
+      status: 'Rejected',
+      rejection_reason: rejection_reason || null
+    });
+
+    // Refresh the request object to include newly updated fields in response
+    await request.reload();
 
     res.json({
       success: true,
@@ -614,6 +797,7 @@ module.exports = {
   createInvestmentRequest,
   updateInvestmentRequest,
   getInvestmentRequests,
+  getInvestmentRequestsByHeadOffice,
   approveInvestmentRequest,
   rejectInvestmentRequest,
   getDoctorCurrentMtdSupport,
