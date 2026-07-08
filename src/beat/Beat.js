@@ -19,6 +19,11 @@ const Beat = (sequelize) => {
         key: 'id'
       }
     },
+    color: {
+      type: DataTypes.STRING(7),
+      allowNull: true,
+      defaultValue: '#4F46E5'
+    },
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true

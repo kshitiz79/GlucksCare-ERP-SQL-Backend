@@ -314,6 +314,10 @@ async function startServer() {
     const delhiveryRoutes = require('./src/delhivery/delhiveryRoutes');
     app.use('/api/delhivery', delhiveryRoutes);
 
+    // Territory master API routes
+    const territoryRoutes = require('./src/territory/territoryRoutes');
+    app.use('/api/territory', territoryRoutes);
+
     // Root endpoint
     app.get('/', (req, res) => {
         res.json({

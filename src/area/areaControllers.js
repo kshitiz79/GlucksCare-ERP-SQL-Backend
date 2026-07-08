@@ -1,20 +1,33 @@
 const getAllAreas = async (req, res) => {
   try {
-    const { Area, HeadOffice } = req.app.get('models');
+    const { Area, HeadOffice, Beat } = req.app.get('models');
     const areas = await Area.findAll({
       include: [
         {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
     });
+
+    const formattedAreas = areas.map(area => {
+      const areaJson = area.toJSON();
+      areaJson.colors = areaJson.beats ? [...new Set(areaJson.beats.map(b => b.color).filter(Boolean))] : [];
+      return areaJson;
+    });
+
     res.json({
       success: true,
-      count: areas.length,
-      data: areas
+      count: formattedAreas.length,
+      data: formattedAreas
     });
   } catch (error) {
     res.status(500).json({
@@ -26,13 +39,19 @@ const getAllAreas = async (req, res) => {
 
 const getAreaById = async (req, res) => {
   try {
-    const { Area, HeadOffice } = req.app.get('models');
+    const { Area, HeadOffice, Beat } = req.app.get('models');
     const area = await Area.findByPk(req.params.id, {
       include: [
         {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ]
     });
@@ -42,9 +61,13 @@ const getAreaById = async (req, res) => {
         message: 'Area not found'
       });
     }
+
+    const formattedArea = area.toJSON();
+    formattedArea.colors = formattedArea.beats ? [...new Set(formattedArea.beats.map(b => b.color).filter(Boolean))] : [];
+
     res.json({
       success: true,
-      data: area
+      data: formattedArea
     });
   } catch (error) {
     res.status(500).json({
@@ -56,7 +79,7 @@ const getAreaById = async (req, res) => {
 
 const createArea = async (req, res) => {
   try {
-    const { Area, HeadOffice } = req.app.get('models');
+    const { Area, HeadOffice, Beat } = req.app.get('models');
     const { name, pincode, post_office, head_office_id } = req.body;
 
     if (!name || !pincode || !post_office || !head_office_id) {
@@ -91,20 +114,29 @@ const createArea = async (req, res) => {
       head_office_id
     });
 
-    // Fetch the newly created area with HeadOffice loaded
+    // Fetch the newly created area with HeadOffice and Beats loaded
     const createdArea = await Area.findByPk(area.id, {
       include: [
         {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ]
     });
 
+    const formattedArea = createdArea.toJSON();
+    formattedArea.colors = formattedArea.beats ? [...new Set(formattedArea.beats.map(b => b.color).filter(Boolean))] : [];
+
     res.status(201).json({
       success: true,
-      data: createdArea
+      data: formattedArea
     });
   } catch (error) {
     res.status(400).json({
@@ -116,7 +148,7 @@ const createArea = async (req, res) => {
 
 const updateArea = async (req, res) => {
   try {
-    const { Area, HeadOffice } = req.app.get('models');
+    const { Area, HeadOffice, Beat } = req.app.get('models');
     const { name, pincode, post_office, head_office_id } = req.body;
 
     const area = await Area.findByPk(req.params.id);
@@ -164,20 +196,29 @@ const updateArea = async (req, res) => {
       head_office_id
     });
 
-    // Fetch updated area with HeadOffice loaded
+    // Fetch updated area with HeadOffice and Beats loaded
     const updatedArea = await Area.findByPk(area.id, {
       include: [
         {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ]
     });
 
+    const formattedArea = updatedArea.toJSON();
+    formattedArea.colors = formattedArea.beats ? [...new Set(formattedArea.beats.map(b => b.color).filter(Boolean))] : [];
+
     res.json({
       success: true,
-      data: updatedArea
+      data: formattedArea
     });
   } catch (error) {
     res.status(400).json({
@@ -213,7 +254,7 @@ const deleteArea = async (req, res) => {
 
 const getAreasByHeadOffice = async (req, res) => {
   try {
-    const { Area, HeadOffice } = req.app.get('models');
+    const { Area, HeadOffice, Beat } = req.app.get('models');
     const { headOfficeId } = req.params;
 
     const areas = await Area.findAll({
@@ -225,15 +266,27 @@ const getAreasByHeadOffice = async (req, res) => {
           model: HeadOffice,
           as: 'HeadOffice',
           attributes: ['id', 'name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
     });
 
+    const formattedAreas = areas.map(area => {
+      const areaJson = area.toJSON();
+      areaJson.colors = areaJson.beats ? [...new Set(areaJson.beats.map(b => b.color).filter(Boolean))] : [];
+      return areaJson;
+    });
+
     res.json({
       success: true,
-      count: areas.length,
-      data: areas
+      count: formattedAreas.length,
+      data: formattedAreas
     });
   } catch (error) {
     res.status(500).json({

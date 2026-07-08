@@ -27,9 +27,31 @@ const Area = (sequelize) => {
         key: 'id'
       }
     },
+    latitude: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: 0
+    },
+    longitude: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: 0
+    },
+    radius: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 700
+    },
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true
+    },
+    colors: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        const beats = this.getDataValue('beats');
+        return beats ? [...new Set(beats.map(b => b.color).filter(Boolean))] : [];
+      }
     }
   }, {
     tableName: 'areas',

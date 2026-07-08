@@ -7,7 +7,7 @@ const getMyBeats = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office'],
+          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
           through: { attributes: [] } // Exclude junction table attributes
         }
       ],
@@ -40,7 +40,7 @@ const getBeatById = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office'],
+          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
           through: { attributes: [] }
         }
       ]
@@ -79,7 +79,7 @@ const createBeat = async (req, res) => {
 
   try {
     const { Beat, BeatArea, Area } = req.app.get('models');
-    const { name, area_ids, areaIds } = req.body;
+    const { name, area_ids, areaIds, color } = req.body;
     const finalAreaIds = area_ids || areaIds;
 
     if (!name || !name.trim()) {
@@ -120,7 +120,8 @@ const createBeat = async (req, res) => {
     // Create Beat
     const beat = await Beat.create({
       name,
-      user_id: req.user.id
+      user_id: req.user.id,
+      color: color || '#4F46E5'
     }, { transaction: t });
 
     // Create BeatArea entries
@@ -139,7 +140,7 @@ const createBeat = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office'],
+          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
           through: { attributes: [] }
         }
       ]
@@ -165,7 +166,7 @@ const updateBeat = async (req, res) => {
 
   try {
     const { Beat, BeatArea, Area } = req.app.get('models');
-    const { name, area_ids, areaIds } = req.body;
+    const { name, area_ids, areaIds, color } = req.body;
     const finalAreaIds = area_ids || areaIds;
 
     const beat = await Beat.findByPk(req.params.id);
@@ -186,7 +187,8 @@ const updateBeat = async (req, res) => {
       });
     }
 
-    // If update name
+    // Update basic fields
+    let updateFields = {};
     if (name) {
       if (!name.trim()) {
         await t.rollback();
@@ -195,7 +197,13 @@ const updateBeat = async (req, res) => {
           message: 'Beat name cannot be empty'
         });
       }
-      await beat.update({ name }, { transaction: t });
+      updateFields.name = name;
+    }
+    if (color) {
+      updateFields.color = color;
+    }
+    if (Object.keys(updateFields).length > 0) {
+      await beat.update(updateFields, { transaction: t });
     }
 
     // If updating areas
@@ -254,7 +262,7 @@ const updateBeat = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office'],
+          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
           through: { attributes: [] }
         }
       ]
@@ -321,7 +329,7 @@ const getAllBeatsAdmin = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office'],
+          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
           through: { attributes: [] }
         }
       ],
