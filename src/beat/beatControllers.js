@@ -7,7 +7,7 @@ const getMyBeats = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
+          attributes: ['id', 'name', 'pincode', 'post_office'],
           through: { attributes: [] } // Exclude junction table attributes
         }
       ],
@@ -40,7 +40,7 @@ const getBeatById = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
+          attributes: ['id', 'name', 'pincode', 'post_office'],
           through: { attributes: [] }
         }
       ]
@@ -140,7 +140,7 @@ const createBeat = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
+          attributes: ['id', 'name', 'pincode', 'post_office'],
           through: { attributes: [] }
         }
       ]
@@ -262,7 +262,7 @@ const updateBeat = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
+          attributes: ['id', 'name', 'pincode', 'post_office'],
           through: { attributes: [] }
         }
       ]
@@ -329,7 +329,7 @@ const getAllBeatsAdmin = async (req, res) => {
         {
           model: Area,
           as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'color'],
+          attributes: ['id', 'name', 'pincode', 'post_office'],
           through: { attributes: [] }
         }
       ],
