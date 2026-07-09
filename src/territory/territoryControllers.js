@@ -60,8 +60,22 @@ const getTerritoryMaster = async (req, res) => {
       }
     });
 
+    // Map of area ID to unique beat colors
+    const colorsByArea = {};
+    beats.forEach(beat => {
+      const beatColor = beat.color || "#4F46E5";
+      const assignedAreaIds = beat.areas ? beat.areas.map(a => a.id) : [];
+      assignedAreaIds.forEach(areaId => {
+        if (!colorsByArea[areaId]) {
+          colorsByArea[areaId] = new Set();
+        }
+        colorsByArea[areaId].add(beatColor);
+      });
+    });
+
     // 3. Format Areas response
     const formattedAreas = areas.map(area => {
+      const colorsSet = colorsByArea[area.id] || new Set();
       return {
         id: area.id,
         headquarterId: area.head_office_id,
@@ -73,7 +87,8 @@ const getTerritoryMaster = async (req, res) => {
         doctorCount: doctorCountByArea[area.id] || 0,
         chemistCount: chemistCountByArea[area.id] || 0,
         stockistCount: stockistCountByArea[area.id] || 0,
-        visible: area.is_active !== false
+        visible: area.is_active !== false,
+        colors: Array.from(colorsSet)
       };
     });
 
