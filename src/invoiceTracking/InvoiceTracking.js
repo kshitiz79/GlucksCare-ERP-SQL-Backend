@@ -76,6 +76,16 @@ const InvoiceTracking = (sequelize) => {
       allowNull: true,
       defaultValue: 0,
     },
+    discount_percent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    discount_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
     gst_percent: {
       type: DataTypes.DECIMAL(5, 2),
       allowNull: true,

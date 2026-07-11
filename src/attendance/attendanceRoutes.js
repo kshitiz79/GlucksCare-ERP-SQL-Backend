@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const { authMiddleware } = require('../middleware/authMiddleware');
 const {
   getAllAttendance,
   getAttendanceById,
@@ -10,6 +11,7 @@ const {
   deleteAttendance,
   getTodayAttendanceForAdmin,
   getTodayAttendanceForUser,
+  getTodayAttendanceStatus,
   getWeeklyAttendance,
   getMonthlyAttendance,
   getAttendanceStats,
@@ -24,6 +26,9 @@ router.get('/', getAllAttendance);
 
 // GET today's attendance for admin dashboard
 router.get('/admin/today', getTodayAttendanceForAdmin);
+
+// GET today's attendance status for the logged-in user
+router.get('/today-status', authMiddleware, getTodayAttendanceStatus);
 
 // GET today's attendance for specific user
 router.get('/today/:userId', getTodayAttendanceForUser);

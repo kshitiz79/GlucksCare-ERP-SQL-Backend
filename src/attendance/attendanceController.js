@@ -846,6 +846,80 @@ const bulkUpdateAttendance = async (req, res) => {
   }
 };
 
+// GET today's attendance status for the logged-in user
+const getTodayAttendanceStatus = async (req, res) => {
+  try {
+    const { Attendance } = req.app.get('models');
+    // req.user.id is populated by authMiddleware
+    const userId = req.user?.id || req.query.userId;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const today = getISTDate();
+
+    let attendance = await Attendance.findOne({
+      where: {
+        user_id: userId,
+        date: today
+      }
+    });
+
+    // If no attendance record exists for today, return default structure
+    if (!attendance) {
+      return res.json({
+        success: true,
+        data: {
+          date: today,
+          status: 'not_started',
+          punchSessions: [],
+          currentSession: -1,
+          activeSession: null,
+          firstPunchIn: null,
+          lastPunchOut: null,
+          totalWorkingMinutes: 0,
+          totalBreakMinutes: 0,
+          autoBreaks: [],
+          punchIn: null,
+          punchOut: null
+        }
+      });
+    }
+
+    // Return comprehensive attendance data
+    const summaryData = {
+      date: attendance.date,
+      status: attendance.status,
+      punchSessions: attendance.punch_sessions || [],
+      currentSession: attendance.current_session,
+      activeSession: attendance.current_session >= 0 ?
+        attendance.punch_sessions?.[attendance.current_session] : null,
+      firstPunchIn: attendance.first_punch_in,
+      lastPunchOut: attendance.last_punch_out,
+      totalWorkingMinutes: attendance.total_working_minutes || 0,
+      totalBreakMinutes: attendance.total_break_minutes || 0,
+      autoBreaks: attendance.auto_breaks || [],
+      punchIn: attendance.first_punch_in,
+      punchOut: attendance.last_punch_out
+    };
+
+    res.json({
+      success: true,
+      data: summaryData
+    });
+  } catch (error) {
+    console.error('Get today attendance status error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllAttendance,
   getAttendanceById,
@@ -854,6 +928,7 @@ module.exports = {
   deleteAttendance,
   getTodayAttendanceForAdmin,
   getTodayAttendanceForUser,
+  getTodayAttendanceStatus,
   getWeeklyAttendance,
   getMonthlyAttendance,
   getAttendanceStats,
