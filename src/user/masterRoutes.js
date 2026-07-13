@@ -547,11 +547,25 @@ router.get('/enums', authMiddleware, async (req, res) => {
             const attributes = model.rawAttributes;
             Object.keys(attributes).forEach(attrName => {
                 const attribute = attributes[attrName];
+                
+                let enumValues = null;
                 if (attribute.type && (attribute.type.values || attribute.type.constructor.name === 'ENUM')) {
+                    enumValues = attribute.type.values || [];
+                } else if (attribute.validate && attribute.validate.isIn) {
+                    let isInVal = attribute.validate.isIn;
+                    if (isInVal && !Array.isArray(isInVal) && typeof isInVal === 'object' && isInVal.args) {
+                        isInVal = isInVal.args;
+                    }
+                    if (Array.isArray(isInVal)) {
+                        enumValues = Array.isArray(isInVal[0]) ? isInVal[0] : isInVal;
+                    }
+                }
+
+                if (enumValues !== null) {
                     if (!enums[modelName]) {
                         enums[modelName] = {};
                     }
-                    enums[modelName][attrName] = attribute.type.values || [];
+                    enums[modelName][attrName] = enumValues;
                 }
             });
         });
