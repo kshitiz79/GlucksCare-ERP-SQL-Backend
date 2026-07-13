@@ -171,11 +171,23 @@ const getTerritoryMaster = async (req, res) => {
       };
     });
 
-    // 8. Format BeatAreas junction response
-    const formattedBeatAreas = beatAreas.map(ba => {
+    // 8. Format BeatAreas junction response (grouped by beatId, return areaIds in a list)
+    const beatAreasMap = {};
+    beatAreas.forEach(ba => {
+      if (ba.beat_id) {
+        if (!beatAreasMap[ba.beat_id]) {
+          beatAreasMap[ba.beat_id] = [];
+        }
+        if (ba.area_id && !beatAreasMap[ba.beat_id].includes(ba.area_id)) {
+          beatAreasMap[ba.beat_id].push(ba.area_id);
+        }
+      }
+    });
+
+    const formattedBeatAreas = Object.keys(beatAreasMap).map(beatId => {
       return {
-        beatId: ba.beat_id,
-        areaId: ba.area_id
+        beatId: beatId,
+        areaId: beatAreasMap[beatId]
       };
     });
 
