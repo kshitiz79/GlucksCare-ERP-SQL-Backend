@@ -944,6 +944,7 @@ const getMyDoctors = async (req, res) => {
 
       return {
         ...cleanDoctorObj,
+        id: doctorObj.id,
         support_value_mtd: mtdMap[doctorObj.id] || 0.00,
         support_value_ytd: fyMap[doctorObj.id] || 0.00,
         headOffice: doctorObj.HeadOffice || doctorObj.headOffice,

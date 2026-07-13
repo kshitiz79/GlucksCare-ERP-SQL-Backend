@@ -960,6 +960,7 @@ const getMyChemists = async (req, res) => {
 
       return {
         ...cleanChemistObj,
+        id: chemistObj.id,
         annualTurnover: chemistObj.AnnualTurnovers ? chemistObj.AnnualTurnovers.map(turnover => ({
           year: turnover.year,
           amount: parseFloat(turnover.amount)

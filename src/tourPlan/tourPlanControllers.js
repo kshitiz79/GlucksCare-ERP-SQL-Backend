@@ -319,6 +319,16 @@ const approvePlan = async (req, res) => {
       );
 
       await transaction.commit();
+
+      // Trigger auto-scheduling of visits for the approved tour plan
+      try {
+        const { autoScheduleForApprovedPlan } = require('../utils/autoScheduler');
+        autoScheduleForApprovedPlan(sequelize, models, plan).catch(err => {
+          console.error('Error auto-scheduling visits for approved plan:', err);
+        });
+      } catch (schedErr) {
+        console.error('Failed to load auto-scheduler after plan approval:', schedErr);
+      }
     } catch (saveError) {
       await transaction.rollback();
       throw saveError;

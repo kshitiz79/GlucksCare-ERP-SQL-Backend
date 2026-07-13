@@ -1221,6 +1221,7 @@ const getMyStockists = async (req, res) => {
 
       return {
         ...cleanStockistObj,
+        id: stockistObj.id,
         // Convert annual_turnover to the format expected by the frontend
         annual_turnover: stockistObj.AnnualTurnovers ? stockistObj.AnnualTurnovers.map(turnover => ({
           year: turnover.year,

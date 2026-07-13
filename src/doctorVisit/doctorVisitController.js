@@ -490,23 +490,45 @@ const getDoctorVisitsByUserId = async (req, res) => {
     let whereClause = { user_id: userId };
     const today = new Date().toISOString().split('T')[0];
 
+    // Compute start and end dates for auto-scheduling
+    let start = startDate || today;
+    let end = endDate || today;
+
     // Apply date filters only if explicitly requested
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
     } else if (range === 'last7days') {
       const d = new Date();
       d.setDate(d.getDate() - 7);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+      start = d.toISOString().split('T')[0];
+      end = today;
+      whereClause.date = { [Op.between]: [start, today] };
     } else if (range === 'last30days') {
       const d = new Date();
       d.setDate(d.getDate() - 30);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
+      start = d.toISOString().split('T')[0];
+      end = today;
+      whereClause.date = { [Op.between]: [start, today] };
     } else if (range === 'upcoming') {
+      const d = new Date();
+      d.setDate(d.getDate() + 14); // auto-schedule upcoming 14 days
+      start = today;
+      end = d.toISOString().split('T')[0];
       whereClause.date = { [Op.gt]: today };
     } else if (range === 'today') {
+      start = today;
+      end = today;
       whereClause.date = today;
     }
-    // Default: No date filter - returns all visits
+
+    // Trigger auto-scheduling of doctor visits
+    try {
+      const { autoScheduleVisits } = require('../utils/autoScheduler');
+      const models = req.app.get('models');
+      await autoScheduleVisits(sequelize, models, userId, start, end, 'doctor');
+    } catch (schedErr) {
+      console.error('Failed to run auto-scheduler for doctor visits:', schedErr);
+    }
 
     console.log('🔍 Where clause:', JSON.stringify(whereClause, null, 2));
 
