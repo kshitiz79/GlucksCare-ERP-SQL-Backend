@@ -353,6 +353,8 @@ module.exports = (db) => {
 
   db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'beat_id_1', as: 'beat1' });
   db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'beat_id_2', as: 'beat2' });
+  db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'change_request_beat_id_1', as: 'changeRequestBeat1' });
+  db.TourPlanDay.belongsTo(db.Beat, { foreignKey: 'change_request_beat_id_2', as: 'changeRequestBeat2' });
   db.TourPlanDay.belongsTo(db.User, { foreignKey: 'joint_work_with_user_id', as: 'jointWorkWith' });
 
   return db;

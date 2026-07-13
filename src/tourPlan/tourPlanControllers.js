@@ -736,6 +736,250 @@ const respondToCollaboration = async (req, res) => {
   }
 };
 
+// POST send same-day change request
+const requestDayChange = async (req, res) => {
+  try {
+    const { dayId } = req.params;
+    const { reason, beat_id_1, beat_id_2, day_type } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reason is required for a change request'
+      });
+    }
+
+    const models = req.app.get('models');
+    const { TourPlanDay, TourPlan, Beat } = models;
+
+    // Find the day and verify ownership
+    const day = await TourPlanDay.findByPk(dayId, {
+      include: [{
+        model: TourPlan,
+        as: 'tourPlan'
+      }]
+    });
+
+    if (!day) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tour plan day not found'
+      });
+    }
+
+    if (day.tourPlan.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied. You can only request changes for your own tour plan.'
+      });
+    }
+
+    if (day.tourPlan.status !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot request changes on a plan that is not Approved'
+      });
+    }
+
+    // Validate that it is for the SAME day (today) only
+    const today = new Date().toISOString().split('T')[0];
+    if (day.date !== today) {
+      return res.status(400).json({
+        success: false,
+        message: 'Change requests can only be made for today\'s date'
+      });
+    }
+
+    // Optional validations for beats if provided
+    if (beat_id_1) {
+      const beat1 = await Beat.findByPk(beat_id_1);
+      if (!beat1) {
+        return res.status(404).json({ success: false, message: 'Requested Beat 1 not found' });
+      }
+    }
+    if (beat_id_2) {
+      const beat2 = await Beat.findByPk(beat_id_2);
+      if (!beat2) {
+        return res.status(404).json({ success: false, message: 'Requested Beat 2 not found' });
+      }
+    }
+
+    // Update change request fields
+    day.change_request_status = 'Pending';
+    day.change_request_reason = reason;
+    day.change_request_beat_id_1 = beat_id_1 || null;
+    day.change_request_beat_id_2 = beat_id_2 || null;
+    day.change_request_day_type = day_type || 'Field';
+    day.change_request_comments = null;
+
+    await day.save();
+
+    res.json({
+      success: true,
+      message: 'Change request submitted successfully',
+      data: day
+    });
+  } catch (error) {
+    console.error('Request day change error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// GET pending same-day change requests for juniors
+const getPendingChangeRequests = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const { TourPlanDay, TourPlan, User, Beat } = models;
+
+    // Get list of roles junior to the current user
+    const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
+    const juniorRolesList = Object.keys(ROLE_HIERARCHY).filter(role => ROLE_HIERARCHY[role] < approverRank);
+
+    const pendingRequests = await TourPlanDay.findAll({
+      where: {
+        change_request_status: 'Pending'
+      },
+      include: [
+        {
+          model: TourPlan,
+          as: 'tourPlan',
+          required: true,
+          include: [{
+            model: User,
+            as: 'user',
+            where: { role: juniorRolesList },
+            attributes: ['id', 'name', 'role', 'employee_code']
+          }]
+        },
+        { model: Beat, as: 'beat1', attributes: ['id', 'name'] },
+        { model: Beat, as: 'beat2', attributes: ['id', 'name'] },
+        { model: Beat, as: 'changeRequestBeat1', attributes: ['id', 'name'] },
+        { model: Beat, as: 'changeRequestBeat2', attributes: ['id', 'name'] }
+      ],
+      order: [['date', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      data: pendingRequests
+    });
+  } catch (error) {
+    console.error('Get pending change requests error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// POST respond to a pending same-day change request
+const respondToDayChangeRequest = async (req, res) => {
+  const sequelize = req.app.get('sequelize');
+  const transaction = await sequelize.transaction();
+  let committed = false;
+
+  try {
+    const { dayId } = req.params;
+    const { action, comments } = req.body; // 'approve' or 'reject'
+
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Action must be either approve or reject'
+      });
+    }
+
+    const models = req.app.get('models');
+    const { TourPlanDay, TourPlan, User, DoctorVisit, ChemistVisit, StockistVisit } = models;
+
+    const day = await TourPlanDay.findByPk(dayId, {
+      include: [{
+        model: TourPlan,
+        as: 'tourPlan',
+        include: [{
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'role']
+        }]
+      }],
+      transaction
+    });
+
+    if (!day || day.change_request_status !== 'Pending') {
+      return res.status(404).json({
+        success: false,
+        message: 'Pending change request not found'
+      });
+    }
+
+    // Verify role hierarchy: approver must be strictly higher rank than creator
+    const creatorRank = ROLE_HIERARCHY[day.tourPlan.user.role] || 0;
+    const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
+
+    if (approverRank <= creatorRank) {
+      return res.status(403).json({
+        success: false,
+        message: `Permission denied. Your role (${req.user.role}) is not authorized to approve requests for a ${day.tourPlan.user.role}.`
+      });
+    }
+
+    if (action === 'approve') {
+      // 1. Update the actual tour plan day's beats and day_type
+      day.beat_id_1 = day.change_request_beat_id_1;
+      day.beat_id_2 = day.change_request_beat_id_2;
+      day.day_type = day.change_request_day_type;
+      day.change_request_status = 'Approved';
+      day.change_request_comments = comments || null;
+      await day.save({ transaction });
+
+      // Commit the transaction first so the new day beats are visible to auto-scheduling
+      await transaction.commit();
+      committed = true;
+
+      // 2. Perform rescheduling of visits for today
+      try {
+        console.log(`Rescheduling auto-visits for user ${day.tourPlan.user_id} on date ${day.date}...`);
+        
+        // Delete all unconfirmed visits for today
+        await DoctorVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+        await ChemistVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+        await StockistVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+
+        // Trigger new auto-scheduling
+        const { autoScheduleVisits } = require('../utils/autoScheduler');
+        await autoScheduleVisits(sequelize, models, day.tourPlan.user_id, day.date, day.date, 'all');
+      } catch (scheduleErr) {
+        console.error('Failed to reschedule visits after change request approval:', scheduleErr);
+      }
+    } else {
+      // Reject change request
+      day.change_request_status = 'Rejected';
+      day.change_request_comments = comments || null;
+      await day.save({ transaction });
+      await transaction.commit();
+      committed = true;
+    }
+
+    res.json({
+      success: true,
+      message: `Change request successfully ${action}d`,
+      data: day
+    });
+  } catch (error) {
+    if (!committed) {
+      await transaction.rollback();
+    }
+    console.error('Respond to day change error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getMyPlans,
   getPlanById,
@@ -748,5 +992,8 @@ module.exports = {
   getUsersAvailability,
   getIncomingCollaborations,
   getAcceptedCollaborations,
-  respondToCollaboration
+  respondToCollaboration,
+  requestDayChange,
+  getPendingChangeRequests,
+  respondToDayChangeRequest
 };

@@ -13,7 +13,10 @@ const {
   getUsersAvailability,
   getIncomingCollaborations,
   getAcceptedCollaborations,
-  respondToCollaboration
+  respondToCollaboration,
+  requestDayChange,
+  getPendingChangeRequests,
+  respondToDayChangeRequest
 } = require('./tourPlanControllers');
 
 // All routes require authentication
@@ -27,7 +30,12 @@ router.post('/collaboration/:dayId/respond', respondToCollaboration);
 
 // Approval and list routes
 router.get('/pending-approvals', getPendingApprovals);
+router.get('/pending-change-requests', getPendingChangeRequests);
 router.get('/admin/all', adminAuth, getAllPlansAdmin);
+
+// Change request actions
+router.post('/day/:dayId/change-request', requestDayChange);
+router.post('/day/:dayId/respond-change-request', respondToDayChangeRequest);
 
 // Standard operations
 router.get('/', getMyPlans);

@@ -60,6 +60,45 @@ const TourPlanDay = (sequelize) => {
         key: 'id'
       }
     },
+    change_request_status: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: 'None',
+      validate: {
+        isIn: [['None', 'Pending', 'Approved', 'Rejected']]
+      }
+    },
+    change_request_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    change_request_beat_id_1: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'beats',
+        key: 'id'
+      }
+    },
+    change_request_beat_id_2: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'beats',
+        key: 'id'
+      }
+    },
+    change_request_day_type: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      validate: {
+        isIn: [['Field', 'Joint work', 'Meeting', 'Office', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
+      }
+    },
+    change_request_comments: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     notes: {
       type: DataTypes.TEXT,
       allowNull: true
