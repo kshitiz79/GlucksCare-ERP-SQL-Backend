@@ -80,7 +80,7 @@ const getAreaById = async (req, res) => {
 const createArea = async (req, res) => {
   try {
     const { Area, HeadOffice, Beat } = req.app.get('models');
-    const { name, pincode, post_office, head_office_id } = req.body;
+    const { name, pincode, post_office, head_office_id, latitude, longitude, radius } = req.body;
 
     if (!name || !pincode || !post_office || !head_office_id) {
       return res.status(400).json({
@@ -111,7 +111,10 @@ const createArea = async (req, res) => {
       name,
       pincode,
       post_office,
-      head_office_id
+      head_office_id,
+      latitude: (latitude !== undefined && latitude !== '' && !isNaN(parseFloat(latitude))) ? parseFloat(latitude) : 0,
+      longitude: (longitude !== undefined && longitude !== '' && !isNaN(parseFloat(longitude))) ? parseFloat(longitude) : 0,
+      radius: (radius !== undefined && radius !== '' && !isNaN(parseInt(radius, 10))) ? parseInt(radius, 10) : 700
     });
 
     // Fetch the newly created area with HeadOffice and Beats loaded
@@ -149,7 +152,7 @@ const createArea = async (req, res) => {
 const updateArea = async (req, res) => {
   try {
     const { Area, HeadOffice, Beat } = req.app.get('models');
-    const { name, pincode, post_office, head_office_id } = req.body;
+    const { name, pincode, post_office, head_office_id, latitude, longitude, radius } = req.body;
 
     const area = await Area.findByPk(req.params.id);
     if (!area) {
@@ -193,7 +196,10 @@ const updateArea = async (req, res) => {
       name,
       pincode,
       post_office,
-      head_office_id
+      head_office_id,
+      latitude: (latitude !== undefined && latitude !== '' && !isNaN(parseFloat(latitude))) ? parseFloat(latitude) : area.latitude,
+      longitude: (longitude !== undefined && longitude !== '' && !isNaN(parseFloat(longitude))) ? parseFloat(longitude) : area.longitude,
+      radius: (radius !== undefined && radius !== '' && !isNaN(parseInt(radius, 10))) ? parseInt(radius, 10) : area.radius
     });
 
     // Fetch updated area with HeadOffice and Beats loaded
