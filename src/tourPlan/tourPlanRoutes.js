@@ -16,7 +16,8 @@ const {
   respondToCollaboration,
   requestDayChange,
   getPendingChangeRequests,
-  respondToDayChangeRequest
+  respondToDayChangeRequest,
+  deletePlan
 } = require('./tourPlanControllers');
 
 // All routes require authentication
@@ -44,5 +45,6 @@ router.post('/draft', saveDraft);
 router.post('/:id/submit', submitPlan);
 router.post('/:id/approve', approvePlan);
 router.post('/:id/return', returnPlan);
+router.delete('/:id', deletePlan);
 
 module.exports = router;

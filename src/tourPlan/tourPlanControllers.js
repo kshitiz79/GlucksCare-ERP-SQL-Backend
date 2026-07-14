@@ -980,6 +980,87 @@ const respondToDayChangeRequest = async (req, res) => {
   }
 };
 
+// DELETE a tour plan by ID
+const deletePlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const models = req.app.get('models');
+    const { TourPlan, TourPlanDay, DoctorVisit, ChemistVisit, StockistVisit } = models;
+
+    const plan = await TourPlan.findByPk(id);
+
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tour plan not found'
+      });
+    }
+
+    // Authorization checks:
+    // 1. User can delete their own plan. Admins can delete any plan.
+    if (plan.user_id !== req.user.id && req.user.role !== 'Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied. You can only delete your own tour plans.'
+      });
+    }
+
+    // Status checks for non-admins:
+    // Only Draft or Returned plans can be deleted by standard users.
+    if (req.user.role !== 'Admin' && !['Draft', 'Returned'].includes(plan.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete a tour plan that is ${plan.status}. Please contact an administrator.`
+      });
+    }
+
+    // If the plan was approved, clean up any unconfirmed visits generated from it
+    if (plan.status === 'Approved') {
+      const days = await TourPlanDay.findAll({
+        where: { tour_plan_id: plan.id }
+      });
+      const dates = days.map(d => d.date);
+
+      if (dates.length > 0) {
+        await DoctorVisit.destroy({
+          where: {
+            user_id: plan.user_id,
+            date: { [require('sequelize').Op.in]: dates },
+            confirmed: false
+          }
+        });
+        await ChemistVisit.destroy({
+          where: {
+            user_id: plan.user_id,
+            date: { [require('sequelize').Op.in]: dates },
+            confirmed: false
+          }
+        });
+        await StockistVisit.destroy({
+          where: {
+            user_id: plan.user_id,
+            date: { [require('sequelize').Op.in]: dates },
+            confirmed: false
+          }
+        });
+      }
+    }
+
+    await plan.destroy();
+
+    res.json({
+      success: true,
+      message: 'Tour plan deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete tour plan error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getMyPlans,
   getPlanById,
@@ -995,5 +1076,6 @@ module.exports = {
   respondToCollaboration,
   requestDayChange,
   getPendingChangeRequests,
-  respondToDayChangeRequest
+  respondToDayChangeRequest,
+  deletePlan
 };
