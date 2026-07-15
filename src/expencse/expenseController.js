@@ -168,6 +168,42 @@ const createExpense = async (req, res) => {
       }
     }
 
+    // Cross-validation: Cannot submit TA if Head Office DA is submitted on the same date, and vice versa
+    if (category === 'travel') {
+      const existingHeadOfficeDA = await Expense.findOne({
+        where: {
+          user_id: userId,
+          category: 'daily',
+          daily_allowance_type: 'headoffice',
+          date: expenseDate,
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingHeadOfficeDA) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot submit a Travel Allowance (TA) because you have already submitted a Head Office Daily Allowance (DA) for this date.'
+        });
+      }
+    }
+
+    if (category === 'daily' && dailyAllowanceType === 'headoffice') {
+      const existingTA = await Expense.findOne({
+        where: {
+          user_id: userId,
+          category: 'travel',
+          date: expenseDate,
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingTA) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot submit a Head Office Daily Allowance (DA) because you have already submitted a Travel Allowance (TA) for this date.'
+        });
+      }
+    }
+
     const settings = await ExpenseSetting.findOne({
       where: {
         effective_date: {
@@ -330,6 +366,8 @@ const updateExpense = async (req, res) => {
     const { Op } = require('sequelize');
 
     const targetCategory = category || expense.category;
+    const targetDailyAllowanceType = dailyAllowanceType || expense.daily_allowance_type;
+
     if (targetCategory === 'travel' || targetCategory === 'daily') {
       const existingExpense = await Expense.findOne({
         where: {
@@ -345,6 +383,44 @@ const updateExpense = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `A ${categoryLabel} expense already exists for this date.`
+        });
+      }
+    }
+
+    // Cross-validation: Cannot submit TA if Head Office DA is submitted on the same date, and vice versa
+    if (targetCategory === 'travel') {
+      const existingHeadOfficeDA = await Expense.findOne({
+        where: {
+          user_id: expense.user_id,
+          category: 'daily',
+          daily_allowance_type: 'headoffice',
+          date: expense.date,
+          id: { [Op.ne]: expense.id },
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingHeadOfficeDA) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot submit a Travel Allowance (TA) because you have already submitted a Head Office Daily Allowance (DA) for this date.'
+        });
+      }
+    }
+
+    if (targetCategory === 'daily' && targetDailyAllowanceType === 'headoffice') {
+      const existingTA = await Expense.findOne({
+        where: {
+          user_id: expense.user_id,
+          category: 'travel',
+          date: expense.date,
+          id: { [Op.ne]: expense.id },
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingTA) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot submit a Head Office Daily Allowance (DA) because you have already submitted a Travel Allowance (TA) for this date.'
         });
       }
     }
