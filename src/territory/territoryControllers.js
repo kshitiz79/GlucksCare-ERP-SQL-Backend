@@ -1,25 +1,66 @@
 const getTerritoryMaster = async (req, res) => {
   try {
-    const { Area, Doctor, Chemist, Stockist, Beat, BeatArea, User } = req.app.get('models');
+    const { Area, Doctor, Chemist, Stockist, Beat, BeatArea, User, HeadOffice } = req.app.get('models');
+    const { Op } = require('sequelize');
 
-    // 1. Fetch all datasets
-    const areas = await Area.findAll({
+    // Get user with assigned head offices
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficeIds = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficeIds = user.headOffices.map(office => office.id);
+    } else if (user.head_office_id) {
+      headOfficeIds = [user.head_office_id];
+    }
+
+    // 1. Fetch datasets filtered by user's assigned head offices / creator ID
+    const areas = headOfficeIds.length > 0 ? await Area.findAll({
+      where: {
+        head_office_id: { [Op.in]: headOfficeIds }
+      },
       order: [['name', 'ASC']]
-    });
+    }) : [];
 
-    const doctors = await Doctor.findAll({
+    const doctors = headOfficeIds.length > 0 ? await Doctor.findAll({
+      where: {
+        headOfficeId: { [Op.in]: headOfficeIds }
+      },
       order: [['name', 'ASC']]
-    });
+    }) : [];
 
-    const chemists = await Chemist.findAll({
+    const chemists = headOfficeIds.length > 0 ? await Chemist.findAll({
+      where: {
+        head_office_id: { [Op.in]: headOfficeIds }
+      },
       order: [['firm_name', 'ASC']]
-    });
+    }) : [];
 
-    const stockists = await Stockist.findAll({
+    const stockists = headOfficeIds.length > 0 ? await Stockist.findAll({
+      where: {
+        head_office_id: { [Op.in]: headOfficeIds }
+      },
       order: [['firm_name', 'ASC']]
-    });
+    }) : [];
 
     const beats = await Beat.findAll({
+      where: {
+        user_id: req.user.id
+      },
       include: [
         {
           model: Area,
@@ -36,7 +77,12 @@ const getTerritoryMaster = async (req, res) => {
       order: [['name', 'ASC']]
     });
 
-    const beatAreas = await BeatArea.findAll();
+    const beatIds = beats.map(b => b.id);
+    const beatAreas = beatIds.length > 0 ? await BeatArea.findAll({
+      where: {
+        beat_id: { [Op.in]: beatIds }
+      }
+    }) : [];
 
     // 2. Count maps for Areas
     const doctorCountByArea = {};
