@@ -23,7 +23,7 @@ class UserRepository {
                     model: HeadOffice,
                     as: 'headOffices',
                     through: { attributes: [] },
-                    attributes: ['id', 'name']
+                    attributes: ['id', 'name', 'latitude', 'longitude']
                 }
             ];
         }

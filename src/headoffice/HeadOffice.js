@@ -21,6 +21,16 @@ const HeadOffice = (sequelize) => {
     pincode: {
       type: DataTypes.STRING(10)
     },
+    latitude: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: 0
+    },
+    longitude: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: 0
+    },
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true

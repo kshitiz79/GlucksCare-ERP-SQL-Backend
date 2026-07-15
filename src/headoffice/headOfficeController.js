@@ -115,7 +115,7 @@ const createHeadOffice = async (req, res) => {
     const { HeadOffice } = req.app.get('models');
     
     // Only allow specific fields to be set
-    const allowedFields = ['name', 'stateId', 'pincode'];
+    const allowedFields = ['name', 'stateId', 'pincode', 'latitude', 'longitude'];
     const headOfficeData = {};
     
     allowedFields.forEach(field => {
@@ -151,7 +151,7 @@ const updateHeadOffice = async (req, res) => {
     }
     
     // Only allow specific fields to be updated
-    const allowedFields = ['name', 'stateId', 'pincode'];
+    const allowedFields = ['name', 'stateId', 'pincode', 'latitude', 'longitude'];
     const updateData = {};
     
     allowedFields.forEach(field => {

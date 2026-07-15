@@ -232,7 +232,7 @@ class AuthService {
                         model: HeadOffice,
                         as: 'headOffices',
                         through: { attributes: [] },
-                        attributes: ['id', 'name']
+                        attributes: ['id', 'name', 'latitude', 'longitude']
                     }
                 ]
             });
@@ -241,7 +241,9 @@ class AuthService {
             if (populatedUser && populatedUser.headOffices && populatedUser.headOffices.length > 0) {
                 responseHeadOffices = populatedUser.headOffices.map(ho => ({
                     id: ho.id,
-                    name: ho.name
+                    name: ho.name,
+                    latitude: ho.latitude,
+                    longitude: ho.longitude
                 }));
             }
 
@@ -397,16 +399,20 @@ class AuthService {
         if (user.headOffices && user.headOffices.length > 0) {
             headOffices = user.headOffices.map(ho => ({
                 id: ho.id,
-                name: ho.name
+                name: ho.name,
+                latitude: ho.latitude,
+                longitude: ho.longitude
             }));
         } else if (user.head_office_id) {
             const singleHeadOffice = await AuthRepository.findHeadOfficeById(user.head_office_id, {
-                attributes: ['id', 'name']
+                attributes: ['id', 'name', 'latitude', 'longitude']
             });
             if (singleHeadOffice) {
                 headOffices = [{
                     id: singleHeadOffice.id,
-                    name: singleHeadOffice.name
+                    name: singleHeadOffice.name,
+                    latitude: singleHeadOffice.latitude,
+                    longitude: singleHeadOffice.longitude
                 }];
             }
         }
@@ -493,7 +499,7 @@ class AuthService {
             include: [
                 {
                     model: HeadOffice,
-                    attributes: ['id', 'name']
+                    attributes: ['id', 'name', 'latitude', 'longitude']
                 }
             ]
         });
@@ -528,7 +534,12 @@ class AuthService {
                 role: user.role,
                 emailVerified: user.email_verified,
                 employeeCode: user.employee_code,
-                headOffices: user.HeadOffice ? [user.HeadOffice] : []
+                headOffices: user.HeadOffice ? [{
+                    id: user.HeadOffice.id,
+                    name: user.HeadOffice.name,
+                    latitude: user.HeadOffice.latitude,
+                    longitude: user.HeadOffice.longitude
+                }] : []
             }
         };
     }
@@ -637,7 +648,7 @@ class AuthService {
             include: [
                 {
                     model: HeadOffice,
-                    attributes: ['id', 'name']
+                    attributes: ['id', 'name', 'latitude', 'longitude']
                 }
             ]
         });
@@ -652,7 +663,12 @@ class AuthService {
                 role: user.role,
                 employeeCode: user.employee_code,
                 emailVerified: user.email_verified,
-                headOffices: user.HeadOffice ? [user.HeadOffice] : []
+                headOffices: user.HeadOffice ? [{
+                    id: user.HeadOffice.id,
+                    name: user.HeadOffice.name,
+                    latitude: user.HeadOffice.latitude,
+                    longitude: user.HeadOffice.longitude
+                }] : []
             }
         };
     }
