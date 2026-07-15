@@ -168,7 +168,7 @@ const createExpense = async (req, res) => {
       }
     }
 
-    // Cross-validation: Cannot submit TA if Head Office DA is submitted on the same date, and vice versa
+    // Cross validation for tA and DA HO
     if (category === 'travel') {
       const existingHeadOfficeDA = await Expense.findOne({
         where: {
@@ -182,7 +182,7 @@ const createExpense = async (req, res) => {
       if (existingHeadOfficeDA) {
         return res.status(400).json({
           success: false,
-          message: 'You cannot submit a Travel Allowance (TA) because you have already submitted a Head Office Daily Allowance (DA) for this date.'
+          message: 'You cannot submit a Travel Allowance (TA) because you have already submitted a Head Office Daily Allowance (DA) for this date. TA can be only add in ex and out of station'
         });
       }
     }
