@@ -224,7 +224,7 @@ class AuthService {
                 console.error('[WhatsApp Welcome] register trigger error:', err);
             }
 
-            const token = JwtService.generateToken({ id: user.id, role: user.role }, '60h');
+            const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
 
             const populatedUser = await AuthRepository.findUserById(user.id, {
                 include: [
@@ -390,7 +390,7 @@ class AuthService {
             }
         }
 
-        const token = JwtService.generateToken({ id: user.id, role: user.role }, '7d');
+        const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
 
         let headOffices = [];
 
@@ -513,7 +513,7 @@ class AuthService {
             otp_expire: null
         });
 
-        const token = JwtService.generateToken({ id: user.id, role: user.role }, '7d');
+        const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
 
         console.log(`🚀 Email login successful for ${email}`);
 

@@ -148,6 +148,26 @@ const createExpense = async (req, res) => {
     // Get active expense settings for this date
     const { Op } = require('sequelize');
     const expenseDate = date || new Date().toISOString().split('T')[0];
+
+    // Check if a Travel Allowance (TA) or Daily Allowance (DA) already exists for this date and is not rejected
+    if (category === 'travel' || category === 'daily') {
+      const existingExpense = await Expense.findOne({
+        where: {
+          user_id: userId,
+          category,
+          date: expenseDate,
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingExpense) {
+        const categoryLabel = category === 'travel' ? 'Travel Allowance (TA)' : 'Daily Allowance (DA)';
+        return res.status(400).json({
+          success: false,
+          message: `You have already submitted a ${categoryLabel} expense for this date.`
+        });
+      }
+    }
+
     const settings = await ExpenseSetting.findOne({
       where: {
         effective_date: {
@@ -308,6 +328,27 @@ const updateExpense = async (req, res) => {
 
     // Get active expense settings for this date
     const { Op } = require('sequelize');
+
+    const targetCategory = category || expense.category;
+    if (targetCategory === 'travel' || targetCategory === 'daily') {
+      const existingExpense = await Expense.findOne({
+        where: {
+          user_id: expense.user_id,
+          category: targetCategory,
+          date: expense.date,
+          id: { [Op.ne]: expense.id },
+          status: { [Op.ne]: 'rejected' }
+        }
+      });
+      if (existingExpense) {
+        const categoryLabel = targetCategory === 'travel' ? 'Travel Allowance (TA)' : 'Daily Allowance (DA)';
+        return res.status(400).json({
+          success: false,
+          message: `A ${categoryLabel} expense already exists for this date.`
+        });
+      }
+    }
+
     const settings = await ExpenseSetting.findOne({
       where: {
         effective_date: {

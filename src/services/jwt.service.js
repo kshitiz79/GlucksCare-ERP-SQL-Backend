@@ -3,7 +3,7 @@
 const jwt = require('jsonwebtoken');
 
 class JwtService {
-    static generateToken(payload, expiresIn = '7d') {
+    static generateToken(payload, expiresIn = '30d') {
         return jwt.sign(
             payload,
             process.env.JWT_SECRET || 'fallback-secret-for-debug',
