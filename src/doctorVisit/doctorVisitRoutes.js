@@ -7,7 +7,8 @@ const {
   updateDoctorVisit,
   deleteDoctorVisit,
   confirmDoctorVisit,
-  getDoctorVisitsByUserId
+  getDoctorVisitsByUserId,
+  bulkConfirmDoctorVisits
 } = require('./doctorVisitController');
 
 // GET all doctor visits
@@ -21,6 +22,9 @@ router.get('/:id', getDoctorVisitById);
 
 // CREATE a new doctor visit
 router.post('/', createDoctorVisit);
+
+// BULK CONFIRM doctor visits (MUST come before /:id to avoid route conflict)
+router.put('/bulk-confirm', bulkConfirmDoctorVisits);
 
 // UPDATE a doctor visit
 router.put('/:id', updateDoctorVisit);

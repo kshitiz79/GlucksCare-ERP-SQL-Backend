@@ -600,6 +600,163 @@ const getDoctorVisitsByUserId = async (req, res) => {
   }
 };
 
+const bulkConfirmDoctorVisits = async (req, res) => {
+  const sequelize = req.app.get('sequelize');
+  let transaction;
+  try {
+    transaction = await sequelize.transaction();
+    const { DoctorVisit, Product, Doctor, UserInventory } = req.app.get('models');
+    const { visitIds, visits } = req.body;
+
+    let itemsToProcess = [];
+
+    if (Array.isArray(visitIds)) {
+      itemsToProcess = visitIds.map(id => ({ id }));
+    } else if (Array.isArray(visits)) {
+      itemsToProcess = visits;
+    } else {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid input format. Must provide visitIds (array of IDs) or visits (array of objects).'
+      });
+    }
+
+    if (itemsToProcess.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'No visits provided to confirm.'
+      });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const item of itemsToProcess) {
+      const visitId = item.id;
+      const { userLatitude, userLongitude, product_id, products_detailed, gifts_given, remark } = item;
+
+      const visit = await DoctorVisit.findByPk(visitId, {
+        include: [{
+          model: Doctor,
+          as: 'DoctorInfo'
+        }],
+        transaction
+      });
+
+      if (!visit) {
+        errors.push({ id: visitId, message: 'Visit not found' });
+        continue;
+      }
+
+      if (visit.confirmed) {
+        results.push({ id: visitId, message: 'Already confirmed', visit });
+        continue;
+      }
+
+      const doctor = visit.DoctorInfo;
+      if (doctor && doctor.latitude && doctor.longitude && userLatitude && userLongitude) {
+        const distance = getDistance(
+          userLatitude,
+          userLongitude,
+          doctor.latitude,
+          doctor.longitude
+        );
+
+        if (distance > 200) {
+          errors.push({
+            id: visitId,
+            message: `You are ${Math.round(distance)} meters away from the doctor's location. Please be within 200 meters.`
+          });
+          continue;
+        }
+      }
+
+      if (product_id) {
+        const product = await Product.findByPk(product_id, { transaction });
+        if (!product) {
+          errors.push({ id: visitId, message: `Product ID ${product_id} not found` });
+          continue;
+        }
+        visit.product_id = product_id;
+      }
+
+      if (remark) {
+        visit.remark = remark;
+      }
+
+      if (products_detailed && Array.isArray(products_detailed)) {
+        visit.products_detailed = products_detailed;
+      }
+
+      let giftError = false;
+      if (gifts_given && Array.isArray(gifts_given) && gifts_given.length > 0) {
+        for (const gift of gifts_given) {
+          if (!gift.item_id || !gift.quantity || gift.quantity <= 0) continue;
+
+          const userInv = await UserInventory.findOne({
+            where: { user_id: visit.user_id, inventory_item_id: gift.item_id },
+            transaction
+          });
+
+          if (!userInv || userInv.assigned_stock < gift.quantity) {
+            errors.push({ id: visitId, message: `Not enough stock for gift item ID ${gift.item_id}` });
+            giftError = true;
+            break;
+          }
+
+          userInv.assigned_stock -= gift.quantity;
+          await userInv.save({ transaction });
+        }
+        if (!giftError) {
+          visit.gifts_given = gifts_given;
+        }
+      }
+
+      if (giftError) {
+        continue;
+      }
+
+      visit.confirmed = true;
+      if (userLatitude) visit.latitude = userLatitude;
+      if (userLongitude) visit.longitude = userLongitude;
+
+      await visit.save({ transaction });
+      results.push({ id: visitId, message: 'Confirmed successfully', visit });
+    }
+
+    if (errors.length > 0 && results.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'All bulk confirmations failed.',
+        errors
+      });
+    }
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: `Processed bulk confirmation: ${results.length} succeeded, ${errors.length} failed.`,
+      results,
+      errors
+    });
+
+  } catch (error) {
+    if (transaction) {
+      try { await transaction.rollback(); } catch (e) {}
+    }
+    console.error('Bulk confirm visits error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error in bulk confirmation',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllDoctorVisits,
   getDoctorVisitById,
@@ -607,5 +764,6 @@ module.exports = {
   updateDoctorVisit,
   deleteDoctorVisit,
   confirmDoctorVisit,
-  getDoctorVisitsByUserId
+  getDoctorVisitsByUserId,
+  bulkConfirmDoctorVisits
 };
