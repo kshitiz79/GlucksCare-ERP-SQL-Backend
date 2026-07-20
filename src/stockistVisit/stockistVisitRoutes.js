@@ -7,7 +7,8 @@ const {
   updateStockistVisit,
   deleteStockistVisit,
   confirmStockistVisit,
-  getStockistVisitsByUserId
+  getStockistVisitsByUserId,
+  bulkConfirmStockistVisits
 } = require('./stockistVisitController');
 
 // GET all stockist visits
@@ -21,6 +22,9 @@ router.get('/:id', getStockistVisitById);
 
 // CREATE a new stockist visit
 router.post('/', createStockistVisit);
+
+// BULK CONFIRM stockist visits (MUST come before /:id to avoid route conflict)
+router.put('/bulk-confirm', bulkConfirmStockistVisits);
 
 // UPDATE a stockist visit
 router.put('/:id', updateStockistVisit);

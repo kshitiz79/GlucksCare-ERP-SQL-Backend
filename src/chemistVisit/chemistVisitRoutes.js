@@ -7,7 +7,8 @@ const {
   updateChemistVisit,
   deleteChemistVisit,
   confirmChemistVisit,
-  getChemistVisitsByUserId
+  getChemistVisitsByUserId,
+  bulkConfirmChemistVisits
 } = require('./chemistVisitController');
 
 // GET all chemist visits
@@ -21,6 +22,9 @@ router.get('/:id', getChemistVisitById);
 
 // CREATE a new chemist visit
 router.post('/', createChemistVisit);
+
+// BULK CONFIRM chemist visits (MUST come before /:id to avoid route conflict)
+router.put('/bulk-confirm', bulkConfirmChemistVisits);
 
 // UPDATE a chemist visit
 router.put('/:id', updateChemistVisit);

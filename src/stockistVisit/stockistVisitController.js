@@ -114,6 +114,22 @@ const createStockistVisit = async (req, res) => {
       });
     }
 
+    // Validate if an unconfirmed visit exists for this stockist on the same day
+    const existingUnconfirmedVisit = await StockistVisit.findOne({
+      where: {
+        stockist_id,
+        date,
+        confirmed: false
+      }
+    });
+
+    if (existingUnconfirmedVisit) {
+      return res.status(400).json({
+        success: false,
+        message: 'An unconfirmed visit for this stockist already exists on this date.'
+      });
+    }
+
     const stockistVisit = await StockistVisit.create({
       stockist_id,
       user_id,
@@ -188,7 +204,7 @@ const confirmStockistVisit = async (req, res) => {
   try {
     const { StockistVisit, Stockist } = req.app.get('models'); // Get models from app context
     const { id } = req.params;
-    let { userLatitude, userLongitude } = req.body;
+    let { userLatitude, userLongitude, notes } = req.body;
 
     const visit = await StockistVisit.findByPk(id, {
       include: [{
@@ -236,6 +252,11 @@ const confirmStockistVisit = async (req, res) => {
     } else {
       // Log that stockist's location is not available, but proceed with confirmation
       console.log(`Stockist ${stockist.id} has no location data. Skipping distance check.`);
+    }
+
+    // Update notes if provided
+    if (notes !== undefined) {
+      visit.notes = notes;
     }
 
     // Confirm the visit and save user's location
@@ -344,6 +365,132 @@ const getStockistVisitsByUserId = async (req, res) => {
   }
 };
 
+const bulkConfirmStockistVisits = async (req, res) => {
+  const sequelize = req.app.get('sequelize');
+  let transaction;
+  try {
+    transaction = await sequelize.transaction();
+    const { StockistVisit, Stockist } = req.app.get('models');
+    const { visitIds, visits, userLatitude, userLongitude, notes } = req.body;
+
+    let itemsToProcess = [];
+
+    if (Array.isArray(visitIds)) {
+      itemsToProcess = visitIds.map(id => ({
+        id,
+        userLatitude,
+        userLongitude,
+        notes
+      }));
+    } else if (Array.isArray(visits)) {
+      itemsToProcess = visits.map(item => ({
+        ...item,
+        userLatitude: item.userLatitude !== undefined ? item.userLatitude : userLatitude,
+        userLongitude: item.userLongitude !== undefined ? item.userLongitude : userLongitude,
+        notes: item.notes !== undefined ? item.notes : notes
+      }));
+    } else {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid input format. Must provide visitIds (array of IDs) or visits (array of objects).'
+      });
+    }
+
+    if (itemsToProcess.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'No visits provided to confirm.'
+      });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const item of itemsToProcess) {
+      const visitId = item.id;
+      const { userLatitude, userLongitude, notes } = item;
+
+      const visit = await StockistVisit.findByPk(visitId, {
+        include: [{
+          model: Stockist,
+          as: 'Stockist'
+        }],
+        transaction
+      });
+
+      if (!visit) {
+        errors.push({ id: visitId, message: 'Visit not found' });
+        continue;
+      }
+
+      if (visit.confirmed) {
+        results.push({ id: visitId, message: 'Already confirmed', visit });
+        continue;
+      }
+
+      const stockist = visit.Stockist;
+      if (stockist && stockist.latitude && stockist.longitude && userLatitude && userLongitude) {
+        const distance = getDistance(
+          userLatitude,
+          userLongitude,
+          stockist.latitude,
+          stockist.longitude
+        );
+
+        if (distance > 200) {
+          errors.push({
+            id: visitId,
+            message: `You are ${Math.round(distance)} meters away from the stockist's location. Please be within 200 meters.`
+          });
+          continue;
+        }
+      }
+
+      if (notes !== undefined) {
+        visit.notes = notes;
+      }
+
+      visit.confirmed = true;
+      if (userLatitude) visit.latitude = userLatitude;
+      if (userLongitude) visit.longitude = userLongitude;
+
+      await visit.save({ transaction });
+      results.push({ id: visitId, message: 'Confirmed successfully', visit });
+    }
+
+    if (errors.length > 0 && results.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'All bulk confirmations failed.',
+        errors
+      });
+    }
+
+    await transaction.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: `Processed bulk confirmation: ${results.length} succeeded, ${errors.length} failed.`,
+      results,
+      errors
+    });
+
+  } catch (error) {
+    if (transaction) {
+      try { await transaction.rollback(); } catch (e) {}
+    }
+    console.error('Bulk confirm stockist visits error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error in bulk confirmation',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllStockistVisits,
   getStockistVisitById,
@@ -351,5 +498,6 @@ module.exports = {
   updateStockistVisit,
   deleteStockistVisit,
   confirmStockistVisit,
-  getStockistVisitsByUserId
+  getStockistVisitsByUserId,
+  bulkConfirmStockistVisits
 };

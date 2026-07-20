@@ -260,6 +260,22 @@ const createDoctorVisit = async (req, res) => {
       });
     }
 
+    // Validate if an unconfirmed visit exists for this doctor on the same day
+    const existingUnconfirmedVisit = await DoctorVisit.findOne({
+      where: {
+        doctor_id,
+        date,
+        confirmed: false
+      }
+    });
+
+    if (existingUnconfirmedVisit) {
+      return res.status(400).json({
+        success: false,
+        message: 'An unconfirmed visit for this doctor already exists on this date.'
+      });
+    }
+
     const doctorVisit = await DoctorVisit.create({
       doctor_id,
       user_id,
@@ -337,7 +353,7 @@ const confirmDoctorVisit = async (req, res) => {
     const { DoctorVisit, Product, Doctor, UserInventory } = req.app.get('models'); // Get models from app context
     const sequelize = req.app.get('sequelize');
     const { id } = req.params;
-    let { userLatitude, userLongitude, product_id, products_detailed, gifts_given, remark } = req.body;
+    let { userLatitude, userLongitude, product_id, products_detailed, productIds, gifts_given, remark, notes } = req.body;
     
     // We will wrap the updates in a transaction if there are gifts to deduct
     const transaction = gifts_given && gifts_given.length > 0 ? await sequelize.transaction() : null;
@@ -403,13 +419,28 @@ const confirmDoctorVisit = async (req, res) => {
     }
 
     // Update remark if provided
-    if (remark) {
+    if (remark !== undefined) {
       visit.remark = remark;
+    }
+
+    // Update notes if provided
+    if (notes !== undefined) {
+      visit.notes = notes;
     }
 
     // Validate and process multiple products
     if (products_detailed && Array.isArray(products_detailed)) {
       visit.products_detailed = products_detailed;
+    }
+
+    // Process productIds if provided
+    if (productIds && Array.isArray(productIds)) {
+      visit.products_detailed = productIds.map(pid => {
+        if (typeof pid === 'object' && pid !== null) {
+          return { product_id: pid.product_id || pid.id || pid };
+        }
+        return { product_id: pid };
+      });
     }
 
     // Process gifts
@@ -606,14 +637,32 @@ const bulkConfirmDoctorVisits = async (req, res) => {
   try {
     transaction = await sequelize.transaction();
     const { DoctorVisit, Product, Doctor, UserInventory } = req.app.get('models');
-    const { visitIds, visits } = req.body;
+    const { visitIds, visits, userLatitude, userLongitude, notes, remark, productIds, products_detailed, gifts_given } = req.body;
 
     let itemsToProcess = [];
 
     if (Array.isArray(visitIds)) {
-      itemsToProcess = visitIds.map(id => ({ id }));
+      itemsToProcess = visitIds.map(id => ({
+        id,
+        userLatitude,
+        userLongitude,
+        notes,
+        remark,
+        productIds,
+        products_detailed,
+        gifts_given
+      }));
     } else if (Array.isArray(visits)) {
-      itemsToProcess = visits;
+      itemsToProcess = visits.map(item => ({
+        ...item,
+        userLatitude: item.userLatitude !== undefined ? item.userLatitude : userLatitude,
+        userLongitude: item.userLongitude !== undefined ? item.userLongitude : userLongitude,
+        notes: item.notes !== undefined ? item.notes : notes,
+        remark: item.remark !== undefined ? item.remark : remark,
+        productIds: item.productIds !== undefined ? item.productIds : productIds,
+        products_detailed: item.products_detailed !== undefined ? item.products_detailed : products_detailed,
+        gifts_given: item.gifts_given !== undefined ? item.gifts_given : gifts_given
+      }));
     } else {
       await transaction.rollback();
       return res.status(400).json({
@@ -635,7 +684,7 @@ const bulkConfirmDoctorVisits = async (req, res) => {
 
     for (const item of itemsToProcess) {
       const visitId = item.id;
-      const { userLatitude, userLongitude, product_id, products_detailed, gifts_given, remark } = item;
+      const { userLatitude, userLongitude, product_id, products_detailed, productIds, gifts_given, remark, notes } = item;
 
       const visit = await DoctorVisit.findByPk(visitId, {
         include: [{
@@ -682,12 +731,25 @@ const bulkConfirmDoctorVisits = async (req, res) => {
         visit.product_id = product_id;
       }
 
-      if (remark) {
+      if (remark !== undefined) {
         visit.remark = remark;
+      }
+
+      if (notes !== undefined) {
+        visit.notes = notes;
       }
 
       if (products_detailed && Array.isArray(products_detailed)) {
         visit.products_detailed = products_detailed;
+      }
+
+      if (productIds && Array.isArray(productIds)) {
+        visit.products_detailed = productIds.map(pid => {
+          if (typeof pid === 'object' && pid !== null) {
+            return { product_id: pid.product_id || pid.id || pid };
+          }
+          return { product_id: pid };
+        });
       }
 
       let giftError = false;
