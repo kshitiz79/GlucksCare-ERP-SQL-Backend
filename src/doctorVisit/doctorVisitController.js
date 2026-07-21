@@ -51,7 +51,7 @@ const getAllDoctorVisits = async (req, res) => {
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization', 'areaId', 'headOfficeId']
+          attributes: ['id', 'name', 'specialization', 'areaId', 'headOfficeId', 'latitude', 'longitude']
         },
         {
           model: User,
@@ -109,7 +109,7 @@ const getDoctorVisitById = async (req, res) => {
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization', 'areaId'],
+          attributes: ['id', 'name', 'specialization', 'areaId', 'latitude', 'longitude'],
           required: false
         },
         {
@@ -176,7 +176,7 @@ const getDoctorVisitById = async (req, res) => {
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization', 'areaId'],
+          attributes: ['id', 'name', 'specialization', 'areaId', 'latitude', 'longitude'],
           required: false
         },
         {
@@ -325,7 +325,7 @@ const updateDoctorVisit = async (req, res) => {
 // DELETE a doctor visit
 const deleteDoctorVisit = async (req, res) => {
   try {
-    const { DoctorVisit } = req.app.get('models'); // Get DoctorVisit model from app context
+    const { DoctorVisit } = req.app.get('models'); // Get DoctorVisit model 
     const doctorVisit = await DoctorVisit.findByPk(req.params.id);
     if (!doctorVisit) {
       return res.status(404).json({
@@ -354,7 +354,7 @@ const confirmDoctorVisit = async (req, res) => {
     const sequelize = req.app.get('sequelize');
     const { id } = req.params;
     let { userLatitude, userLongitude, product_id, products_detailed, productIds, gifts_given, remark, notes } = req.body;
-    
+
     // We will wrap the updates in a transaction if there are gifts to deduct
     const transaction = gifts_given && gifts_given.length > 0 ? await sequelize.transaction() : null;
 
@@ -447,12 +447,12 @@ const confirmDoctorVisit = async (req, res) => {
     if (gifts_given && Array.isArray(gifts_given) && gifts_given.length > 0) {
       for (const gift of gifts_given) {
         if (!gift.item_id || !gift.quantity || gift.quantity <= 0) continue;
-        
+
         let userInv = await UserInventory.findOne({
           where: { user_id: visit.user_id, inventory_item_id: gift.item_id },
           transaction
         });
-        
+
         if (!userInv || userInv.assigned_stock < gift.quantity) {
           if (transaction) await transaction.rollback();
           return res.status(400).json({
@@ -460,7 +460,7 @@ const confirmDoctorVisit = async (req, res) => {
             message: `Not enough stock for gift item ID ${gift.item_id}`
           });
         }
-        
+
         userInv.assigned_stock -= gift.quantity;
         await userInv.save({ transaction });
       }
@@ -487,7 +487,7 @@ const confirmDoctorVisit = async (req, res) => {
     });
   } catch (error) {
     if (typeof transaction !== 'undefined' && transaction) {
-       try { await transaction.rollback(); } catch(e) {}
+      try { await transaction.rollback(); } catch (e) { }
     }
     console.error('Confirm visit error:', error);
     res.status(400).json({
@@ -569,7 +569,7 @@ const getDoctorVisitsByUserId = async (req, res) => {
         {
           model: Doctor,
           as: 'DoctorInfo',
-          attributes: ['id', 'name', 'specialization', 'geo_image_url', 'areaId', 'headOfficeId'],
+          attributes: ['id', 'name', 'specialization', 'geo_image_url', 'areaId', 'headOfficeId', 'latitude', 'longitude'],
           required: false // Use LEFT JOIN instead of INNER JOIN
         },
         {
@@ -808,7 +808,7 @@ const bulkConfirmDoctorVisits = async (req, res) => {
 
   } catch (error) {
     if (transaction) {
-      try { await transaction.rollback(); } catch (e) {}
+      try { await transaction.rollback(); } catch (e) { }
     }
     console.error('Bulk confirm visits error:', error);
     return res.status(500).json({
