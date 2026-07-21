@@ -249,12 +249,14 @@ class AuthService {
 
             return {
                 token,
+                meter_range: 200,
                 user: {
                     id: user.id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
-                    headOffices: responseHeadOffices
+                    headOffices: responseHeadOffices,
+                    meter_range: 200
                 }
             };
         } catch (dbError) {
@@ -424,13 +426,15 @@ class AuthService {
             role: user.role,
             emailVerified: user.email_verified,
             phone: user.mobile_number,
-            headOffices: headOffices
+            headOffices: headOffices,
+            meter_range: 200
         };
 
         console.log('✅ Login successful - Sending response for user:', responseUser.id);
 
         return {
             token,
+            meter_range: 200,
             user: responseUser
         };
     }
@@ -527,6 +531,7 @@ class AuthService {
             success: true,
             msg: 'Login successful',
             token,
+            meter_range: 200,
             user: {
                 id: user.id.toString(),
                 name: user.name,
@@ -539,7 +544,8 @@ class AuthService {
                     name: user.HeadOffice.name,
                     latitude: user.HeadOffice.latitude,
                     longitude: user.HeadOffice.longitude
-                }] : []
+                }] : [],
+                meter_range: 200
             }
         };
     }
@@ -668,7 +674,8 @@ class AuthService {
                     name: user.HeadOffice.name,
                     latitude: user.HeadOffice.latitude,
                     longitude: user.HeadOffice.longitude
-                }] : []
+                }] : [],
+                meter_range: 200
             }
         };
     }
