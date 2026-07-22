@@ -365,7 +365,7 @@ const getAllUsers = async (req, res) => {
   try {
     // Get the User model from app context
     const models = req.app.get('models');
-    const { User, HeadOffice, Location } = models;
+    const { User, HeadOffice, OfflineBgTracking } = models;
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
 
@@ -438,19 +438,25 @@ const getAllUsers = async (req, res) => {
     // Create a map of user_id to latest location
     const locationMap = {};
 
-    // Only fetch locations if Location model exists
-    if (Location && users.length > 0) {
+    // Only fetch locations if OfflineBgTracking model exists
+    if (OfflineBgTracking && users.length > 0) {
       try {
         const userIds = users.map(u => u.id);
 
-        // OPTIMIZED: Use DISTINCT ON to get only latest location per user
+        // OPTIMIZED: Use DISTINCT ON to get only latest location per user from offline_bg_tracking
         const locationDetails = await sequelize.query(
           `
           SELECT DISTINCT ON (user_id)
-            user_id, latitude, longitude, timestamp, accuracy, battery_level, network_type
-          FROM locations
-          WHERE user_id IN (:userIds)
-          ORDER BY user_id, timestamp DESC
+            user_id,
+            (payload->>'latitude')::numeric AS latitude,
+            (payload->>'longitude')::numeric AS longitude,
+            COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) AS timestamp,
+            (payload->>'accuracy')::numeric AS accuracy,
+            (payload->>'battery_level')::numeric AS battery_level,
+            (payload->>'network_type')::text AS network_type
+          FROM offline_bg_tracking
+          WHERE user_id IN (:userIds) AND entity_type = 'location'
+          ORDER BY user_id, COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) DESC
           `,
           {
             replacements: { userIds },
@@ -479,7 +485,7 @@ const getAllUsers = async (req, res) => {
         // Continue without location data
       }
     } else {
-      console.warn('Location model not available or no users found');
+      console.warn('OfflineBgTracking model not available or no users found');
     }
 
     let managersMap = {};
@@ -1224,7 +1230,7 @@ const deleteUser = async (req, res) => {
   try {
     // Get models from app context
     const models = req.app.get('models');
-    const { User, Expense, Attendance, Location, DoctorVisit, Ticket } = models;
+    const { User, Expense, Attendance, OfflineBgTracking, DoctorVisit, Ticket } = models;
     const sequelize = req.app.get('sequelize');
 
     const user = await User.findByPk(req.params.id);
@@ -1366,7 +1372,7 @@ const deleteUser = async (req, res) => {
       try {
         counts.expenses = await Expense.count({ where: { user_id: req.params.id } });
         counts.attendance = await Attendance.count({ where: { user_id: req.params.id } });
-        counts.locations = await Location.count({ where: { user_id: req.params.id } });
+        counts.locations = OfflineBgTracking ? await OfflineBgTracking.count({ where: { user_id: req.params.id, entity_type: 'location' } }) : 0;
         counts.doctorVisits = await DoctorVisit.count({ where: { user_id: req.params.id } });
         counts.tickets = await Ticket.count({ where: { user_id: req.params.id } });
         counts.createdUsers = await User.count({ where: { created_by: req.params.id } });
@@ -1377,11 +1383,11 @@ const deleteUser = async (req, res) => {
 
       // 1. Delete personal data tables (user's own records) - Use individual transactions
       const personalDataTables = [
-        'expenses', 'attendance', 'locations', 'tickets', 'doctor_visits',
-        'chemist_visits', 'stockist_visits', 'sales_activities', 'location_events',
-        'location_history', 'notification_recipients', 'orders', 'sales_targets',
+        'expenses', 'attendance', 'tickets', 'doctor_visits',
+        'chemist_visits', 'stockist_visits', 'sales_activities',
+        'notification_recipients', 'orders', 'sales_targets',
         'user_head_offices', 'user_managers', 'user_shifts', 'versions',
-        'high_frequency_tracks', 'real_time_locations', 'stop_events'
+        'high_frequency_tracks', 'real_time_locations', 'stop_events', 'offline_bg_tracking'
       ];
 
       let deletedCounts = {};
@@ -1657,7 +1663,7 @@ const checkUserDependencies = async (req, res) => {
   try {
     // Get models from app context
     const models = req.app.get('models');
-    const { User, Expense, Attendance, Location, DoctorVisit, Ticket } = models;
+    const { User, Expense, Attendance, OfflineBgTracking, DoctorVisit, Ticket } = models;
 
     const user = await User.findByPk(req.params.id);
     if (!user) {
@@ -1677,7 +1683,7 @@ const checkUserDependencies = async (req, res) => {
     const attendanceCount = await Attendance.count({ where: { user_id: req.params.id } });
     if (attendanceCount > 0) dependencies.attendance = attendanceCount;
 
-    const locationCount = await Location.count({ where: { user_id: req.params.id } });
+    const locationCount = OfflineBgTracking ? await OfflineBgTracking.count({ where: { user_id: req.params.id, entity_type: 'location' } }) : 0;
     if (locationCount > 0) dependencies.locations = locationCount;
 
     const doctorVisitCount = await DoctorVisit.count({ where: { user_id: req.params.id } });
@@ -1698,8 +1704,8 @@ const checkUserDependencies = async (req, res) => {
 
     // Check other models dynamically
     const otherModels = [
-      'ChemistVisit', 'StockistVisit', 'SalesActivity', 'LocationHistory',
-      'LocationEvent', 'UserHeadOffice', 'UserManager', 'UserShift',
+      'ChemistVisit', 'StockistVisit', 'SalesActivity',
+      'UserHeadOffice', 'UserManager', 'UserShift',
       'NotificationRecipient', 'Order', 'SalesTarget', 'Version'
     ];
 

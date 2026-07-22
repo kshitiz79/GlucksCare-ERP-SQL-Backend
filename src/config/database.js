@@ -52,7 +52,7 @@ const Doctor = require('../doctor/Doctor');
 const InvestmentRequest = require('../investmentRequest/InvestmentRequest');
 const Sale = require('../sale/Sale');
 
-const Location = require('../location/Location');
+
 const Branch = require('../branch/Branch');
 const Department = require('../department/Department');
 const Designation = require('../designation/Designation');
@@ -73,8 +73,7 @@ const Visit = require('../visit/Visit');
 const VisitProductPromoted = require('../visitProductPromoted/VisitProductPromoted');
 const VisitProductAgreed = require('../visitProductAgreed/VisitProductAgreed');
 const VisitProductNotAgreed = require('../visitProductNotAgreed/VisitProductNotAgreed');
-const LocationHistory = require('../locationHistory/LocationHistory');
-const LocationEvent = require('../locationEvent/LocationEvent');
+
 const UserShift = require('../userShift/UserShift');
 const Holiday = require('../holiday/Holiday');
 const Expense = require('../expencse/Expense');
@@ -125,7 +124,7 @@ const models = {
     InvestmentRequest: InvestmentRequest(sequelize),
     Sale: Sale(sequelize),
 
-    Location: Location(sequelize),
+
     Branch: Branch(sequelize),
     Department: Department(sequelize),
     Designation: Designation(sequelize),
@@ -146,8 +145,7 @@ const models = {
     VisitProductPromoted: VisitProductPromoted(sequelize),
     VisitProductAgreed: VisitProductAgreed(sequelize),
     VisitProductNotAgreed: VisitProductNotAgreed(sequelize),
-    LocationHistory: LocationHistory(sequelize),
-    LocationEvent: LocationEvent(sequelize),
+
     UserShift: UserShift(sequelize),
     Holiday: Holiday(sequelize),
     Expense: Expense(sequelize),

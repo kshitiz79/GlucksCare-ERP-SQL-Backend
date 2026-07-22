@@ -20,11 +20,11 @@ const deleteUserSimple = async (req, res) => {
 
     // Step 1: Delete all personal data (like MongoDB - no foreign key constraints)
     const personalDataTables = [
-      'expenses', 'attendance', 'locations', 'tickets', 'doctor_visits',
-      'chemist_visits', 'stockist_visits', 'sales_activities', 'location_events',
-      'location_history', 'notification_recipients', 'orders', 'sales_targets',
+      'expenses', 'attendance', 'tickets', 'doctor_visits',
+      'chemist_visits', 'stockist_visits', 'sales_activities',
+      'notification_recipients', 'orders', 'sales_targets',
       'user_head_offices', 'user_managers', 'user_shifts', 'versions',
-      'high_frequency_tracks', 'real_time_locations', 'stop_events', 'leaves'
+      'high_frequency_tracks', 'real_time_locations', 'stop_events', 'leaves', 'offline_bg_tracking'
     ];
 
     let deletedCounts = {};

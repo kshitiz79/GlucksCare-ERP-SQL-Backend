@@ -141,9 +141,7 @@ async function startServer() {
     const leaveRoutes = require('./src/leave/leaveRoutes');
     const leaveTypeRoutes = require('./src/leaveType/leaveTypeRoutes');
     const shiftRoutes = require('./src/shift/shiftRoutes');
-    const locationRoutes = require('./src/location/locationRoutes');
-    const locationHistoryRoutes = require('./src/locationHistory/locationHistoryRoutes');
-    const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
+
     const stopEventsRoutes = require('./src/stopEvents/stopEventsRoutes');
     const expenseRoutes = require('./src/expencse/expenseRoutes');
     const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
@@ -229,14 +227,10 @@ async function startServer() {
     app.use('/api/leaves', leaveRoutes);
     app.use('/api/leave-types', leaveTypeRoutes);
     app.use('/api/shifts', shiftRoutes);
-    app.use('/api/locations', locationRoutes);
-    app.use('/api/location-histories', locationHistoryRoutes);
-    app.use('/api/location-events', locationEventRoutes);
+
     app.use('/api/stop-events', stopEventsRoutes);
 
-    // Live location tracking routes
-    const liveLocationRoutes = require('./src/location/locationRoutes');
-    app.use('/api/live-location', liveLocationRoutes);
+
 
     // New route mounts
     app.use('/api/branches', branchRoutes);
