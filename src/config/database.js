@@ -1,9 +1,10 @@
 // src/config/database.js
 
 const { Sequelize } = require('sequelize');
+const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Create Sequelize instance
 const sequelize = new Sequelize({
