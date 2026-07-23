@@ -40,7 +40,7 @@ const Area = (sequelize) => {
     radius: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 700
+      defaultValue: 300
     },
     is_active: {
       type: DataTypes.BOOLEAN,
