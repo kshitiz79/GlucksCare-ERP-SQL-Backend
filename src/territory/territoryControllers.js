@@ -119,24 +119,26 @@ const getTerritoryMaster = async (req, res) => {
       });
     });
 
-    // 3. Format Areas response
-    const formattedAreas = areas.map(area => {
-      const colorsSet = colorsByArea[area.id] || new Set();
-      return {
-        id: area.id,
-        headquarterId: area.head_office_id,
-        postOffice: area.post_office,
-        pincode: area.pincode,
-        latitude: parseFloat(area.latitude) || 0,
-        longitude: parseFloat(area.longitude) || 0,
-        radius: area.radius || 700,
-        doctorCount: doctorCountByArea[area.id] || 0,
-        chemistCount: chemistCountByArea[area.id] || 0,
-        stockistCount: stockistCountByArea[area.id] || 0,
-        visible: area.is_active !== false,
-        colors: Array.from(colorsSet)
-      };
-    });
+    // 3. Format Areas response (Filter only areas that have assigned Doctor, Chemist, or Stockist)
+    const formattedAreas = areas
+      .map(area => {
+        const colorsSet = colorsByArea[area.id] || new Set();
+        return {
+          id: area.id,
+          headquarterId: area.head_office_id,
+          postOffice: area.post_office,
+          pincode: area.pincode,
+          latitude: parseFloat(area.latitude) || 0,
+          longitude: parseFloat(area.longitude) || 0,
+          radius: area.radius || 700,
+          doctorCount: doctorCountByArea[area.id] || 0,
+          chemistCount: chemistCountByArea[area.id] || 0,
+          stockistCount: stockistCountByArea[area.id] || 0,
+          visible: area.is_active !== false,
+          colors: Array.from(colorsSet)
+        };
+      })
+      .filter(area => area.doctorCount > 0 || area.chemistCount > 0 || area.stockistCount > 0);
 
     // 4. Format Doctors response
     const formattedDoctors = doctors.map(doctor => {
