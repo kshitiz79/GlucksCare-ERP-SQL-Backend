@@ -283,6 +283,10 @@ async function startServer() {
     const mobImageRoutes = require('./src/mobimgupload/mobImageRoutes');
     app.use('/api/mobimages', mobImageRoutes);
 
+    // Doctor coordinates & area routes
+    const doctorCoordinatesRoutes = require('./src/doctorCoordinates/doctorCoordinatesRoutes');
+    app.use('/api/doctor-coordinates', doctorCoordinatesRoutes);
+
 
     app.use('/api/addresses', addressRoutes);
     app.use('/api/forwarding-notes', forwardingNoteRoutes);
