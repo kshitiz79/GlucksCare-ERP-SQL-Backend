@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
-const concaveman = require('concaveman');
+const _concaveman = require('concaveman');
+const concaveman = typeof _concaveman === 'function' ? _concaveman : (_concaveman.default || _concaveman);
 
 /**
  * Utility to calculate outer concave/convex hull boundary coordinates
@@ -431,10 +432,204 @@ const getAreaBoundariesAll = async (req, res) => {
   }
 };
 
+/**
+ * API 6: Get Areas and Doctors' coordinates based on Logged-in User's Assigned Head Offices
+ * Endpoint: GET /api/doctor-coordinates/assigned-headoffice
+ */
+const getDoctorsByAssignedHeadOffice = async (req, res) => {
+  try {
+    const { Area, Doctor, User, HeadOffice } = req.app.get('models');
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    // 1. Fetch user with assigned head offices
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let headOfficesList = [];
+    if (user.headOffices && user.headOffices.length > 0) {
+      headOfficesList = user.headOffices;
+    } else if (user.head_office_id) {
+      const ho = await HeadOffice.findByPk(user.head_office_id);
+      if (ho) headOfficesList = [ho];
+    }
+
+    if (headOfficesList.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No head offices assigned to this user',
+        assignedHeadOffices: [],
+        totalAreas: 0,
+        data: []
+      });
+    }
+
+    const headOfficeIds = headOfficesList.map(h => h.id);
+
+    // 2. Fetch areas under the assigned head offices with doctors
+    const areas = await Area.findAll({
+      where: {
+        head_office_id: { [Op.in]: headOfficeIds }
+      },
+      attributes: ['id', 'name', 'pincode', 'latitude', 'longitude', 'head_office_id'],
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Doctor,
+          as: 'Doctors',
+          attributes: ['id', 'name', 'latitude', 'longitude', 'specialization', 'clinic_name']
+        }
+      ],
+      order: [['name', 'ASC']]
+    });
+
+    // 3. Format response: areas with doctors coordinates
+    const formattedAreas = areas.map(area => {
+      const areaObj = area.toJSON ? area.toJSON() : area;
+      const doctorsList = (areaObj.Doctors || []).map(doc => ({
+        id: doc.id,
+        name: doc.name,
+        pincode: area.pincode,
+        latitude: parseFloat(doc.latitude) || 0,
+        longitude: parseFloat(doc.longitude) || 0,
+        specialization: doc.specialization || '',
+        clinicName: doc.clinic_name || ''
+      }));
+
+      return {
+        id: area.id,
+        name: area.name,
+        pincode: area.pincode,
+        headOfficeId: area.head_office_id,
+        headOfficeName: areaObj.HeadOffice ? areaObj.HeadOffice.name : '',
+        latitude: parseFloat(area.latitude) || 0,
+        longitude: parseFloat(area.longitude) || 0,
+        doctorCount: doctorsList.length,
+        doctors: doctorsList
+      };
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name
+      },
+      assignedHeadOffices: headOfficesList.map(h => ({ id: h.id, name: h.name })),
+      totalAreas: formattedAreas.length,
+      data: formattedAreas
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * API 7: Get Areas and Doctors' coordinates by specific Head Office ID
+ * Endpoint: GET /api/doctor-coordinates/by-headoffice/:headOfficeId
+ */
+const getDoctorsByHeadOfficeId = async (req, res) => {
+  try {
+    const { Area, Doctor, HeadOffice } = req.app.get('models');
+    const { headOfficeId } = req.params;
+
+    const headOffice = await HeadOffice.findByPk(headOfficeId);
+    if (!headOffice) {
+      return res.status(404).json({
+        success: false,
+        message: 'Head Office not found'
+      });
+    }
+
+    const areas = await Area.findAll({
+      where: {
+        head_office_id: headOfficeId
+      },
+      attributes: ['id', 'name', 'pincode', 'latitude', 'longitude', 'head_office_id'],
+      include: [
+        {
+          model: Doctor,
+          as: 'Doctors',
+          attributes: ['id', 'name', 'latitude', 'longitude', 'specialization', 'clinic_name']
+        }
+      ],
+      order: [['name', 'ASC']]
+    });
+
+    const formattedAreas = areas.map(area => {
+      const areaObj = area.toJSON ? area.toJSON() : area;
+      const doctorsList = (areaObj.Doctors || []).map(doc => ({
+        id: doc.id,
+        name: doc.name,
+        pincode: area.pincode,
+        latitude: parseFloat(doc.latitude) || 0,
+        longitude: parseFloat(doc.longitude) || 0,
+        specialization: doc.specialization || '',
+        clinicName: doc.clinic_name || ''
+      }));
+
+      return {
+        id: area.id,
+        name: area.name,
+        pincode: area.pincode,
+        headOfficeId: area.head_office_id,
+        headOfficeName: headOffice.name,
+        latitude: parseFloat(area.latitude) || 0,
+        longitude: parseFloat(area.longitude) || 0,
+        doctorCount: doctorsList.length,
+        doctors: doctorsList
+      };
+    });
+
+    res.json({
+      success: true,
+      headOffice: {
+        id: headOffice.id,
+        name: headOffice.name
+      },
+      totalAreas: formattedAreas.length,
+      data: formattedAreas
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getAreasWithDoctorCoordinates,
   getDoctorsByPincode,
   getAreaBoundaryById,
   getBoundaryByPincode,
-  getAreaBoundariesAll
+  getAreaBoundariesAll,
+  getDoctorsByAssignedHeadOffice,
+  getDoctorsByHeadOfficeId
 };

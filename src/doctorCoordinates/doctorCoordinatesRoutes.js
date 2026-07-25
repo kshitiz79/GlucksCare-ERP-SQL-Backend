@@ -5,7 +5,9 @@ const {
   getDoctorsByPincode,
   getAreaBoundaryById,
   getBoundaryByPincode,
-  getAreaBoundariesAll
+  getAreaBoundariesAll,
+  getDoctorsByAssignedHeadOffice,
+  getDoctorsByHeadOfficeId
 } = require('./doctorCoordinatesController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -26,5 +28,11 @@ router.get('/boundary/by-pincode', authMiddleware, getBoundaryByPincode);
 
 // 5. GET outermost boundary coordinates (hull) for all areas
 router.get('/area-boundaries', authMiddleware, getAreaBoundariesAll);
+
+// 6. GET areas and doctor coordinates based on logged-in user's assigned Head Office(s)
+router.get('/assigned-headoffice', authMiddleware, getDoctorsByAssignedHeadOffice);
+
+// 7. GET areas and doctor coordinates by specific Head Office ID
+router.get('/by-headoffice/:headOfficeId', authMiddleware, getDoctorsByHeadOfficeId);
 
 module.exports = router;
