@@ -477,8 +477,6 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'No head offices assigned to this user',
-        assignedHeadOffices: [],
-        totalAreas: 0,
         data: []
       });
     }
@@ -493,20 +491,17 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
       attributes: ['id', 'name', 'pincode', 'latitude', 'longitude', 'head_office_id'],
       include: [
         {
-          model: HeadOffice,
-          as: 'HeadOffice',
-          attributes: ['id', 'name']
-        },
-        {
           model: Doctor,
           as: 'Doctors',
-          attributes: ['id', 'name', 'latitude', 'longitude', 'specialization', 'clinic_name']
+          attributes: ['id', 'name', 'latitude', 'longitude']
         }
       ],
       order: [['name', 'ASC']]
     });
 
-    // 3. Format response: areas with doctors coordinates
+    const { concavity, lengthThreshold } = req.query;
+
+    // 3. Format response: areas with doctors coordinates and outer boundary
     const formattedAreas = areas.map(area => {
       const areaObj = area.toJSON ? area.toJSON() : area;
       const doctorsList = (areaObj.Doctors || []).map(doc => ({
@@ -514,32 +509,26 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
         name: doc.name,
         pincode: area.pincode,
         latitude: parseFloat(doc.latitude) || 0,
-        longitude: parseFloat(doc.longitude) || 0,
-        specialization: doc.specialization || '',
-        clinicName: doc.clinic_name || ''
+        longitude: parseFloat(doc.longitude) || 0
       }));
+
+      // Calculate outer concave/convex hull boundary for doctors in this area
+      const boundary = calculateOuterBoundary(doctorsList, concavity, lengthThreshold);
 
       return {
         id: area.id,
         name: area.name,
         pincode: area.pincode,
-        headOfficeId: area.head_office_id,
-        headOfficeName: areaObj.HeadOffice ? areaObj.HeadOffice.name : '',
         latitude: parseFloat(area.latitude) || 0,
         longitude: parseFloat(area.longitude) || 0,
-        doctorCount: doctorsList.length,
+        outerBoundary: boundary.outerCoordinates,
+        geoJSON: boundary.geoJSON,
         doctors: doctorsList
       };
     });
 
     res.json({
       success: true,
-      user: {
-        id: user.id,
-        name: user.name
-      },
-      assignedHeadOffices: headOfficesList.map(h => ({ id: h.id, name: h.name })),
-      totalAreas: formattedAreas.length,
       data: formattedAreas
     });
   } catch (error) {
