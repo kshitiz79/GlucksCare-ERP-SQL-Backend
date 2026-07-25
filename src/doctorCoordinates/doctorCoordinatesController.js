@@ -146,26 +146,28 @@ const getAreasWithDoctorCoordinates = async (req, res) => {
       order: [['name', 'ASC']]
     });
 
-    // 4. Format output to contain ONLY name, pincode, latitude, longitude
-    const formattedData = areas.map(area => {
-      const areaObj = area.toJSON ? area.toJSON() : area;
-      const doctorsList = (areaObj.Doctors || []).map(doc => ({
-        id: doc.id,
-        name: doc.name,
-        pincode: area.pincode,
-        latitude: parseFloat(doc.latitude) || 0,
-        longitude: parseFloat(doc.longitude) || 0
-      }));
+    // 4. Format output to contain ONLY name, pincode, latitude, longitude (Filter only areas that have doctors)
+    const formattedData = areas
+      .map(area => {
+        const areaObj = area.toJSON ? area.toJSON() : area;
+        const doctorsList = (areaObj.Doctors || []).map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          pincode: area.pincode,
+          latitude: parseFloat(doc.latitude) || 0,
+          longitude: parseFloat(doc.longitude) || 0
+        }));
 
-      return {
-        id: area.id,
-        name: area.name,
-        pincode: area.pincode,
-        latitude: parseFloat(area.latitude) || 0,
-        longitude: parseFloat(area.longitude) || 0,
-        doctors: doctorsList
-      };
-    });
+        return {
+          id: area.id,
+          name: area.name,
+          pincode: area.pincode,
+          latitude: parseFloat(area.latitude) || 0,
+          longitude: parseFloat(area.longitude) || 0,
+          doctors: doctorsList
+        };
+      })
+      .filter(area => area.doctors && area.doctors.length > 0);
 
     res.json({
       success: true,
@@ -404,20 +406,22 @@ const getAreaBoundariesAll = async (req, res) => {
       order: [['name', 'ASC']]
     });
 
-    const data = areas.map(area => {
-      const areaObj = area.toJSON ? area.toJSON() : area;
-      const doctors = (areaObj.Doctors || []).map(d => ({ ...d, areaPincode: area.pincode }));
-      const boundary = calculateOuterBoundary(doctors, concavity, lengthThreshold);
+    const data = areas
+      .map(area => {
+        const areaObj = area.toJSON ? area.toJSON() : area;
+        const doctors = (areaObj.Doctors || []).map(d => ({ ...d, areaPincode: area.pincode }));
+        const boundary = calculateOuterBoundary(doctors, concavity, lengthThreshold);
 
-      return {
-        id: area.id,
-        name: area.name,
-        pincode: area.pincode,
-        totalDoctors: doctors.length,
-        outerCoordinates: boundary.outerCoordinates,
-        geoJSON: boundary.geoJSON
-      };
-    });
+        return {
+          id: area.id,
+          name: area.name,
+          pincode: area.pincode,
+          totalDoctors: doctors.length,
+          outerCoordinates: boundary.outerCoordinates,
+          geoJSON: boundary.geoJSON
+        };
+      })
+      .filter(area => area.totalDoctors > 0);
 
     res.json({
       success: true,
@@ -501,31 +505,33 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
 
     const { concavity, lengthThreshold } = req.query;
 
-    // 3. Format response: areas with doctors coordinates and outer boundary
-    const formattedAreas = areas.map(area => {
-      const areaObj = area.toJSON ? area.toJSON() : area;
-      const doctorsList = (areaObj.Doctors || []).map(doc => ({
-        id: doc.id,
-        name: doc.name,
-        pincode: area.pincode,
-        latitude: parseFloat(doc.latitude) || 0,
-        longitude: parseFloat(doc.longitude) || 0
-      }));
+    // 3. Format response: areas with doctors coordinates and outer boundary (Filter only areas that have doctors)
+    const formattedAreas = areas
+      .map(area => {
+        const areaObj = area.toJSON ? area.toJSON() : area;
+        const doctorsList = (areaObj.Doctors || []).map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          pincode: area.pincode,
+          latitude: parseFloat(doc.latitude) || 0,
+          longitude: parseFloat(doc.longitude) || 0
+        }));
 
-      // Calculate outer concave/convex hull boundary for doctors in this area
-      const boundary = calculateOuterBoundary(doctorsList, concavity, lengthThreshold);
+        // Calculate outer concave/convex hull boundary for doctors in this area
+        const boundary = calculateOuterBoundary(doctorsList, concavity, lengthThreshold);
 
-      return {
-        id: area.id,
-        name: area.name,
-        pincode: area.pincode,
-        latitude: parseFloat(area.latitude) || 0,
-        longitude: parseFloat(area.longitude) || 0,
-        outerBoundary: boundary.outerCoordinates,
-        geoJSON: boundary.geoJSON,
-        doctors: doctorsList
-      };
-    });
+        return {
+          id: area.id,
+          name: area.name,
+          pincode: area.pincode,
+          latitude: parseFloat(area.latitude) || 0,
+          longitude: parseFloat(area.longitude) || 0,
+          outerBoundary: boundary.outerCoordinates,
+          geoJSON: boundary.geoJSON,
+          doctors: doctorsList
+        };
+      })
+      .filter(area => area.doctors && area.doctors.length > 0);
 
     res.json({
       success: true,
@@ -571,30 +577,32 @@ const getDoctorsByHeadOfficeId = async (req, res) => {
       order: [['name', 'ASC']]
     });
 
-    const formattedAreas = areas.map(area => {
-      const areaObj = area.toJSON ? area.toJSON() : area;
-      const doctorsList = (areaObj.Doctors || []).map(doc => ({
-        id: doc.id,
-        name: doc.name,
-        pincode: area.pincode,
-        latitude: parseFloat(doc.latitude) || 0,
-        longitude: parseFloat(doc.longitude) || 0,
-        specialization: doc.specialization || '',
-        clinicName: doc.clinic_name || ''
-      }));
+    const formattedAreas = areas
+      .map(area => {
+        const areaObj = area.toJSON ? area.toJSON() : area;
+        const doctorsList = (areaObj.Doctors || []).map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          pincode: area.pincode,
+          latitude: parseFloat(doc.latitude) || 0,
+          longitude: parseFloat(doc.longitude) || 0,
+          specialization: doc.specialization || '',
+          clinicName: doc.clinic_name || ''
+        }));
 
-      return {
-        id: area.id,
-        name: area.name,
-        pincode: area.pincode,
-        headOfficeId: area.head_office_id,
-        headOfficeName: headOffice.name,
-        latitude: parseFloat(area.latitude) || 0,
-        longitude: parseFloat(area.longitude) || 0,
-        doctorCount: doctorsList.length,
-        doctors: doctorsList
-      };
-    });
+        return {
+          id: area.id,
+          name: area.name,
+          pincode: area.pincode,
+          headOfficeId: area.head_office_id,
+          headOfficeName: headOffice.name,
+          latitude: parseFloat(area.latitude) || 0,
+          longitude: parseFloat(area.longitude) || 0,
+          doctorCount: doctorsList.length,
+          doctors: doctorsList
+        };
+      })
+      .filter(area => area.doctors && area.doctors.length > 0);
 
     res.json({
       success: true,
