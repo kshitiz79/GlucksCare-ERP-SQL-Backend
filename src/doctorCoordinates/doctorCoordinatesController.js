@@ -665,6 +665,7 @@ const getDoctorsByHeadOfficeId = async (req, res) => {
 };
 
 module.exports = {
+  calculateOuterBoundary,
   getAreasWithDoctorCoordinates,
   getDoctorsByPincode,
   getAreaBoundaryById,

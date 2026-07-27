@@ -1,3 +1,5 @@
+const { calculateOuterBoundary } = require('../doctorCoordinates/doctorCoordinatesController');
+
 const getTerritoryMaster = async (req, res) => {
   try {
     const { Area, Doctor, Chemist, Stockist, Beat, BeatArea, User, HeadOffice } = req.app.get('models');
@@ -84,11 +86,19 @@ const getTerritoryMaster = async (req, res) => {
       }
     }) : [];
 
-    // 2. Count maps for Areas
+    // 2. Count maps and points for Areas
     const doctorCountByArea = {};
+    const pointsByArea = {};
+
     doctors.forEach(d => {
       if (d.areaId) {
         doctorCountByArea[d.areaId] = (doctorCountByArea[d.areaId] || 0) + 1;
+        if (!pointsByArea[d.areaId]) pointsByArea[d.areaId] = [];
+        pointsByArea[d.areaId].push({
+          name: d.name,
+          latitude: d.latitude,
+          longitude: d.longitude
+        });
       }
     });
 
@@ -96,6 +106,12 @@ const getTerritoryMaster = async (req, res) => {
     chemists.forEach(c => {
       if (c.area_id) {
         chemistCountByArea[c.area_id] = (chemistCountByArea[c.area_id] || 0) + 1;
+        if (!pointsByArea[c.area_id]) pointsByArea[c.area_id] = [];
+        pointsByArea[c.area_id].push({
+          name: c.firm_name || c.contact_person_name,
+          latitude: c.latitude,
+          longitude: c.longitude
+        });
       }
     });
 
@@ -103,6 +119,12 @@ const getTerritoryMaster = async (req, res) => {
     stockists.forEach(s => {
       if (s.area_id) {
         stockistCountByArea[s.area_id] = (stockistCountByArea[s.area_id] || 0) + 1;
+        if (!pointsByArea[s.area_id]) pointsByArea[s.area_id] = [];
+        pointsByArea[s.area_id].push({
+          name: s.firm_name || s.contact_person,
+          latitude: s.latitude,
+          longitude: s.longitude
+        });
       }
     });
 
@@ -123,6 +145,19 @@ const getTerritoryMaster = async (req, res) => {
     const formattedAreas = areas
       .map(area => {
         const colorsSet = colorsByArea[area.id] || new Set();
+
+        let areaPoints = pointsByArea[area.id] || [];
+        if (areaPoints.length === 0 && (parseFloat(area.latitude) !== 0 || parseFloat(area.longitude) !== 0)) {
+          areaPoints = [{
+            name: area.post_office || area.name,
+            pincode: area.pincode,
+            latitude: area.latitude,
+            longitude: area.longitude
+          }];
+        }
+
+        const boundary = calculateOuterBoundary(areaPoints);
+
         return {
           id: area.id,
           headquarterId: area.head_office_id,
@@ -135,7 +170,10 @@ const getTerritoryMaster = async (req, res) => {
           chemistCount: chemistCountByArea[area.id] || 0,
           stockistCount: stockistCountByArea[area.id] || 0,
           visible: area.is_active !== false,
-          colors: Array.from(colorsSet)
+          colors: Array.from(colorsSet),
+          borderCoordinates: boundary.outerCoordinates,
+          outerBoundary: boundary.outerCoordinates,
+          geoJSON: boundary.geoJSON
         };
       })
       .filter(area => area.doctorCount > 0 || area.chemistCount > 0 || area.stockistCount > 0);
