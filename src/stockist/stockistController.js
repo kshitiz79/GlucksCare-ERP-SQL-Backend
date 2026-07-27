@@ -145,8 +145,12 @@ const getAllStockists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: stockistObj.HeadOffice || stockistObj.headOffice,
+        headOfficeId: stockistObj.head_office_id || stockistObj.headOfficeId || stockistObj.HeadOffice?.id || null,
+        head_office_id: stockistObj.head_office_id || stockistObj.headOfficeId || stockistObj.HeadOffice?.id || null,
         area: stockistObj.Area || null,
-        is_assigned_to_area: !!stockistObj.area_id,
+        areaId: stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id || null,
+        area_id: stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id || null,
+        is_assigned_to_area: !!(stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id),
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,

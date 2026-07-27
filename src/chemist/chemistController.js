@@ -115,8 +115,12 @@ const getAllChemists = async (req, res) => {
           amount: parseFloat(turnover.amount)
         })) : [],
         headOffice: chemistObj.HeadOffice || chemistObj.headOffice,
+        headOfficeId: chemistObj.head_office_id || chemistObj.headOfficeId || chemistObj.HeadOffice?.id || null,
+        head_office_id: chemistObj.head_office_id || chemistObj.headOfficeId || chemistObj.HeadOffice?.id || null,
         area: chemistObj.Area || null,
-        is_assigned_to_area: !!chemistObj.area_id,
+        areaId: chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id || null,
+        area_id: chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id || null,
+        is_assigned_to_area: !!(chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id),
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,

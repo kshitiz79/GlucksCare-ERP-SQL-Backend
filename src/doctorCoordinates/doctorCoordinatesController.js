@@ -102,7 +102,7 @@ const calculateOuterBoundary = (doctors, concavity = 2, lengthThreshold = 0) => 
  */
 const getAreasWithDoctorCoordinates = async (req, res) => {
   try {
-    const { Area, Doctor, User, HeadOffice } = req.app.get('models');
+    const { Area, Doctor, User, HeadOffice, Beat } = req.app.get('models');
 
     // 1. Get user's assigned head offices if authenticated
     let headOfficeIds = [];
@@ -132,7 +132,7 @@ const getAreasWithDoctorCoordinates = async (req, res) => {
       areaWhere.head_office_id = { [Op.in]: headOfficeIds };
     }
 
-    // 3. Fetch areas with included doctors
+    // 3. Fetch areas with included doctors and beats
     const areas = await Area.findAll({
       where: areaWhere,
       attributes: ['id', 'name', 'pincode', 'latitude', 'longitude'],
@@ -141,12 +141,18 @@ const getAreasWithDoctorCoordinates = async (req, res) => {
           model: Doctor,
           as: 'Doctors',
           attributes: ['id', 'name', 'latitude', 'longitude']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
     });
 
-    // 4. Format output to contain ONLY name, pincode, latitude, longitude (Filter only areas that have doctors)
+    // 4. Format output (Filter only areas that have doctors)
     const formattedData = areas
       .map(area => {
         const areaObj = area.toJSON ? area.toJSON() : area;
@@ -158,10 +164,15 @@ const getAreasWithDoctorCoordinates = async (req, res) => {
           longitude: parseFloat(doc.longitude) || 0
         }));
 
+        const colors = areaObj.beats ? [...new Set(areaObj.beats.map(b => b.color).filter(Boolean))] : [];
+        const color = colors.length > 0 ? colors[0] : null;
+
         return {
           id: area.id,
           name: area.name,
           pincode: area.pincode,
+          color: color,
+          colors: colors,
           latitude: parseFloat(area.latitude) || 0,
           longitude: parseFloat(area.longitude) || 0,
           doctors: doctorsList
@@ -371,7 +382,7 @@ const getBoundaryByPincode = async (req, res) => {
  */
 const getAreaBoundariesAll = async (req, res) => {
   try {
-    const { Area, Doctor, User, HeadOffice } = req.app.get('models');
+    const { Area, Doctor, User, HeadOffice, Beat } = req.app.get('models');
     const { concavity, lengthThreshold } = req.query;
 
     let headOfficeIds = [];
@@ -401,6 +412,12 @@ const getAreaBoundariesAll = async (req, res) => {
           model: Doctor,
           as: 'Doctors',
           attributes: ['id', 'name', 'latitude', 'longitude']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
@@ -411,11 +428,15 @@ const getAreaBoundariesAll = async (req, res) => {
         const areaObj = area.toJSON ? area.toJSON() : area;
         const doctors = (areaObj.Doctors || []).map(d => ({ ...d, areaPincode: area.pincode }));
         const boundary = calculateOuterBoundary(doctors, concavity, lengthThreshold);
+        const colors = areaObj.beats ? [...new Set(areaObj.beats.map(b => b.color).filter(Boolean))] : [];
+        const color = colors.length > 0 ? colors[0] : null;
 
         return {
           id: area.id,
           name: area.name,
           pincode: area.pincode,
+          color: color,
+          colors: colors,
           totalDoctors: doctors.length,
           outerCoordinates: boundary.outerCoordinates,
           geoJSON: boundary.geoJSON
@@ -442,7 +463,7 @@ const getAreaBoundariesAll = async (req, res) => {
  */
 const getDoctorsByAssignedHeadOffice = async (req, res) => {
   try {
-    const { Area, Doctor, User, HeadOffice } = req.app.get('models');
+    const { Area, Doctor, User, HeadOffice, Beat } = req.app.get('models');
 
     if (!req.user || !req.user.id) {
       return res.status(401).json({
@@ -498,6 +519,12 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
           model: Doctor,
           as: 'Doctors',
           attributes: ['id', 'name', 'latitude', 'longitude']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
@@ -520,10 +547,15 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
         // Calculate outer concave/convex hull boundary for doctors in this area
         const boundary = calculateOuterBoundary(doctorsList, concavity, lengthThreshold);
 
+        const colors = areaObj.beats ? [...new Set(areaObj.beats.map(b => b.color).filter(Boolean))] : [];
+        const color = colors.length > 0 ? colors[0] : null;
+
         return {
           id: area.id,
           name: area.name,
           pincode: area.pincode,
+          color: color,
+          colors: colors,
           latitude: parseFloat(area.latitude) || 0,
           longitude: parseFloat(area.longitude) || 0,
           outerBoundary: boundary.outerCoordinates,
@@ -551,7 +583,7 @@ const getDoctorsByAssignedHeadOffice = async (req, res) => {
  */
 const getDoctorsByHeadOfficeId = async (req, res) => {
   try {
-    const { Area, Doctor, HeadOffice } = req.app.get('models');
+    const { Area, Doctor, HeadOffice, Beat } = req.app.get('models');
     const { headOfficeId } = req.params;
 
     const headOffice = await HeadOffice.findByPk(headOfficeId);
@@ -572,6 +604,12 @@ const getDoctorsByHeadOfficeId = async (req, res) => {
           model: Doctor,
           as: 'Doctors',
           attributes: ['id', 'name', 'latitude', 'longitude', 'specialization', 'clinic_name']
+        },
+        {
+          model: Beat,
+          as: 'beats',
+          attributes: ['id', 'name', 'color'],
+          through: { attributes: [] }
         }
       ],
       order: [['name', 'ASC']]
@@ -590,10 +628,15 @@ const getDoctorsByHeadOfficeId = async (req, res) => {
           clinicName: doc.clinic_name || ''
         }));
 
+        const colors = areaObj.beats ? [...new Set(areaObj.beats.map(b => b.color).filter(Boolean))] : [];
+        const color = colors.length > 0 ? colors[0] : null;
+
         return {
           id: area.id,
           name: area.name,
           pincode: area.pincode,
+          color: color,
+          colors: colors,
           headOfficeId: area.head_office_id,
           headOfficeName: headOffice.name,
           latitude: parseFloat(area.latitude) || 0,
