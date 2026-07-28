@@ -19,6 +19,11 @@ const Holiday = (sequelize) => {
       type: DataTypes.ENUM('National', 'Regional', 'Religious', 'Company', 'Optional'),
       allowNull: false
     },
+    religion: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: 'All'
+    },
     description: {
       type: DataTypes.TEXT
     },

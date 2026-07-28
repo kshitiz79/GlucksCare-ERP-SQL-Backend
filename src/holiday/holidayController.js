@@ -42,6 +42,20 @@ const getAllHolidays = async (req, res) => {
       };
     }
     
+    // Filter by religion based on user token or query parameter
+    const targetReligion = religion || (req.user ? req.user.religion : null);
+    if (all !== 'true' && targetReligion && targetReligion.toLowerCase() !== 'all') {
+      whereClause[Op.and] = whereClause[Op.and] || [];
+      whereClause[Op.and].push({
+        [Op.or]: [
+          { religion: 'All' },
+          { religion: null },
+          { religion: '' },
+          { religion: { [Op.iLike]: targetReligion } }
+        ]
+      });
+    }
+    
     const holidays = await Holiday.findAll({
       where: whereClause,
       include: [
@@ -155,6 +169,7 @@ const createHoliday = async (req, res) => {
     holidayData.is_active = holidayData.isActive !== undefined ? holidayData.isActive : true;
     holidayData.applicable_states = holidayData.applicableStates || [];
     holidayData.applicable_roles = holidayData.applicableRoles || [];
+    holidayData.religion = holidayData.religion || 'All';
     
     const holiday = await Holiday.create(holidayData);
     
@@ -223,6 +238,7 @@ const updateHoliday = async (req, res) => {
     if (updateData.isActive !== undefined) updateData.is_active = updateData.isActive;
     if (updateData.applicableStates !== undefined) updateData.applicable_states = updateData.applicableStates;
     if (updateData.applicableRoles !== undefined) updateData.applicable_roles = updateData.applicableRoles;
+    if (updateData.religion !== undefined) updateData.religion = updateData.religion || 'All';
     
     const [updatedCount] = await Holiday.update(updateData, {
       where: { id: req.params.id }
@@ -315,7 +331,9 @@ const getHolidaysForCalendar = async (req, res) => {
       year = new Date().getFullYear(),
       userState,
       userRole,
-      type
+      type,
+      religion,
+      all
     } = req.query;
     
     const startOfYear = new Date(parseInt(year), 0, 1);
@@ -350,6 +368,24 @@ const getHolidaysForCalendar = async (req, res) => {
       );
       whereClause[Op.or] = orConditions;
     }
+
+    // Filter by religion based on user token or query parameter
+    const targetReligion = religion || (req.user ? req.user.religion : null);
+    if (all !== 'true' && targetReligion && targetReligion.toLowerCase() !== 'all') {
+      whereClause[Op.and] = whereClause[Op.and] || [];
+      if (whereClause[Op.or]) {
+        whereClause[Op.and].push({ [Op.or]: whereClause[Op.or] });
+        delete whereClause[Op.or];
+      }
+      whereClause[Op.and].push({
+        [Op.or]: [
+          { religion: 'All' },
+          { religion: null },
+          { religion: '' },
+          { religion: { [Op.iLike]: targetReligion } }
+        ]
+      });
+    }
     
     const holidays = await Holiday.findAll({
       where: whereClause,
@@ -362,6 +398,7 @@ const getHolidaysForCalendar = async (req, res) => {
       title: holiday.name,
       date: holiday.date,
       type: holiday.type,
+      religion: holiday.religion || 'All',
       description: holiday.description,
       color: holiday.color,
       isOptional: holiday.is_optional,
@@ -413,7 +450,7 @@ const checkHoliday = async (req, res) => {
   try {
     const { Holiday } = req.app.get('models');
     const { date } = req.params;
-    const { userState, userRole } = req.query;
+    const { userState, userRole, religion, all } = req.query;
     
     const checkDate = new Date(date);
     const startOfDay = new Date(checkDate);
@@ -446,6 +483,24 @@ const checkHoliday = async (req, res) => {
       );
       whereClause[Op.or] = orConditions;
     }
+
+    // Filter by religion based on user token or query parameter
+    const targetReligion = religion || (req.user ? req.user.religion : null);
+    if (all !== 'true' && targetReligion && targetReligion.toLowerCase() !== 'all') {
+      whereClause[Op.and] = whereClause[Op.and] || [];
+      if (whereClause[Op.or]) {
+        whereClause[Op.and].push({ [Op.or]: whereClause[Op.or] });
+        delete whereClause[Op.or];
+      }
+      whereClause[Op.and].push({
+        [Op.or]: [
+          { religion: 'All' },
+          { religion: null },
+          { religion: '' },
+          { religion: { [Op.iLike]: targetReligion } }
+        ]
+      });
+    }
     
     const holidays = await Holiday.findAll({
       where: whereClause
@@ -460,6 +515,7 @@ const checkHoliday = async (req, res) => {
           id: h.id,
           name: h.name,
           type: h.type,
+          religion: h.religion || 'All',
           isOptional: h.is_optional
         }))
       }

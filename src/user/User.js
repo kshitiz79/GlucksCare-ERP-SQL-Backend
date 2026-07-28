@@ -41,6 +41,11 @@ const User = (sequelize) => {
         isIn: [['Male', 'Female']]
       }
     },
+    religion: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null
+    },
     role: {
       type: DataTypes.STRING(50),
       allowNull: false,
