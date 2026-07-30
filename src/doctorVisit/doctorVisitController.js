@@ -497,7 +497,7 @@ const confirmDoctorVisit = async (req, res) => {
   }
 };
 
-// GET visits by user ID
+
 const getDoctorVisitsByUserId = async (req, res) => {
   try {
     const { DoctorVisit, Doctor, User, Product } = req.app.get('models');

@@ -18,7 +18,7 @@ const getAllDesignations = async (req, res) => {
   }
 };
 
-// GET designation by ID
+
 const getDesignationById = async (req, res) => {
   try {
     // Get the Designation model from app context
@@ -47,17 +47,17 @@ const createDesignation = async (req, res) => {
   try {
     // Get the Designation model from app context
     const { Designation } = req.app.get('models');
-    
+
     // Only allow specific fields to be set
     const allowedFields = ['name', 'description'];
     const designationData = {};
-    
+
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
         designationData[field] = req.body[field];
       }
     });
-    
+
     const designation = await Designation.create(designationData);
     res.status(201).json({
       success: true,
@@ -83,17 +83,17 @@ const updateDesignation = async (req, res) => {
         message: 'Designation not found'
       });
     }
-    
+
     // Only allow specific fields to be updated
     const allowedFields = ['name', 'description'];
     const updateData = {};
-    
+
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field];
       }
     });
-    
+
     await designation.update(updateData);
     res.json({
       success: true,
@@ -119,7 +119,7 @@ const deleteDesignation = async (req, res) => {
         message: 'Designation not found'
       });
     }
-    
+
     await designation.destroy();
     res.json({
       success: true,

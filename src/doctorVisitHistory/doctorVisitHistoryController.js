@@ -39,7 +39,7 @@ const getDoctorVisitHistoryById = async (req, res) => {
   }
 };
 
-// CREATE a new doctor visit history
+
 const createDoctorVisitHistory = async (req, res) => {
   try {
     const doctorVisitHistory = await DoctorVisitHistory.create(req.body);
@@ -65,7 +65,7 @@ const updateDoctorVisitHistory = async (req, res) => {
         message: 'Doctor visit history not found'
       });
     }
-    
+
     await doctorVisitHistory.update(req.body);
     res.json({
       success: true,
@@ -89,7 +89,7 @@ const deleteDoctorVisitHistory = async (req, res) => {
         message: 'Doctor visit history not found'
       });
     }
-    
+
     await doctorVisitHistory.destroy();
     res.json({
       success: true,

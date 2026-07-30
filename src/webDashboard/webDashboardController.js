@@ -14,45 +14,37 @@ const getWebDashboardData = async (req, res) => {
             visitsCount,
             expensesSum,
             ticketsCount,
+            invoicesCount,
             usersByRole,
             recentActivities,
             salesTargetsSummary
         ] = await Promise.all([
             // Users count
-            sequelize.models.User.count(),
+            sequelize.models.User ? sequelize.models.User.count() : 0,
 
             // Doctors count
-            sequelize.models.Doctor.count(),
+            sequelize.models.Doctor ? sequelize.models.Doctor.count() : 0,
 
             // Chemists count
-            sequelize.models.Chemist.count(),
+            sequelize.models.Chemist ? sequelize.models.Chemist.count() : 0,
 
             // Stockists count
-            sequelize.models.Stockist.count(),
+            sequelize.models.Stockist ? sequelize.models.Stockist.count() : 0,
 
-            // Visits count (current month)
-            sequelize.models.DoctorVisit.count({
-                where: {
-                    created_at: {
-                        [Op.gte]: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-                    }
-                }
-            }),
+            // Total Visits count
+            sequelize.models.DoctorVisit ? sequelize.models.DoctorVisit.count() : 0,
 
-            // Expenses sum (current month)
-            sequelize.models.Expense.sum('amount', {
-                where: {
-                    created_at: {
-                        [Op.gte]: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-                    }
-                }
-            }),
+            // Total Expenses sum
+            sequelize.models.Expense ? sequelize.models.Expense.sum('amount') : 0,
 
             // Tickets count
-            sequelize.models.Ticket.count(),
+            sequelize.models.Ticket ? sequelize.models.Ticket.count() : 0,
+
+            // Invoices count
+            sequelize.models.InvoiceTracking ? sequelize.models.InvoiceTracking.count() : 0,
 
             // Users by role
-            sequelize.models.User.findAll({
+            sequelize.models.User ? sequelize.models.User.findAll({
                 where: {
                     is_active: true
                 },
@@ -62,14 +54,14 @@ const getWebDashboardData = async (req, res) => {
                 ],
                 group: ['role'],
                 raw: true
-            }),
+            }) : [],
 
-            // Recent activities (last 10) - simplified to avoid association issues
-            sequelize.models.DoctorVisit.findAll({
+            // Recent activities (last 10)
+            sequelize.models.DoctorVisit ? sequelize.models.DoctorVisit.findAll({
                 limit: 10,
                 order: [['created_at', 'DESC']],
                 attributes: ['id', 'created_at', 'user_id', 'doctor_id']
-            }),
+            }) : [],
 
             // Sales targets summary (current month)
             getSalesTargetsSummary()
@@ -77,12 +69,14 @@ const getWebDashboardData = async (req, res) => {
 
         // Transform users by role to object
         const roleStats = {};
-        usersByRole.forEach(item => {
-            roleStats[item.role] = parseInt(item.count);
-        });
+        if (Array.isArray(usersByRole)) {
+            usersByRole.forEach(item => {
+                roleStats[item.role] = parseInt(item.count);
+            });
+        }
 
         // Transform recent activities (simplified)
-        const activities = recentActivities.map(visit => ({
+        const activities = (recentActivities || []).map(visit => ({
             id: visit.id,
             type: 'doctor_visit',
             description: `Doctor visit recorded`,
@@ -100,6 +94,7 @@ const getWebDashboardData = async (req, res) => {
                 totalStockists: stockistsCount,
                 totalVisits: visitsCount,
                 totalExpenses: expensesSum || 0,
+                totalOrders: invoicesCount || 0,
                 totalTickets: ticketsCount,
                 usersByRole: roleStats
             },
