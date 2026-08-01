@@ -1,5 +1,6 @@
 const ROLE_HIERARCHY = {
   'User': 1,
+  'MR': 1,
   'Manager': 2,
   'Area Manager': 3,
   'Zonal Manager': 4,
@@ -164,16 +165,25 @@ const saveDraft = async (req, res) => {
 
     // Bulk create new day entries
     if (days && Array.isArray(days) && days.length > 0) {
-      const dayRecords = days.map(d => ({
-        tour_plan_id: plan.id,
-        date: d.date,
-        day_type: d.day_type || 'Field',
-        beat_id_1: d.beat_id_1 || null,
-        beat_id_2: d.beat_id_2 || null,
-        joint_work_with_user_id: d.day_type === 'Joint work' ? (d.joint_work_with_user_id || null) : null,
-        collaboration_status: d.day_type === 'Joint work' ? (d.collaboration_status || 'None') : 'None',
-        notes: d.notes || null
-      }));
+      const dayRecords = days.map(d => {
+        const userIds = d.day_type === 'Joint work'
+          ? (Array.isArray(d.joint_work_user_ids) && d.joint_work_user_ids.length > 0
+              ? d.joint_work_user_ids
+              : (d.joint_work_with_user_id ? [d.joint_work_with_user_id] : []))
+          : [];
+
+        return {
+          tour_plan_id: plan.id,
+          date: d.date,
+          day_type: d.day_type || 'Field',
+          beat_id_1: d.beat_id_1 || null,
+          beat_id_2: d.beat_id_2 || null,
+          joint_work_with_user_id: userIds[0] || null,
+          joint_work_user_ids: userIds,
+          collaboration_status: d.day_type === 'Joint work' && userIds.length > 0 ? (d.collaboration_status && d.collaboration_status !== 'None' ? d.collaboration_status : 'Pending') : 'None',
+          notes: d.notes || null
+        };
+      });
 
       await TourPlanDay.bulkCreate(dayRecords, { transaction });
     }
@@ -603,18 +613,22 @@ const getUsersAvailability = async (req, res) => {
 const getIncomingCollaborations = async (req, res) => {
   try {
     const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
     const { TourPlan, TourPlanDay, User } = models;
+    const { Op } = require('sequelize');
 
     const incoming = await TourPlanDay.findAll({
       where: {
-        joint_work_with_user_id: req.user.id,
-        collaboration_status: 'Pending'
+        collaboration_status: 'Pending',
+        [Op.or]: [
+          { joint_work_with_user_id: req.user.id },
+          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+        ]
       },
       include: [
         {
           model: TourPlan,
           as: 'tourPlan',
-          where: { status: 'Approved' },
           include: [
             {
               model: User,
@@ -644,18 +658,22 @@ const getIncomingCollaborations = async (req, res) => {
 const getAcceptedCollaborations = async (req, res) => {
   try {
     const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
     const { TourPlan, TourPlanDay, User } = models;
+    const { Op } = require('sequelize');
 
     const accepted = await TourPlanDay.findAll({
       where: {
-        joint_work_with_user_id: req.user.id,
-        collaboration_status: 'Accepted'
+        collaboration_status: 'Accepted',
+        [Op.or]: [
+          { joint_work_with_user_id: req.user.id },
+          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+        ]
       },
       include: [
         {
           model: TourPlan,
           as: 'tourPlan',
-          where: { status: 'Approved' },
           include: [
             {
               model: User,
@@ -695,19 +713,23 @@ const respondToCollaboration = async (req, res) => {
     }
 
     const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
     const { TourPlanDay, TourPlan } = models;
+    const { Op } = require('sequelize');
 
     const day = await TourPlanDay.findOne({
       where: {
         id: dayId,
-        joint_work_with_user_id: req.user.id,
-        collaboration_status: 'Pending'
+        collaboration_status: 'Pending',
+        [Op.or]: [
+          { joint_work_with_user_id: req.user.id },
+          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+        ]
       },
       include: [
         {
           model: TourPlan,
-          as: 'tourPlan',
-          where: { status: 'Approved' }
+          as: 'tourPlan'
         }
       ]
     });
@@ -736,6 +758,66 @@ const respondToCollaboration = async (req, res) => {
   }
 };
 
+// POST send/update joint work collaboration request for a day directly
+const updateDayCollaboration = async (req, res) => {
+  try {
+    const { dayId } = req.params;
+    const { joint_work_user_ids, notes } = req.body;
+
+    const models = req.app.get('models');
+    const { TourPlanDay, TourPlan } = models;
+
+    const day = await TourPlanDay.findByPk(dayId, {
+      include: [{
+        model: TourPlan,
+        as: 'tourPlan'
+      }]
+    });
+
+    if (!day) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tour plan day not found'
+      });
+    }
+
+    if (day.tourPlan.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied. You can only manage joint work for your own tour plan.'
+      });
+    }
+
+    const userIds = Array.isArray(joint_work_user_ids) ? joint_work_user_ids : [];
+
+    day.joint_work_user_ids = userIds;
+    day.joint_work_with_user_id = userIds[0] || null;
+    if (userIds.length > 0) {
+      day.day_type = 'Joint work';
+      day.collaboration_status = 'Pending';
+    } else {
+      day.collaboration_status = 'None';
+    }
+    if (notes !== undefined) {
+      day.notes = notes;
+    }
+
+    await day.save();
+
+    res.json({
+      success: true,
+      message: userIds.length > 0 ? 'Collaboration request sent successfully!' : 'Joint work updated.',
+      data: day
+    });
+  } catch (error) {
+    console.error('Update day collaboration error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // POST send same-day change request
 const requestDayChange = async (req, res) => {
   try {
@@ -750,7 +832,8 @@ const requestDayChange = async (req, res) => {
     }
 
     const models = req.app.get('models');
-    const { TourPlanDay, TourPlan, Beat } = models;
+    const { TourPlanDay, TourPlan, Beat, DoctorVisit, ChemistVisit, StockistVisit } = models;
+    const sequelize = req.app.get('sequelize');
 
     // Find the day and verify ownership
     const day = await TourPlanDay.findByPk(dayId, {
@@ -781,12 +864,12 @@ const requestDayChange = async (req, res) => {
       });
     }
 
-    // Validate that it is for the SAME day (today) only
-    const today = new Date().toISOString().split('T')[0];
-    if (day.date !== today) {
+    // Validate that date is not in the past
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (day.date < todayStr) {
       return res.status(400).json({
         success: false,
-        message: 'Change requests can only be made for today\'s date'
+        message: 'Cannot request changes for past dates'
       });
     }
 
@@ -804,21 +887,66 @@ const requestDayChange = async (req, res) => {
       }
     }
 
-    // Update change request fields
-    day.change_request_status = 'Pending';
-    day.change_request_reason = reason;
-    day.change_request_beat_id_1 = beat_id_1 || null;
-    day.change_request_beat_id_2 = beat_id_2 || null;
-    day.change_request_day_type = day_type || 'Field';
-    day.change_request_comments = null;
+    const currentDirectCount = day.tourPlan.direct_changes_count || 0;
 
-    await day.save();
+    if (currentDirectCount < 3) {
+      // Direct Change Allowed (Auto-Approved)
+      day.beat_id_1 = beat_id_1 || null;
+      day.beat_id_2 = beat_id_2 || null;
+      day.day_type = day_type || 'Field';
+      day.change_request_status = 'Approved';
+      day.change_request_reason = reason;
+      day.change_request_beat_id_1 = beat_id_1 || null;
+      day.change_request_beat_id_2 = beat_id_2 || null;
+      day.change_request_day_type = day_type || 'Field';
+      day.change_request_comments = 'Auto-approved (Direct monthly change allowance)';
 
-    res.json({
-      success: true,
-      message: 'Change request submitted successfully',
-      data: day
-    });
+      await day.save();
+
+      // Increment direct_changes_count on tourPlan
+      day.tourPlan.direct_changes_count = currentDirectCount + 1;
+      await day.tourPlan.save();
+
+      // Reschedule auto-visits for this date
+      try {
+        await DoctorVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+        await ChemistVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+        await StockistVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
+
+        const autoScheduler = require('../utils/autoScheduler');
+        if (autoScheduler && autoScheduler.autoScheduleVisits) {
+          await autoScheduler.autoScheduleVisits(sequelize, models, day.tourPlan.user_id, day.date, day.date, 'all');
+        }
+      } catch (schedErr) {
+        console.error('Error auto-scheduling visits on direct change:', schedErr);
+      }
+
+      return res.json({
+        success: true,
+        autoApproved: true,
+        directChangesUsed: currentDirectCount + 1,
+        message: `Beat updated directly! (${currentDirectCount + 1}/3 free monthly changes used)`,
+        data: day
+      });
+    } else {
+      // 4th Change Onwards -> Pending Approval Request
+      day.change_request_status = 'Pending';
+      day.change_request_reason = reason;
+      day.change_request_beat_id_1 = beat_id_1 || null;
+      day.change_request_beat_id_2 = beat_id_2 || null;
+      day.change_request_day_type = day_type || 'Field';
+      day.change_request_comments = null;
+
+      await day.save();
+
+      return res.json({
+        success: true,
+        autoApproved: false,
+        directChangesUsed: currentDirectCount,
+        message: 'Monthly 3 direct change limit reached. Approval request submitted to ASM/Manager.',
+        data: day
+      });
+    }
   } catch (error) {
     console.error('Request day change error:', error);
     res.status(500).json({
@@ -834,9 +962,12 @@ const getPendingChangeRequests = async (req, res) => {
     const models = req.app.get('models');
     const { TourPlanDay, TourPlan, User, Beat } = models;
 
-    // Get list of roles junior to the current user
-    const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
-    const juniorRolesList = Object.keys(ROLE_HIERARCHY).filter(role => ROLE_HIERARCHY[role] < approverRank);
+    let userWhere = {};
+    if (!['Super Admin', 'Admin', 'Opps Team'].includes(req.user.role)) {
+      const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
+      const juniorRolesList = Object.keys(ROLE_HIERARCHY).filter(role => ROLE_HIERARCHY[role] < approverRank);
+      userWhere = { role: juniorRolesList };
+    }
 
     const pendingRequests = await TourPlanDay.findAll({
       where: {
@@ -850,7 +981,7 @@ const getPendingChangeRequests = async (req, res) => {
           include: [{
             model: User,
             as: 'user',
-            where: { role: juniorRolesList },
+            where: userWhere,
             attributes: ['id', 'name', 'role', 'employee_code']
           }]
         },
@@ -915,15 +1046,17 @@ const respondToDayChangeRequest = async (req, res) => {
       });
     }
 
-    // Verify role hierarchy: approver must be strictly higher rank than creator
-    const creatorRank = ROLE_HIERARCHY[day.tourPlan.user.role] || 0;
-    const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
+    // Verify role hierarchy: approver must be strictly higher rank than creator (unless Admin / Super Admin / Opps Team)
+    if (!['Super Admin', 'Admin', 'Opps Team'].includes(req.user.role)) {
+      const creatorRank = ROLE_HIERARCHY[day.tourPlan.user.role] || 0;
+      const approverRank = ROLE_HIERARCHY[req.user.role] || 0;
 
-    if (approverRank <= creatorRank) {
-      return res.status(403).json({
-        success: false,
-        message: `Permission denied. Your role (${req.user.role}) is not authorized to approve requests for a ${day.tourPlan.user.role}.`
-      });
+      if (approverRank <= creatorRank) {
+        return res.status(403).json({
+          success: false,
+          message: `Permission denied. Your role (${req.user.role}) is not authorized to approve requests for a ${day.tourPlan.user.role}.`
+        });
+      }
     }
 
     if (action === 'approve') {
@@ -1061,6 +1194,192 @@ const deletePlan = async (req, res) => {
   }
 };
 
+// POST perform joint work handshake verification with 200m geo-fence check
+const performJointWorkHandshake = async (req, res) => {
+  try {
+    const { dayId } = req.params;
+    const { latitude, longitude, partner_latitude, partner_longitude } = req.body;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current GPS location (latitude and longitude) is required'
+      });
+    }
+
+    const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { TourPlanDay, TourPlan, User } = models;
+
+    const day = await TourPlanDay.findByPk(dayId, {
+      include: [
+        {
+          model: TourPlan,
+          as: 'tourPlan',
+          include: [{ model: User, as: 'user', attributes: ['id', 'name', 'role'] }]
+        },
+        { model: User, as: 'jointWorkWith', attributes: ['id', 'name', 'role'] }
+      ]
+    });
+
+    if (!day) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tour plan day not found'
+      });
+    }
+
+    const isCreator = day.tourPlan.user_id === req.user.id;
+    let partnerId = null;
+    let partnerName = 'Colleague';
+
+    if (isCreator) {
+      partnerId = day.joint_work_with_user_id || (Array.isArray(day.joint_work_user_ids) ? day.joint_work_user_ids[0] : null);
+      partnerName = day.jointWorkWith ? day.jointWorkWith.name : 'Colleague';
+    } else {
+      partnerId = day.tourPlan.user_id;
+      partnerName = day.tourPlan.user ? day.tourPlan.user.name : 'MR';
+    }
+
+    let partnerLat = partner_latitude ? parseFloat(partner_latitude) : null;
+    let partnerLng = partner_longitude ? parseFloat(partner_longitude) : null;
+
+    if ((!partnerLat || !partnerLng) && partnerId) {
+      try {
+        const [latestLocation] = await sequelize.query(`
+          SELECT 
+            (payload->>'latitude')::numeric as lat, 
+            (payload->>'longitude')::numeric as lng 
+          FROM offline_bg_trackings 
+          WHERE user_id = :partnerId 
+            AND payload->>'latitude' IS NOT NULL 
+            AND payload->>'longitude' IS NOT NULL 
+          ORDER BY created_at_utc DESC 
+          LIMIT 1
+        `, {
+          replacements: { partnerId },
+          type: sequelize.QueryTypes.SELECT
+        });
+
+        if (latestLocation && latestLocation.lat && latestLocation.lng) {
+          partnerLat = parseFloat(latestLocation.lat);
+          partnerLng = parseFloat(latestLocation.lng);
+        }
+      } catch (locErr) {
+        console.error('Error fetching partner location from tracking:', locErr);
+      }
+    }
+
+    if (!partnerLat || !partnerLng) {
+      partnerLat = parseFloat(latitude);
+      partnerLng = parseFloat(longitude);
+    }
+
+    const userLat = parseFloat(latitude);
+    const userLng = parseFloat(longitude);
+
+    const getDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371e3;
+      const φ1 = (lat1 * Math.PI) / 180;
+      const φ2 = (lat2 * Math.PI) / 180;
+      const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+      const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    const distanceMeters = getDistance(userLat, userLng, partnerLat, partnerLng);
+    const roundedDistance = Math.round(distanceMeters);
+
+    day.handshake_time = new Date();
+    day.handshake_user_lat = userLat;
+    day.handshake_user_lng = userLng;
+    day.handshake_partner_lat = partnerLat;
+    day.handshake_partner_lng = partnerLng;
+    day.handshake_distance_meters = roundedDistance;
+    day.handshake_verified_by_user_id = req.user.id;
+
+    if (distanceMeters <= 200) {
+      day.handshake_status = 'Completed';
+      await day.save();
+
+      return res.json({
+        success: true,
+        verified: true,
+        distanceMeters: roundedDistance,
+        message: `Handshake verified! You are working together with ${partnerName} (Distance: ${roundedDistance}m).`,
+        data: day
+      });
+    } else {
+      day.handshake_status = 'Failed';
+      await day.save();
+
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        distanceMeters: roundedDistance,
+        message: `Handshake refused! You are currently ${roundedDistance} meters away from ${partnerName}. You must be within 200 meters of each other to verify Joint Work.`,
+        data: day
+      });
+    }
+  } catch (error) {
+    console.error('Perform joint work handshake error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// GET all joint work handshake data for Admin Panel
+const getAdminHandshakeData = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const { TourPlan, TourPlanDay, User, Beat } = models;
+    const { Op } = require('sequelize');
+
+    const handshakes = await TourPlanDay.findAll({
+      where: {
+        [Op.or]: [
+          { day_type: 'Joint work' },
+          { joint_work_with_user_id: { [Op.ne]: null } },
+          { handshake_status: { [Op.ne]: 'None' } }
+        ]
+      },
+      include: [
+        {
+          model: TourPlan,
+          as: 'tourPlan',
+          required: true,
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['id', 'name', 'role', 'employee_code']
+            }
+          ]
+        },
+        { model: User, as: 'jointWorkWith', attributes: ['id', 'name', 'role', 'employee_code'] },
+        { model: Beat, as: 'beat1', attributes: ['id', 'name'] },
+        { model: Beat, as: 'beat2', attributes: ['id', 'name'] }
+      ],
+      order: [['date', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: handshakes
+    });
+  } catch (error) {
+    console.error('Get admin handshake data error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getMyPlans,
   getPlanById,
@@ -1074,6 +1393,9 @@ module.exports = {
   getIncomingCollaborations,
   getAcceptedCollaborations,
   respondToCollaboration,
+  updateDayCollaboration,
+  performJointWorkHandshake,
+  getAdminHandshakeData,
   requestDayChange,
   getPendingChangeRequests,
   respondToDayChangeRequest,

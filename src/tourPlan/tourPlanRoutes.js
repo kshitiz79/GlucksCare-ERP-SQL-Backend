@@ -17,6 +17,9 @@ const {
   requestDayChange,
   getPendingChangeRequests,
   respondToDayChangeRequest,
+  updateDayCollaboration,
+  performJointWorkHandshake,
+  getAdminHandshakeData,
   deletePlan
 } = require('./tourPlanControllers');
 
@@ -28,6 +31,9 @@ router.get('/users/availability', getUsersAvailability);
 router.get('/collaboration/incoming', getIncomingCollaborations);
 router.get('/collaboration/accepted', getAcceptedCollaborations);
 router.post('/collaboration/:dayId/respond', respondToCollaboration);
+router.post('/day/:dayId/collaboration', updateDayCollaboration);
+router.post('/day/:dayId/handshake', performJointWorkHandshake);
+router.get('/admin/handshakes', getAdminHandshakeData);
 
 // Approval and list routes
 router.get('/pending-approvals', getPendingApprovals);

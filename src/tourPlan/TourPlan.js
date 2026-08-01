@@ -50,6 +50,11 @@ const TourPlan = (sequelize) => {
     comments: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    direct_changes_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0
     }
   }, {
     tableName: 'tour_plans',

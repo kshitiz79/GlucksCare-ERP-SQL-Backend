@@ -5,7 +5,7 @@ const { Op } = require('sequelize');
 // GET web dashboard data - optimized single API call
 const getWebDashboardData = async (req, res) => {
     try {
-        // Get all data in parallel for better performance
+
         const [
             usersCount,
             doctorsCount,
@@ -19,7 +19,7 @@ const getWebDashboardData = async (req, res) => {
             recentActivities,
             salesTargetsSummary
         ] = await Promise.all([
-            // Users count
+
             sequelize.models.User ? sequelize.models.User.count() : 0,
 
             // Doctors count

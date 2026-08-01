@@ -36,6 +36,11 @@ const TourPlanDay = (sequelize) => {
         key: 'id'
       }
     },
+    joint_work_user_ids: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: []
+    },
     collaboration_status: {
       type: DataTypes.STRING(50),
       allowNull: false,
@@ -43,6 +48,42 @@ const TourPlanDay = (sequelize) => {
       validate: {
         isIn: [['None', 'Pending', 'Accepted', 'Rejected']]
       }
+    },
+    handshake_status: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: 'None',
+      validate: {
+        isIn: [['None', 'Pending', 'Completed', 'Failed']]
+      }
+    },
+    handshake_time: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    handshake_distance_meters: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true
+    },
+    handshake_user_lat: {
+      type: DataTypes.DECIMAL(10, 8),
+      allowNull: true
+    },
+    handshake_user_lng: {
+      type: DataTypes.DECIMAL(11, 8),
+      allowNull: true
+    },
+    handshake_partner_lat: {
+      type: DataTypes.DECIMAL(10, 8),
+      allowNull: true
+    },
+    handshake_partner_lng: {
+      type: DataTypes.DECIMAL(11, 8),
+      allowNull: true
+    },
+    handshake_verified_by_user_id: {
+      type: DataTypes.UUID,
+      allowNull: true
     },
     beat_id_1: {
       type: DataTypes.UUID,
