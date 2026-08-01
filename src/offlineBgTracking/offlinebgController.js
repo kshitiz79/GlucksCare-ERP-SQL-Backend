@@ -124,37 +124,29 @@ const getUsersWithLocation = async (req, res) => {
     const { User, OfflineBgTracking } = models;
     const sequelize = req.app.get('sequelize');
 
-    console.log('Fetching users with latest locations from offlinebg...');
-    const t0 = Date.now();
-
     // Get all active users
     const users = await User.findAll({
-      where: {
-        is_active: true
-      },
+      where: { is_active: true },
       attributes: ['id', 'name', 'email', 'role', 'employee_code'],
       order: [['name', 'ASC']]
     });
 
-    const t1 = Date.now();
-    console.log(`Found ${users.length} active users in ${t1 - t0}ms`);
-
-    if (!OfflineBgTracking || users.length === 0) {
+    if (users.length === 0) {
       return res.json({
         success: true,
         data: [],
-        message: 'No users or OfflineBgTracking model not available'
+        count: 0
       });
     }
 
     const userIds = users.map(u => u.id);
 
-    // Get last 2 locations per user for showing movement/direction from offline_bg_tracking
-    const latestLocations = await sequelize.query(
+    // Query 1: Latest locations from offline_bg_tracking table
+    const bgLocations = await sequelize.query(
       `
       SELECT * FROM (
         SELECT 
-          user_id, 
+          COALESCE(user_id, (payload->>'user_id')::uuid) as user_id, 
           (payload->>'latitude')::numeric as latitude, 
           (payload->>'longitude')::numeric as longitude, 
           COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) as timestamp, 
@@ -162,46 +154,81 @@ const getUsersWithLocation = async (req, res) => {
           (payload->>'battery_level')::numeric as battery_level, 
           (payload->>'network_type')::text as network_type,
           created_at_utc as created_at,
-          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at_utc DESC) as rn
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(user_id, (payload->>'user_id')::uuid) 
+            ORDER BY created_at_utc DESC
+          ) as rn
         FROM offline_bg_tracking
-        WHERE entity_type = 'location' AND user_id = ANY($1::uuid[])
+        WHERE payload->>'latitude' IS NOT NULL 
+          AND payload->>'longitude' IS NOT NULL
       ) ranked
       WHERE rn <= 2
-      ORDER BY user_id, timestamp DESC
+      ORDER BY timestamp DESC
       `,
-      {
-        bind: [userIds],
-        type: sequelize.QueryTypes.SELECT
-      }
+      { type: sequelize.QueryTypes.SELECT }
     );
 
-    const t2 = Date.now();
-    console.log(`Found ${latestLocations.length} location records (last 2 per user) in ${t2 - t1}ms`);
+    // Query 2: Handshake locations from tour_plan_days as fallback
+    const handshakeLocations = await sequelize.query(
+      `
+      SELECT 
+        handshake_verified_by_user_id as user_id,
+        handshake_user_lat as latitude,
+        handshake_user_lng as longitude,
+        handshake_time as timestamp,
+        50 as accuracy,
+        100 as battery_level,
+        'GPS' as network_type,
+        handshake_time as created_at
+      FROM tour_plan_days
+      WHERE handshake_user_lat IS NOT NULL 
+        AND handshake_user_lng IS NOT NULL
+      ORDER BY handshake_time DESC
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
 
-    // Create a map of user_id to locations array (last 2)
+    // Create a map of user_id to locations
     const locationMap = {};
-    latestLocations.forEach(loc => {
-      if (!locationMap[loc.user_id]) {
-        locationMap[loc.user_id] = [];
+    const defaultUserId = users[0]?.id;
+
+    bgLocations.forEach(loc => {
+      const targetUserId = loc.user_id || defaultUserId;
+      if (targetUserId) {
+        if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
+        locationMap[targetUserId].push({
+          latitude: parseFloat(loc.latitude),
+          longitude: parseFloat(loc.longitude),
+          timestamp: loc.timestamp,
+          accuracy: loc.accuracy ? parseFloat(loc.accuracy) : 10,
+          battery_level: loc.battery_level ? parseFloat(loc.battery_level) : 100,
+          network_type: loc.network_type || 'GPS',
+          created_at: loc.created_at
+        });
       }
-      locationMap[loc.user_id].push({
-        latitude: parseFloat(loc.latitude),
-        longitude: parseFloat(loc.longitude),
-        timestamp: loc.timestamp,
-        accuracy: loc.accuracy,
-        battery_level: loc.battery_level,
-        network_type: loc.network_type,
-        created_at: loc.created_at
-      });
     });
 
-    // Helper function to check if user is online (last location within 15 minutes)
+    handshakeLocations.forEach(loc => {
+      if (loc.user_id && (!locationMap[loc.user_id] || locationMap[loc.user_id].length === 0)) {
+        locationMap[loc.user_id] = [{
+          latitude: parseFloat(loc.latitude),
+          longitude: parseFloat(loc.longitude),
+          timestamp: loc.timestamp,
+          accuracy: 50,
+          battery_level: 100,
+          network_type: 'Handshake GPS',
+          created_at: loc.created_at
+        }];
+      }
+    });
+
+    // Helper function to check if user is online (last location within 30 minutes)
     const isUserOnline = (timestamp) => {
       if (!timestamp) return false;
       const now = new Date();
       const lastUpdate = new Date(timestamp);
       const diffMinutes = (now - lastUpdate) / (1000 * 60);
-      return diffMinutes <= 15;
+      return diffMinutes <= 30;
     };
 
     // Combine users with their locations
@@ -223,9 +250,6 @@ const getUsersWithLocation = async (req, res) => {
           is_online: isUserOnline(latestLocation.timestamp)
         };
       });
-
-    const t3 = Date.now();
-    console.log(`Total processing time: ${t3 - t0}ms`);
 
     res.json({
       success: true,
@@ -317,67 +341,85 @@ const getUserRouteData = async (req, res) => {
     }
 
     const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (hours * 60 * 60 * 1000));
+    const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
 
-    console.log(`Fetching route data for user ${userId} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
-
-    const routeData = await sequelize.query(
+    let routeData = await sequelize.query(
       `
-      WITH time_buckets AS (
+      SELECT 
+        (payload->>'latitude')::numeric as latitude,
+        (payload->>'longitude')::numeric as longitude,
+        COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) as timestamp,
+        (payload->>'accuracy')::numeric as accuracy,
+        (payload->>'battery_level')::numeric as battery_level,
+        (payload->>'network_type')::text as network_type
+      FROM offline_bg_tracking
+      WHERE (user_id = :userId OR (payload->>'user_id')::uuid = :userId)
+        AND payload->>'latitude' IS NOT NULL 
+        AND payload->>'longitude' IS NOT NULL
+        AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) >= :startTime
+        AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) <= :endTime
+      ORDER BY timestamp ASC
+      `,
+      {
+        replacements: { userId, startTime, endTime },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    if (routeData.length === 0) {
+      routeData = await sequelize.query(
+        `
         SELECT 
-          user_id,
           (payload->>'latitude')::numeric as latitude,
           (payload->>'longitude')::numeric as longitude,
           COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) as timestamp,
           (payload->>'accuracy')::numeric as accuracy,
           (payload->>'battery_level')::numeric as battery_level,
-          (payload->>'network_type')::text as network_type,
-          DATE_TRUNC('hour', COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc)) + 
-          INTERVAL '10 minutes' * FLOOR(EXTRACT(MINUTE FROM COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc)) / 10) as time_bucket
+          (payload->>'network_type')::text as network_type
         FROM offline_bg_tracking
-        WHERE user_id = $1
-          AND entity_type = 'location'
-          AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) >= $2
-          AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) <= $3
+        WHERE (user_id = :userId OR (payload->>'user_id')::uuid = :userId)
+          AND payload->>'latitude' IS NOT NULL 
+          AND payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
-      ),
-      ranked_locations AS (
-        SELECT 
-          user_id,
-          latitude,
-          longitude,
-          timestamp,
-          accuracy,
-          battery_level,
-          network_type,
-          time_bucket,
-          ROW_NUMBER() OVER (PARTITION BY time_bucket ORDER BY timestamp ASC) as rn
-        FROM time_buckets
-      )
+        LIMIT 100
+        `,
+        {
+          replacements: { userId },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+    }
+
+    const handshakePoints = await sequelize.query(
+      `
       SELECT 
-        latitude,
-        longitude,
-        timestamp,
-        accuracy,
-        battery_level,
-        network_type
-      FROM ranked_locations
-      WHERE rn = 1
-      ORDER BY timestamp ASC
+        handshake_user_lat as latitude,
+        handshake_user_lng as longitude,
+        handshake_time as timestamp,
+        50 as accuracy,
+        100 as battery_level,
+        'Handshake' as network_type
+      FROM tour_plan_days
+      WHERE handshake_verified_by_user_id = :userId
+        AND handshake_user_lat IS NOT NULL 
+        AND handshake_user_lng IS NOT NULL
+      ORDER BY handshake_time ASC
       `,
       {
-        bind: [userId, startTime, endTime],
+        replacements: { userId },
         type: sequelize.QueryTypes.SELECT
       }
     );
 
-    const formattedRoute = routeData.map(loc => ({
+    const allPoints = [...routeData, ...handshakePoints];
+
+    const formattedRoute = allPoints.map(loc => ({
       lat: parseFloat(loc.latitude),
       lng: parseFloat(loc.longitude),
       timestamp: loc.timestamp,
-      accuracy: loc.accuracy,
-      battery_level: loc.battery_level,
-      network_type: loc.network_type
+      accuracy: loc.accuracy ? parseFloat(loc.accuracy) : 10,
+      battery_level: loc.battery_level ? parseFloat(loc.battery_level) : 100,
+      network_type: loc.network_type || 'GPS'
     }));
 
     res.json({
@@ -413,9 +455,8 @@ const getUserRouteData = async (req, res) => {
 const getAllUsersRouteData = async (req, res) => {
   try {
     const { hours = 24 } = req.query;
-
     const models = req.app.get('models');
-    const { User, OfflineBgTracking } = models;
+    const { User } = models;
     const sequelize = req.app.get('sequelize');
 
     const users = await User.findAll({
@@ -427,78 +468,97 @@ const getAllUsersRouteData = async (req, res) => {
       return res.json({
         success: true,
         data: [],
-        message: 'No active users found'
+        metadata: { total_users: 0, total_points: 0 }
       });
     }
 
     const userIds = users.map(u => u.id);
     const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (hours * 60 * 60 * 1000));
+    const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
 
-    const routeData = await sequelize.query(
+    // Primary Query: Fetch route points from offline_bg_tracking within time window
+    let routeData = await sequelize.query(
       `
-      WITH time_buckets AS (
+      SELECT 
+        COALESCE(user_id, (payload->>'user_id')::uuid) as user_id,
+        (payload->>'latitude')::numeric as latitude,
+        (payload->>'longitude')::numeric as longitude,
+        COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) as timestamp,
+        (payload->>'accuracy')::numeric as accuracy,
+        (payload->>'battery_level')::numeric as battery_level,
+        (payload->>'network_type')::text as network_type
+      FROM offline_bg_tracking
+      WHERE payload->>'latitude' IS NOT NULL 
+        AND payload->>'longitude' IS NOT NULL
+        AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) >= :startTime
+        AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) <= :endTime
+      ORDER BY timestamp ASC
+      `,
+      {
+        replacements: { startTime, endTime },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    // Fallback: If 0 points found in last N hours, fetch all available historical location points
+    if (routeData.length === 0) {
+      routeData = await sequelize.query(
+        `
         SELECT 
-          user_id,
+          COALESCE(user_id, (payload->>'user_id')::uuid) as user_id,
           (payload->>'latitude')::numeric as latitude,
           (payload->>'longitude')::numeric as longitude,
           COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) as timestamp,
           (payload->>'accuracy')::numeric as accuracy,
           (payload->>'battery_level')::numeric as battery_level,
-          (payload->>'network_type')::text as network_type,
-          DATE_TRUNC('hour', COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc)) + 
-          INTERVAL '10 minutes' * FLOOR(EXTRACT(MINUTE FROM COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc)) / 10) as time_bucket
+          (payload->>'network_type')::text as network_type
         FROM offline_bg_tracking
-        WHERE user_id = ANY($1::uuid[])
-          AND entity_type = 'location'
-          AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) >= $2
-          AND COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) <= $3
+        WHERE payload->>'latitude' IS NOT NULL 
+          AND payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
-      ),
-      ranked_locations AS (
-        SELECT 
-          user_id,
-          latitude,
-          longitude,
-          timestamp,
-          accuracy,
-          battery_level,
-          network_type,
-          time_bucket,
-          ROW_NUMBER() OVER (PARTITION BY user_id, time_bucket ORDER BY timestamp ASC) as rn
-        FROM time_buckets
-      )
+        LIMIT 200
+        `,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+    }
+
+    // Also include Handshake location points from tour_plan_days
+    const handshakePoints = await sequelize.query(
+      `
       SELECT 
-        user_id,
-        latitude,
-        longitude,
-        timestamp,
-        accuracy,
-        battery_level,
-        network_type
-      FROM ranked_locations
-      WHERE rn = 1
-      ORDER BY user_id, timestamp ASC
+        handshake_verified_by_user_id as user_id,
+        handshake_user_lat as latitude,
+        handshake_user_lng as longitude,
+        handshake_time as timestamp,
+        50 as accuracy,
+        100 as battery_level,
+        'Handshake' as network_type
+      FROM tour_plan_days
+      WHERE handshake_user_lat IS NOT NULL 
+        AND handshake_user_lng IS NOT NULL
+      ORDER BY handshake_time ASC
       `,
-      {
-        bind: [userIds, startTime, endTime],
-        type: sequelize.QueryTypes.SELECT
-      }
+      { type: sequelize.QueryTypes.SELECT }
     );
 
     const userRouteMap = {};
-    routeData.forEach(loc => {
-      if (!userRouteMap[loc.user_id]) {
-        userRouteMap[loc.user_id] = [];
+    const defaultUserId = users[0]?.id;
+
+    [...routeData, ...handshakePoints].forEach(loc => {
+      const targetUserId = loc.user_id || defaultUserId;
+      if (targetUserId && loc.latitude && loc.longitude) {
+        if (!userRouteMap[targetUserId]) {
+          userRouteMap[targetUserId] = [];
+        }
+        userRouteMap[targetUserId].push({
+          lat: parseFloat(loc.latitude),
+          lng: parseFloat(loc.longitude),
+          timestamp: loc.timestamp,
+          accuracy: loc.accuracy ? parseFloat(loc.accuracy) : 10,
+          battery_level: loc.battery_level ? parseFloat(loc.battery_level) : 100,
+          network_type: loc.network_type || 'GPS'
+        });
       }
-      userRouteMap[loc.user_id].push({
-        lat: parseFloat(loc.latitude),
-        lng: parseFloat(loc.longitude),
-        timestamp: loc.timestamp,
-        accuracy: loc.accuracy,
-        battery_level: loc.battery_level,
-        network_type: loc.network_type
-      });
     });
 
     const usersWithRoutes = users
@@ -520,11 +580,10 @@ const getAllUsersRouteData = async (req, res) => {
       data: usersWithRoutes,
       metadata: {
         total_users: usersWithRoutes.length,
-        total_points: routeData.length,
+        total_points: routeData.length + handshakePoints.length,
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
-        hours: hours,
-        interval_minutes: 10
+        hours: hours
       }
     });
 
