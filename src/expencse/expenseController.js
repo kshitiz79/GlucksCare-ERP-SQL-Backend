@@ -214,7 +214,7 @@ const createExpense = async (req, res) => {
     }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
-      ex_headquarters_amount: 200,
+      ex_headquarters_amount: 175,
       outside_head_office_amount: 175
     };
 
@@ -273,7 +273,7 @@ const createExpense = async (req, res) => {
       if (dailyAllowanceType === 'headoffice') {
         computedAmount = settings.head_office_amount || 150;
       } else if (dailyAllowanceType === 'ex-headquarters') {
-        computedAmount = settings.ex_headquarters_amount || 200;
+        computedAmount = settings.ex_headquarters_amount || 175;
       } else {
         computedAmount = settings.outside_head_office_amount || 175;
       }
@@ -435,7 +435,7 @@ const updateExpense = async (req, res) => {
     }) || {
       rate_per_km: 2.40,
       head_office_amount: 150,
-      ex_headquarters_amount: 200,
+      ex_headquarters_amount: 175,
       outside_head_office_amount: 175
     };
 
@@ -484,7 +484,7 @@ const updateExpense = async (req, res) => {
       if (dailyAllowanceType === 'headoffice') {
         computedAmount = settings.head_office_amount || 150;
       } else if (dailyAllowanceType === 'ex-headquarters') {
-        computedAmount = settings.ex_headquarters_amount || 200;
+        computedAmount = settings.ex_headquarters_amount || 175;
       } else {
         computedAmount = settings.outside_head_office_amount || 175;
       }
@@ -651,7 +651,7 @@ const getExpenseSettings = async (req, res) => {
       return res.json({
         ratePerKm: 2.40,
         headOfficeAmount: 150,
-        exHeadquartersAmount: 200,
+        exHeadquartersAmount: 175,
         outsideHeadOfficeAmount: 175,
         effectiveDate: '2000-01-01'
       });
@@ -661,7 +661,7 @@ const getExpenseSettings = async (req, res) => {
     const transformedSettings = {
       ratePerKm: settings.rate_per_km,
       headOfficeAmount: settings.head_office_amount,
-      exHeadquartersAmount: settings.ex_headquarters_amount || 200,
+      exHeadquartersAmount: settings.ex_headquarters_amount || 175,
       outsideHeadOfficeAmount: settings.outside_head_office_amount,
       effectiveDate: settings.effective_date
     };
@@ -710,7 +710,7 @@ const updateExpenseSettings = async (req, res) => {
     const transformedSettings = {
       ratePerKm: settings.rate_per_km,
       headOfficeAmount: settings.head_office_amount,
-      exHeadquartersAmount: settings.ex_headquarters_amount || 200,
+      exHeadquartersAmount: settings.ex_headquarters_amount || 175,
       outsideHeadOfficeAmount: settings.outside_head_office_amount,
     };
 

@@ -30,7 +30,7 @@ const ExpenseSetting = (sequelize) => {
     },
     ex_headquarters_amount: {
       type: DataTypes.DECIMAL(8, 2),
-      defaultValue: 200.00,
+      defaultValue: 175.00,
       validate: {
         min: 0
       }
