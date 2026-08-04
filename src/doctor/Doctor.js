@@ -94,6 +94,11 @@ const Doctor = (sequelize) => {
     ucpmp_annual_cap: {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 10000.00
+    },
+    created_by_name: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      comment: 'Name of the user who created this record'
     }
   }, {
     tableName: 'doctors',

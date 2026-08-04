@@ -18,4 +18,4 @@ router.get('/user', authMiddleware, getUserDashboard);
  */
 router.get('/logistics', authMiddleware, getLogisticsDashboard);
 
-module.exports = router;
+module.exports = router; 

@@ -94,6 +94,11 @@ const Stockist = (sequelize) => {
       allowNull: true,
       comment: 'Cloudinary URL for stockist geo-tagged image'
     },
+    created_by_name: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      comment: 'Name of the user who created this record'
+    },
     head_office_id: {
       type: DataTypes.UUID,
       allowNull: false,
