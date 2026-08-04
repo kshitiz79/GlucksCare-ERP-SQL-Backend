@@ -305,7 +305,8 @@ const createChemist = async (req, res) => {
       yearsInBusiness: 'years_in_business',
       headOfficeId: 'head_office_id',
       areaId: 'area_id',
-      area: 'area_id'
+      area: 'area_id',
+      created_by_name: 'created_by_name'
     };
 
     // Convert field names and collect data for the main chemist record

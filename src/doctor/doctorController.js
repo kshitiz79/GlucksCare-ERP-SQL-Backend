@@ -383,6 +383,12 @@ const createDoctor = async (req, res) => {
       delete doctorData.area;
     }
 
+    // Map created_by_name (frontend snake_case) → createdByName (model camelCase)
+    if (doctorData.created_by_name) {
+      doctorData.createdByName = doctorData.created_by_name;
+      delete doctorData.created_by_name;
+    }
+
     // Validate and set priority field
     if (doctorData.priority) {
       const priority = doctorData.priority.toUpperCase();

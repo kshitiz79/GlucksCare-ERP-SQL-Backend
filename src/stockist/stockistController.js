@@ -25,7 +25,8 @@ const STOCKIST_FIELD_MAPPINGS = {
   cancelledChequeUrl: 'cancelled_cheque_url',
   businessProfileUrl: 'business_profile_url',
   areaId: 'area_id',
-  area: 'area_id'
+  area: 'area_id',
+  created_by_name: 'created_by_name'
 };
 
 // GET all stockists

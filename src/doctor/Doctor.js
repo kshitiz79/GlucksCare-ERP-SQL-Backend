@@ -95,9 +95,10 @@ const Doctor = (sequelize) => {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 10000.00
     },
-    created_by_name: {
+    createdByName: {
       type: DataTypes.STRING(255),
       allowNull: true,
+      field: 'created_by_name',
       comment: 'Name of the user who created this record'
     }
   }, {
