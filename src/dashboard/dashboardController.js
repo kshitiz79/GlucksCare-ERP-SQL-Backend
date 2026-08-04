@@ -448,16 +448,17 @@ const getBeatTargetCounts = async (beatIds, models) => {
 const getTodayBeatAssigned = async (userId, models) => {
     try {
         const { TourPlan, TourPlanDay, Beat } = models;
-        if (!TourPlanDay || !Beat) return null;
+        if (!TourPlanDay || !Beat || !TourPlan) return null;
 
         const currentDate = new Date();
         const year = currentDate.getFullYear();
-        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const monthNum = currentDate.getMonth() + 1;
         const day = String(currentDate.getDate()).padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`;
+        const monthStr = String(monthNum).padStart(2, '0');
+        const todayStr = `${year}-${monthStr}-${day}`;
 
-        // Find TourPlanDay for today's date
-        const todayPlanDay = await TourPlanDay.findOne({
+        // 1. Try to find existing TourPlanDay for today's date
+        let todayPlanDay = await TourPlanDay.findOne({
             where: { date: todayStr },
             include: [
                 {
@@ -474,6 +475,62 @@ const getTodayBeatAssigned = async (userId, models) => {
             ]
         });
 
+        // 2. Fallback: If no TourPlanDay exists for today, but user has an assigned active beat,
+        // auto-create/link today's TourPlanDay so editing APIs have a valid day_id
+        if (!todayPlanDay) {
+            const userBeat = await Beat.findOne({
+                where: { user_id: userId, is_active: true },
+                attributes: ['id', 'name', 'color']
+            });
+
+            if (userBeat) {
+                // Ensure a TourPlan exists for current month & year
+                const [tourPlan] = await TourPlan.findOrCreate({
+                    where: {
+                        user_id: userId,
+                        month: monthNum,
+                        year: year
+                    },
+                    defaults: {
+                        user_id: userId,
+                        month: monthNum,
+                        year: year,
+                        status: 'Approved'
+                    }
+                });
+
+                // Ensure a TourPlanDay exists for today's date
+                const [createdPlanDay] = await TourPlanDay.findOrCreate({
+                    where: {
+                        tour_plan_id: tourPlan.id,
+                        date: todayStr
+                    },
+                    defaults: {
+                        tour_plan_id: tourPlan.id,
+                        date: todayStr,
+                        day_type: 'Field',
+                        beat_id_1: userBeat.id
+                    }
+                });
+
+                // Re-fetch with associations
+                todayPlanDay = await TourPlanDay.findByPk(createdPlanDay.id, {
+                    include: [
+                        {
+                            model: TourPlan,
+                            as: 'tourPlan',
+                            attributes: ['id', 'status', 'month', 'year']
+                        },
+                        {
+                            model: Beat,
+                            as: 'beat1',
+                            attributes: ['id', 'name', 'color']
+                        }
+                    ]
+                });
+            }
+        }
+
         if (todayPlanDay) {
             const assignedBeat = todayPlanDay.beat1 || null;
             const beatId = assignedBeat ? assignedBeat.id : todayPlanDay.beat_id_1 || null;
@@ -482,41 +539,13 @@ const getTodayBeatAssigned = async (userId, models) => {
             const targetCounts = await getBeatTargetCounts(beatIds, models);
 
             return {
-                id: todayPlanDay.id,
                 day_id: todayPlanDay.id,
-                tour_plan_day_id: todayPlanDay.id,
-                tour_plan_id: todayPlanDay.tourPlan?.id || null,
+                tour_plan_id: todayPlanDay.tourPlan?.id || todayPlanDay.tour_plan_id || null,
                 date: todayStr,
                 day_type: todayPlanDay.day_type || 'Field',
                 beat_id: beatId,
                 beat_name: assignedBeat?.name || null,
                 status: todayPlanDay.tourPlan?.status || 'Approved',
-                doctors_count: targetCounts.doctors,
-                chemists_count: targetCounts.chemists,
-                stockists_count: targetCounts.stockists,
-                total_targets: targetCounts.total
-            };
-        }
-
-        // Fallback: If no tour plan day found for today, check user's assigned active beat directly
-        const userBeat = await Beat.findOne({
-            where: { user_id: userId, is_active: true },
-            attributes: ['id', 'name', 'color']
-        });
-
-        if (userBeat) {
-            const targetCounts = await getBeatTargetCounts([userBeat.id], models);
-
-            return {
-                id: null,
-                day_id: null,
-                tour_plan_day_id: null,
-                tour_plan_id: null,
-                date: todayStr,
-                day_type: 'Field',
-                beat_id: userBeat.id,
-                beat_name: userBeat.name,
-                status: 'Default',
                 doctors_count: targetCounts.doctors,
                 chemists_count: targetCounts.chemists,
                 stockists_count: targetCounts.stockists,
