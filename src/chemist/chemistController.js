@@ -443,6 +443,34 @@ const createChemist = async (req, res) => {
         Area: undefined
       };
 
+      // Auto-create notification for Admin users about new chemist creation
+      try {
+        const { Notification, NotificationRecipient, User } = models;
+        if (Notification && NotificationRecipient && User) {
+          const adminUsers = await User.findAll({
+            where: { role: ['Super Admin', 'Admin'], is_active: true },
+            attributes: ['id']
+          });
+          if (adminUsers && adminUsers.length > 0) {
+            const chemistTitle = chemistRecordData.firm_name || chemistRecordData.name || 'Chemist';
+            const notif = await Notification.create({
+              title: 'New Chemist Added',
+              body: `A new chemist "${chemistTitle}" has been registered in the system.`,
+              sender_id: req.user?.id || adminUsers[0].id,
+              is_broadcast: false
+            });
+            const recipients = adminUsers.map(u => ({
+              notification_id: notif.id,
+              user_id: u.id,
+              is_read: false
+            }));
+            await NotificationRecipient.bulkCreate(recipients);
+          }
+        }
+      } catch (notifErr) {
+        console.error('Error notifying admins about new chemist:', notifErr);
+      }
+
       res.status(201).json({
         success: true,
         data: transformedChemist

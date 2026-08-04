@@ -482,6 +482,10 @@ const getTodayBeatAssigned = async (userId, models) => {
             const targetCounts = await getBeatTargetCounts(beatIds, models);
 
             return {
+                id: todayPlanDay.id,
+                day_id: todayPlanDay.id,
+                tour_plan_day_id: todayPlanDay.id,
+                tour_plan_id: todayPlanDay.tourPlan?.id || null,
                 date: todayStr,
                 day_type: todayPlanDay.day_type || 'Field',
                 beat_id: beatId,
@@ -504,6 +508,10 @@ const getTodayBeatAssigned = async (userId, models) => {
             const targetCounts = await getBeatTargetCounts([userBeat.id], models);
 
             return {
+                id: null,
+                day_id: null,
+                tour_plan_day_id: null,
+                tour_plan_id: null,
                 date: todayStr,
                 day_type: 'Field',
                 beat_id: userBeat.id,
