@@ -125,11 +125,16 @@ const getAllInvoiceTracking = async (req, res) => {
     }
 
     // Search functionality
-    if (search) {
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      const searchOp = Op.iLike || Op.like;
       whereClause[Op.or] = [
-        { invoice_number: { [Op.like]: `%${search}%` } },
-        { party_name: { [Op.like]: `%${search}%` } },
-        { remarks: { [Op.like]: `%${search}%` } }
+        { invoice_number: { [searchOp]: `%${searchTerm}%` } },
+        { party_name: { [searchOp]: `%${searchTerm}%` } },
+        { courier_company_name: { [searchOp]: `%${searchTerm}%` } },
+        { awb_number: { [searchOp]: `%${searchTerm}%` } },
+        { remarks: { [searchOp]: `%${searchTerm}%` } },
+        { '$Stockist.firm_name$': { [searchOp]: `%${searchTerm}%` } }
       ];
     }
 

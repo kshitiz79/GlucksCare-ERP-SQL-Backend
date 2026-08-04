@@ -39,7 +39,8 @@ const getUserDashboard = async (req, res) => {
             visitStats,
             expenseData,
             targetData,
-            userInfo
+            userInfo,
+            todayBeat
         ] = await Promise.all([
             getVisitStatistics(userId, monthStart, monthEnd, req.app.get('models')),
             getExpenseData(userId, monthStart, monthEnd, req.app.get('models')),
@@ -51,22 +52,24 @@ const getUserDashboard = async (req, res) => {
                     as: 'Department',
                     attributes: ['name']
                 }]
-            })
+            }),
+            getTodayBeatAssigned(userId, req.app.get('models'))
         ]);
 
         // Construct dashboard response
         const dashboardData = {
             user: {
                 id: userId,
-                name: userInfo.name,
-                role: userInfo.role,
-                department: userInfo.Department?.name || 'N/A'
+                name: userInfo ? userInfo.name : 'User',
+                role: userInfo ? userInfo.role : 'MR',
+                department: userInfo?.Department?.name || 'N/A'
             },
             period: {
                 month: currentMonth,
                 year: currentYear,
                 monthName: monthStart.toLocaleDateString('en-US', { month: 'long' })
             },
+            todayBeatAssigned: todayBeat,
             visits: {
                 doctor: {
                     scheduled: Math.floor(visitStats.doctor.scheduled),
@@ -371,6 +374,152 @@ const getTargetData = async (userId, month, year, models) => {
             targetYear: year,
             isCurrentMonth: true
         };
+    }
+};
+
+/**
+ * Helper function to count doctors, chemists, and stockists in assigned beats
+ */
+const getBeatTargetCounts = async (beatIds, models) => {
+    const { BeatArea, Doctor, Chemist, Stockist } = models;
+    let doctors = 0;
+    let chemists = 0;
+    let stockists = 0;
+
+    if (!beatIds || beatIds.length === 0) {
+        return { doctors, chemists, stockists, total: 0 };
+    }
+
+    try {
+        let areaIds = [];
+        if (BeatArea) {
+            const beatAreas = await BeatArea.findAll({ where: { beat_id: beatIds } });
+            areaIds = [...new Set(beatAreas.map(ba => ba.area_id).filter(Boolean))];
+        }
+
+        const queryDoctor = async () => {
+            if (!Doctor) return 0;
+            if (areaIds.length > 0) {
+                return await Doctor.count({ where: { [Op.or]: [{ areaId: areaIds }, { area_id: areaIds }] } }).catch(() => 0);
+            }
+            return 0;
+        };
+
+        const queryChemist = async () => {
+            if (!Chemist) return 0;
+            if (areaIds.length > 0) {
+                return await Chemist.count({ where: { [Op.or]: [{ area_id: areaIds }, { areaId: areaIds }] } }).catch(() => 0);
+            }
+            return 0;
+        };
+
+        const queryStockist = async () => {
+            if (!Stockist) return 0;
+            if (areaIds.length > 0) {
+                return await Stockist.count({ where: { [Op.or]: [{ area_id: areaIds }, { areaId: areaIds }] } }).catch(() => 0);
+            }
+            return 0;
+        };
+
+        const [dCount, cCount, sCount] = await Promise.all([
+            queryDoctor(),
+            queryChemist(),
+            queryStockist()
+        ]);
+
+        doctors = dCount;
+        chemists = cCount;
+        stockists = sCount;
+    } catch (err) {
+        console.error('Error counting beat targets:', err);
+    }
+
+    return {
+        doctors,
+        chemists,
+        stockists,
+        total: doctors + chemists + stockists
+    };
+};
+
+/**
+ * Helper function to get today's assigned beat for the user from TourPlanDay / Beat
+ */
+const getTodayBeatAssigned = async (userId, models) => {
+    try {
+        const { TourPlan, TourPlanDay, Beat } = models;
+        if (!TourPlanDay || !Beat) return null;
+
+        const currentDate = new Date();
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        // Find TourPlanDay for today's date
+        const todayPlanDay = await TourPlanDay.findOne({
+            where: { date: todayStr },
+            include: [
+                {
+                    model: TourPlan,
+                    as: 'tourPlan',
+                    where: { user_id: userId },
+                    attributes: ['id', 'status', 'month', 'year']
+                },
+                {
+                    model: Beat,
+                    as: 'beat1',
+                    attributes: ['id', 'name', 'color']
+                }
+            ]
+        });
+
+        if (todayPlanDay) {
+            const assignedBeat = todayPlanDay.beat1 || null;
+            const beatId = assignedBeat ? assignedBeat.id : todayPlanDay.beat_id_1 || null;
+            const beatIds = beatId ? [beatId] : [];
+
+            const targetCounts = await getBeatTargetCounts(beatIds, models);
+
+            return {
+                date: todayStr,
+                day_type: todayPlanDay.day_type || 'Field',
+                beat_id: beatId,
+                beat_name: assignedBeat?.name || null,
+                status: todayPlanDay.tourPlan?.status || 'Approved',
+                doctors_count: targetCounts.doctors,
+                chemists_count: targetCounts.chemists,
+                stockists_count: targetCounts.stockists,
+                total_targets: targetCounts.total
+            };
+        }
+
+        // Fallback: If no tour plan day found for today, check user's assigned active beat directly
+        const userBeat = await Beat.findOne({
+            where: { user_id: userId, is_active: true },
+            attributes: ['id', 'name', 'color']
+        });
+
+        if (userBeat) {
+            const targetCounts = await getBeatTargetCounts([userBeat.id], models);
+
+            return {
+                date: todayStr,
+                day_type: 'Field',
+                beat_id: userBeat.id,
+                beat_name: userBeat.name,
+                status: 'Default',
+                doctors_count: targetCounts.doctors,
+                chemists_count: targetCounts.chemists,
+                stockists_count: targetCounts.stockists,
+                total_targets: targetCounts.total
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error fetching today beat assigned:', error);
+        return null;
     }
 };
 
