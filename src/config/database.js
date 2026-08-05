@@ -100,6 +100,7 @@ const Challan = require('../challan/Challan');
 const ChallanItem = require('../challan/ChallanItem');
 
 const Address = require('../Address/Address');
+const CourierCompany = require('../courierCompany/CourierCompany');
 const PartyExpense = require('../partyExpense/PartyExpense');
 const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/ProductMasters');
 const InventoryItem = require('../inventory/InventoryItem');
@@ -168,6 +169,7 @@ const models = {
     MobImage: MobImage(sequelize),
 
     Address: Address(sequelize),
+    CourierCompany: CourierCompany(sequelize),
     PartyExpense: PartyExpense(sequelize),
     Salt: Salt(sequelize),
     Unit: Unit(sequelize),
