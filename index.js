@@ -298,6 +298,7 @@ async function startServer() {
     app.use('/api/areas', areaRoutes);
     app.use('/api/beats', beatRoutes);
     app.use('/api/tour-plans', tourPlanRoutes);
+    app.use('/api/tour-plan', tourPlanRoutes);
     app.use('/api/offline-bg-tracking', offlineBgTrackingRoutes);
     const purchaseRoutes = require('./src/purchase/purchaseRoutes');
     app.use('/api/purchases', purchaseRoutes);
