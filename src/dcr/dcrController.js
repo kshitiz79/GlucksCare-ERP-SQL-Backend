@@ -349,7 +349,7 @@ const getUserWiseVisits = async (req, res) => {
     if (user_id) {
       targetUserIds = [user_id];
     } else {
-      const userWhere = {};
+      const userWhere = { is_active: true };
       if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
         userWhere.state_id = state_id || loggedInUser.state_id;
       }
@@ -372,12 +372,11 @@ const getUserWiseVisits = async (req, res) => {
     const dateWhere = {
       date: {
         [Op.between]: [dateStart, dateEnd]
+      },
+      user_id: {
+        [Op.in]: targetUserIds
       }
     };
-
-    if (targetUserIds.length > 0) {
-      dateWhere.user_id = { [Op.in]: targetUserIds };
-    }
 
     const userAttributes = ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'head_office_id', 'state_id'];
 
@@ -394,14 +393,12 @@ const getUserWiseVisits = async (req, res) => {
             {
               model: Doctor,
               as: 'DoctorInfo',
-              attributes: ['id', 'name', 'email', 'phone', 'clinic_name', 'clinic_address', 'location', 'qualification', 'specialization'],
-              required: false
+              attributes: ['id', 'name', 'email', 'phone', 'clinic_name', 'clinic_address', 'location', 'qualification', 'specialization']
             },
             {
               model: User,
               as: 'UserInfo',
-              attributes: userAttributes,
-              required: false
+              attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
@@ -426,14 +423,12 @@ const getUserWiseVisits = async (req, res) => {
             {
               model: Chemist,
               as: 'Chemist',
-              attributes: ['id', 'firm_name', 'contact_person_name', 'mobile_no', 'email_id', 'address', 'designation'],
-              required: false
+              attributes: ['id', 'firm_name', 'contact_person_name', 'mobile_no', 'email_id', 'address', 'designation']
             },
             {
               model: User,
               as: 'User',
-              attributes: userAttributes,
-              required: false
+              attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
@@ -452,14 +447,12 @@ const getUserWiseVisits = async (req, res) => {
             {
               model: Stockist,
               as: 'Stockist',
-              attributes: ['id', 'firm_name', 'registered_business_name', 'contact_person', 'mobile_number', 'email_address', 'registered_office_address', 'designation'],
-              required: false
+              attributes: ['id', 'firm_name', 'registered_business_name', 'contact_person', 'mobile_number', 'email_address', 'registered_office_address', 'designation']
             },
             {
               model: User,
               as: 'User',
-              attributes: userAttributes,
-              required: false
+              attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
