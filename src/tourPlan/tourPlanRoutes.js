@@ -13,6 +13,7 @@ const {
   getUsersAvailability,
   getIncomingCollaborations,
   getAcceptedCollaborations,
+  sendCollaborationRequest,
   respondToCollaboration,
   requestDayChange,
   getPendingChangeRequests,
@@ -30,6 +31,7 @@ router.use(authMiddleware);
 router.get('/users/availability', getUsersAvailability);
 router.get('/collaboration/incoming', getIncomingCollaborations);
 router.get('/collaboration/accepted', getAcceptedCollaborations);
+router.post('/collaboration/send', sendCollaborationRequest);
 router.post('/collaboration/:dayId/respond', respondToCollaboration);
 router.post('/day/:dayId/collaboration', updateDayCollaboration);
 router.post('/day/:dayId/handshake', performJointWorkHandshake);

@@ -48,16 +48,16 @@ router.post('/toggle-punch', togglePunch);
 // GET attendance by ID
 router.get('/:id', getAttendanceById);
 
-// CREATE a new attendance record
+
 router.post('/', createAttendance);
 
-// UPDATE an attendance record
+// 
 router.put('/:id', updateAttendance);
 
-// Admin: Upsert attendance (Create or Update by date and userId)
+
 router.post('/admin/upsert', upsertAttendance);
 
-// Admin: Get attendance report
+// 
 router.get('/admin/report', getAttendanceReport);
 
 // Admin: Bulk update attendance

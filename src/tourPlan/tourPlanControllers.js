@@ -699,6 +699,123 @@ const getAcceptedCollaborations = async (req, res) => {
   }
 };
 
+// POST send a collaboration request to a target user (defaults to current date if date omitted)
+const sendCollaborationRequest = async (req, res) => {
+  try {
+    const { target_user_id, target_user_ids, date, notes } = req.body;
+
+    const recipientIds = Array.isArray(target_user_ids) && target_user_ids.length > 0
+      ? target_user_ids
+      : (target_user_id ? [target_user_id] : []);
+
+    if (recipientIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'target_user_id or target_user_ids is required'
+      });
+    }
+
+    const models = req.app.get('models');
+    const { TourPlan, TourPlanDay, User, Beat } = models;
+
+    // Use provided date or default to current date (today) in YYYY-MM-DD format
+    let targetDateStr = date;
+    if (!targetDateStr) {
+      const currentDate = new Date();
+      const year = currentDate.getFullYear();
+      const monthNum = currentDate.getMonth() + 1;
+      const day = String(currentDate.getDate()).padStart(2, '0');
+      const monthStr = String(monthNum).padStart(2, '0');
+      targetDateStr = `${year}-${monthStr}-${day}`;
+    }
+
+    const [yearStr, monthStr] = targetDateStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+
+    // 1. Find or create TourPlan for logged in user for this month/year
+    const [tourPlan] = await TourPlan.findOrCreate({
+      where: {
+        user_id: req.user.id,
+        month: month,
+        year: year
+      },
+      defaults: {
+        user_id: req.user.id,
+        month: month,
+        year: year,
+        status: 'Approved'
+      }
+    });
+
+    // 2. Find or create TourPlanDay for logged in user for targetDateStr
+    let [planDay] = await TourPlanDay.findOrCreate({
+      where: {
+        tour_plan_id: tourPlan.id,
+        date: targetDateStr
+      },
+      defaults: {
+        tour_plan_id: tourPlan.id,
+        date: targetDateStr,
+        day_type: 'Joint work',
+        joint_work_with_user_id: recipientIds[0],
+        joint_work_user_ids: recipientIds,
+        collaboration_status: 'Pending',
+        handshake_status: 'None'
+      }
+    });
+
+    // 3. Update day record with joint work details
+    planDay.day_type = 'Joint work';
+    planDay.joint_work_with_user_id = recipientIds[0];
+    planDay.joint_work_user_ids = recipientIds;
+    planDay.collaboration_status = 'Pending';
+    planDay.handshake_status = 'None';
+    if (notes !== undefined) {
+      planDay.notes = notes;
+    }
+    await planDay.save();
+
+    // 4. Fetch populated day details with partner user and all target users
+    const updatedDay = await TourPlanDay.findByPk(planDay.id, {
+      include: [
+        {
+          model: User,
+          as: 'jointWorkWith',
+          attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role']
+        },
+        {
+          model: Beat,
+          as: 'beat1',
+          attributes: ['id', 'name', 'color']
+        }
+      ]
+    });
+
+    const targetUsers = await User.findAll({
+      where: { id: recipientIds },
+      attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role']
+    });
+
+    const responseData = {
+      ...updatedDay.toJSON(),
+      target_users: targetUsers
+    };
+
+    res.json({
+      success: true,
+      message: `Collaboration request sent successfully for ${targetDateStr}`,
+      data: responseData
+    });
+  } catch (error) {
+    console.error('Send collaboration request error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send collaboration request'
+    });
+  }
+};
+
 // POST respond to a collaboration request (accept/reject)
 const respondToCollaboration = async (req, res) => {
   try {
@@ -723,7 +840,7 @@ const respondToCollaboration = async (req, res) => {
         collaboration_status: 'Pending',
         [Op.or]: [
           { joint_work_with_user_id: req.user.id },
-          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+          sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${req.user.id}"'::jsonb`)
         ]
       },
       include: [
@@ -741,12 +858,112 @@ const respondToCollaboration = async (req, res) => {
       });
     }
 
-    day.collaboration_status = action === 'accept' ? 'Accepted' : 'Rejected';
-    await day.save();
+    if (action === 'accept') {
+      const targetDate = day.date;
+      const senderUserId = day.tourPlan.user_id;
+      const acceptorUserId = req.user.id;
+
+      // 1. Replace existing accepted collaborations for Sender (User A) on targetDate with anyone else
+      const senderOtherDays = await TourPlanDay.findAll({
+        where: {
+          id: { [Op.ne]: day.id },
+          date: targetDate,
+          collaboration_status: 'Accepted'
+        },
+        include: [{
+          model: TourPlan,
+          as: 'tourPlan',
+          where: { user_id: senderUserId }
+        }]
+      });
+      for (const d of senderOtherDays) {
+        d.collaboration_status = 'Rejected';
+        await d.save();
+      }
+
+      await TourPlanDay.update(
+        { collaboration_status: 'Rejected' },
+        {
+          where: {
+            id: { [Op.ne]: day.id },
+            date: targetDate,
+            collaboration_status: 'Accepted',
+            [Op.or]: [
+              { joint_work_with_user_id: senderUserId },
+              sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${senderUserId}"'::jsonb`)
+            ]
+          }
+        }
+      );
+
+      // 2. Replace existing accepted collaborations for Acceptor (User B) on targetDate with anyone else
+      const acceptorOtherDays = await TourPlanDay.findAll({
+        where: {
+          id: { [Op.ne]: day.id },
+          date: targetDate,
+          collaboration_status: 'Accepted'
+        },
+        include: [{
+          model: TourPlan,
+          as: 'tourPlan',
+          where: { user_id: acceptorUserId }
+        }]
+      });
+      for (const d of acceptorOtherDays) {
+        d.collaboration_status = 'Rejected';
+        await d.save();
+      }
+
+      await TourPlanDay.update(
+        { collaboration_status: 'Rejected' },
+        {
+          where: {
+            id: { [Op.ne]: day.id },
+            date: targetDate,
+            collaboration_status: 'Accepted',
+            [Op.or]: [
+              { joint_work_with_user_id: acceptorUserId },
+              sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${acceptorUserId}"'::jsonb`)
+            ]
+          }
+        }
+      );
+
+      // 3. Mark current request as Accepted
+      day.collaboration_status = 'Accepted';
+      day.handshake_status = 'None';
+      await day.save();
+
+      // 4. Synchronize Acceptor's (User B's) own TourPlanDay on targetDate if present
+      const [yearStr, monthStr] = targetDate.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+
+      const acceptorPlan = await TourPlan.findOne({
+        where: { user_id: acceptorUserId, month, year }
+      });
+
+      if (acceptorPlan) {
+        const acceptorDay = await TourPlanDay.findOne({
+          where: { tour_plan_id: acceptorPlan.id, date: targetDate }
+        });
+        if (acceptorDay) {
+          acceptorDay.day_type = 'Joint work';
+          acceptorDay.joint_work_with_user_id = senderUserId;
+          acceptorDay.joint_work_user_ids = [senderUserId];
+          acceptorDay.collaboration_status = 'Accepted';
+          acceptorDay.handshake_status = 'None';
+          await acceptorDay.save();
+        }
+      }
+    } else {
+      day.collaboration_status = 'Rejected';
+      await day.save();
+    }
 
     res.json({
       success: true,
-      message: `Collaboration request successfully ${action}ed`,
+      message: `Collaboration request successfully ${action}ed. Any previous collaboration for this date has been replaced.`,
       data: day
     });
   } catch (error) {
@@ -1392,6 +1609,7 @@ module.exports = {
   getUsersAvailability,
   getIncomingCollaborations,
   getAcceptedCollaborations,
+  sendCollaborationRequest,
   respondToCollaboration,
   updateDayCollaboration,
   performJointWorkHandshake,

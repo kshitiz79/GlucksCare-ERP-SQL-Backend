@@ -934,5 +934,5 @@ module.exports = {
   upsertAttendance,
   getAttendanceReport,
   bulkUpdateAttendance,
-  calculateBreaks // Export for testing
+  calculateBreaks
 };
