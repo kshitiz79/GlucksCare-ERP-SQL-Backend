@@ -170,15 +170,17 @@ const getStateHeadMobileDcr = async (req, res) => {
             },
             {
               model: User,
-              as: 'User',
+              as: 'UserInfo',
               attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
-        }).then(visits => visits.map(v => ({
-          visit_type: 'doctor',
-          ...v.toJSON()
-        })))
+        }).then(visits => visits.map(v => {
+          const obj = v.toJSON();
+          obj.User = obj.UserInfo || null;
+          delete obj.UserInfo;
+          return { visit_type: 'doctor', ...obj };
+        }))
       );
     } else {
       fetchPromises.push(Promise.resolve([]));
@@ -374,6 +376,7 @@ const getUserWiseVisits = async (req, res) => {
     const fetchPromises = [];
 
     // Doctor Visits
+    // DoctorVisit.js defines the User association as alias 'UserInfo' — must use that here
     if (visit_type === 'all' || visit_type === 'doctor') {
       fetchPromises.push(
         DoctorVisit.findAll({
@@ -386,18 +389,24 @@ const getUserWiseVisits = async (req, res) => {
             },
             {
               model: User,
-              as: 'User',
+              as: 'UserInfo',
               attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
-        }).then(visits => visits.map(v => ({ visit_type: 'doctor', ...v.toJSON() })))
+        }).then(visits => visits.map(v => {
+          const obj = v.toJSON();
+          // Normalise to 'User' key so grouping logic below works uniformly
+          obj.User = obj.UserInfo || null;
+          delete obj.UserInfo;
+          return { visit_type: 'doctor', ...obj };
+        }))
       );
     } else {
       fetchPromises.push(Promise.resolve([]));
     }
 
-    // Chemist Visits
+    // Chemist Visits — ChemistVisit.js defines alias 'User' ✓
     if (visit_type === 'all' || visit_type === 'chemist') {
       fetchPromises.push(
         ChemistVisit.findAll({
@@ -421,7 +430,7 @@ const getUserWiseVisits = async (req, res) => {
       fetchPromises.push(Promise.resolve([]));
     }
 
-    // Stockist Visits
+    // Stockist Visits — StockistVisit.js defines alias 'User' ✓
     if (visit_type === 'all' || visit_type === 'stockist') {
       fetchPromises.push(
         StockistVisit.findAll({
@@ -627,12 +636,17 @@ const getUserDcrById = async (req, res) => {
             },
             {
               model: User,
-              as: 'User',
+              as: 'UserInfo',
               attributes: userAttributes
             }
           ],
           order: [['date', 'DESC']]
-        }).then(visits => visits.map(v => ({ visit_type: 'doctor', ...v.toJSON() })))
+        }).then(visits => visits.map(v => {
+          const obj = v.toJSON();
+          obj.User = obj.UserInfo || null;
+          delete obj.UserInfo;
+          return { visit_type: 'doctor', ...obj };
+        }))
       );
     } else {
       fetchPromises.push(Promise.resolve([]));
