@@ -36,7 +36,9 @@ const StockistVisit = (sequelize) => {
   }, {
     tableName: 'stockist_visits',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   });
   
   // Define associations

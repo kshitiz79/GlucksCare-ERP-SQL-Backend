@@ -161,7 +161,7 @@ const getStateHeadMobileDcr = async (req, res) => {
               attributes: userAttributes
             }
           ],
-          order: [['date', 'DESC'], ['createdAt', 'DESC']]
+          order: [['date', 'DESC']]
         }).then(visits => visits.map(v => ({
           visit_type: 'doctor',
           ...v.toJSON()
@@ -188,7 +188,7 @@ const getStateHeadMobileDcr = async (req, res) => {
               attributes: userAttributes
             }
           ],
-          order: [['date', 'DESC'], ['createdAt', 'DESC']]
+          order: [['date', 'DESC']]
         }).then(visits => visits.map(v => ({
           visit_type: 'chemist',
           ...v.toJSON()
@@ -215,7 +215,7 @@ const getStateHeadMobileDcr = async (req, res) => {
               attributes: userAttributes
             }
           ],
-          order: [['date', 'DESC'], ['createdAt', 'DESC']]
+          order: [['date', 'DESC']]
         }).then(visits => visits.map(v => ({
           visit_type: 'stockist',
           ...v.toJSON()
@@ -230,9 +230,9 @@ const getStateHeadMobileDcr = async (req, res) => {
     // 4. Combine & Sort All Visits
     const combinedVisits = [...doctorVisits, ...chemistVisits, ...stockistVisits];
     combinedVisits.sort((a, b) => {
-      const dateA = new Date(a.date + 'T' + (a.createdAt ? new Date(a.createdAt).toTimeString().split(' ')[0] : '00:00:00'));
-      const dateB = new Date(b.date + 'T' + (b.createdAt ? new Date(b.createdAt).toTimeString().split(' ')[0] : '00:00:00'));
-      return dateB - dateA;
+      const timeA = a.created_at || a.createdAt || a.date;
+      const timeB = b.created_at || b.createdAt || b.date;
+      return new Date(timeB) - new Date(timeA);
     });
 
     // 5. Pagination
