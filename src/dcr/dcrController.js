@@ -435,14 +435,28 @@ const getUserWiseVisits = async (req, res) => {
     // 4. Group Visits by User
     const userVisitMap = new Map();
 
+    const { State, HeadOffice } = models;
+
     const allUsersData = await User.findAll({
       where: { id: targetUserIds },
-      attributes: userAttributes
+      attributes: userAttributes,
+      include: [
+        ...(State ? [{ model: State, as: 'State', attributes: ['id', 'name', 'code'], required: false }] : []),
+        ...(HeadOffice ? [{ model: HeadOffice, as: 'headOffices', attributes: ['id', 'name'], through: { attributes: [] }, required: false }] : [])
+      ]
     });
 
     allUsersData.forEach(u => {
+      const uJson = u.toJSON();
+      if (uJson.State) {
+        uJson.state_name = uJson.State.name;
+      }
+      if (uJson.headOffices && uJson.headOffices.length > 0) {
+        uJson.head_office_name = uJson.headOffices[0].name;
+      }
+
       userVisitMap.set(u.id, {
-        user: u.toJSON(),
+        user: uJson,
         stats: {
           total_visits: 0,
           doctor_visits_count: 0,
