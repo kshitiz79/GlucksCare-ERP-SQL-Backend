@@ -326,24 +326,20 @@ const getUserWiseVisits = async (req, res) => {
     if (user_id) {
       targetUserIds = [user_id];
     } else {
-      targetUserIds.push(loggedInUser.id);
-
-      if (['State Head', 'National Head', 'Admin', 'Super Admin'].includes(loggedInUser.role)) {
-        const userWhere = { is_active: true };
-        if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
-          userWhere.state_id = state_id || loggedInUser.state_id;
-        }
-        if (role) {
-          userWhere.role = role;
-        }
-
-        const usersList = await User.findAll({
-          where: userWhere,
-          attributes: ['id']
-        });
-        const foundIds = usersList.map(u => u.id);
-        targetUserIds = Array.from(new Set([...targetUserIds, ...foundIds]));
+      const userWhere = { is_active: true };
+      if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
+        userWhere.state_id = state_id || loggedInUser.state_id;
       }
+      if (role) {
+        userWhere.role = role;
+      }
+
+      const usersList = await User.findAll({
+        where: userWhere,
+        attributes: ['id']
+      });
+      const foundIds = usersList.map(u => u.id);
+      targetUserIds = Array.from(new Set([loggedInUser.id, ...foundIds]));
     }
 
     // Date filter condition
