@@ -718,6 +718,21 @@ const sendCollaborationRequest = async (req, res) => {
     const models = req.app.get('models');
     const { TourPlan, TourPlanDay, User, Beat } = models;
 
+    // Verify recipient user(s) exist in the database
+    const validUsers = await User.findAll({
+      where: { id: recipientIds },
+      attributes: ['id']
+    });
+
+    if (validUsers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid target_user_id or target_user_ids. User(s) not found in the database.'
+      });
+    }
+
+    const validUserIds = validUsers.map(u => u.id);
+
     // Use provided date or default to current date (today) in YYYY-MM-DD format
     let targetDateStr = date;
     if (!targetDateStr) {
@@ -758,8 +773,8 @@ const sendCollaborationRequest = async (req, res) => {
         tour_plan_id: tourPlan.id,
         date: targetDateStr,
         day_type: 'Joint work',
-        joint_work_with_user_id: recipientIds[0],
-        joint_work_user_ids: recipientIds,
+        joint_work_with_user_id: validUserIds[0],
+        joint_work_user_ids: validUserIds,
         collaboration_status: 'Pending',
         handshake_status: 'None'
       }
@@ -767,8 +782,8 @@ const sendCollaborationRequest = async (req, res) => {
 
     // 3. Update day record with joint work details
     planDay.day_type = 'Joint work';
-    planDay.joint_work_with_user_id = recipientIds[0];
-    planDay.joint_work_user_ids = recipientIds;
+    planDay.joint_work_with_user_id = validUserIds[0];
+    planDay.joint_work_user_ids = validUserIds;
     planDay.collaboration_status = 'Pending';
     planDay.handshake_status = 'None';
     if (notes !== undefined) {
@@ -793,7 +808,7 @@ const sendCollaborationRequest = async (req, res) => {
     });
 
     const targetUsers = await User.findAll({
-      where: { id: recipientIds },
+      where: { id: validUserIds },
       attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role']
     });
 
