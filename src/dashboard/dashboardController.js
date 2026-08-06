@@ -616,7 +616,7 @@ const getTodayCollaboration = async (userId, models, sequelize) => {
             { joint_work_with_user_id: userId }
         ];
         if (sequelize) {
-            incomingCondition.push(sequelize.literal(`joint_work_user_ids::jsonb @> '"${userId}"'::jsonb`));
+            incomingCondition.push(sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${userId}"'::jsonb`));
         }
 
         const incomingPlanDays = await TourPlanDay.findAll({
@@ -650,6 +650,7 @@ const getTodayCollaboration = async (userId, models, sequelize) => {
             ]
         });
 
+        // 3. Collect collaborator IDs across own plan and incoming plans
         const collaboratorIds = new Set();
 
         if (ownPlanDay) {
@@ -674,10 +675,30 @@ const getTodayCollaboration = async (userId, models, sequelize) => {
             }
         });
 
+        // Fetch user records for any collaborators not pre-included
+        const userMap = new Map();
+        if (collaboratorIds.size > 0) {
+            const users = await User.findAll({
+                where: { id: Array.from(collaboratorIds) },
+                attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role'],
+                include: [{
+                    model: Department,
+                    as: 'Department',
+                    attributes: ['name']
+                }]
+            });
+            users.forEach(u => userMap.set(u.id, u));
+        }
+
+        const activeDay = ownPlanDay || incomingPlanDays[0];
+
         // Build list of collaborating users with their joint work and handshake details for today
         const collaboratingUsersList = [];
 
-        if (ownPlanDay) {
+        if (ownPlanDay && (ownPlanDay.day_type === 'Joint work' || ownPlanDay.joint_work_with_user_id || (Array.isArray(ownPlanDay.joint_work_user_ids) && ownPlanDay.joint_work_user_ids.length > 0))) {
+            const partnerId = ownPlanDay.joint_work_with_user_id || (Array.isArray(ownPlanDay.joint_work_user_ids) ? ownPlanDay.joint_work_user_ids[0] : null);
+            const partnerUser = partnerId ? userMap.get(partnerId) || ownPlanDay.jointWorkWith : ownPlanDay.jointWorkWith;
+
             collaboratingUsersList.push({
                 day_id: ownPlanDay.id,
                 is_creator: true,
@@ -689,20 +710,20 @@ const getTodayCollaboration = async (userId, models, sequelize) => {
                 handshake_distance_meters: ownPlanDay.handshake_distance_meters || null,
                 beat_name: ownPlanDay.beat1?.name || null,
                 notes: ownPlanDay.notes || null,
-                user: ownPlanDay.jointWorkWith ? {
-                    id: ownPlanDay.jointWorkWith.id,
-                    name: ownPlanDay.jointWorkWith.name,
-                    employee_code: ownPlanDay.jointWorkWith.employee_code,
-                    email: ownPlanDay.jointWorkWith.email,
-                    mobile_number: ownPlanDay.jointWorkWith.mobile_number,
-                    role: ownPlanDay.jointWorkWith.role,
-                    department: ownPlanDay.jointWorkWith.Department?.name || 'N/A'
+                user: partnerUser ? {
+                    id: partnerUser.id,
+                    name: partnerUser.name,
+                    employee_code: partnerUser.employee_code,
+                    email: partnerUser.email,
+                    mobile_number: partnerUser.mobile_number,
+                    role: partnerUser.role,
+                    department: partnerUser.Department?.name || 'N/A'
                 } : null
             });
         }
 
         incomingPlanDays.forEach(incDay => {
-            const creatorUser = incDay.tourPlan?.user;
+            const creatorUser = incDay.tourPlan?.user || (incDay.tourPlan?.user_id ? userMap.get(incDay.tourPlan.user_id) : null);
             collaboratingUsersList.push({
                 day_id: incDay.id,
                 is_creator: false,

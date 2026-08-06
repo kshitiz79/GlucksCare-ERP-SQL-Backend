@@ -11,36 +11,34 @@ const getISTDate = () => {
 
 // Utility function to get current IST datetime
 const getISTDateTime = () => {
-  // Return current UTC time - the database will store it as UTC
-  // and the frontend will handle timezone display
+
   return new Date();
 };
 
-// Utility function to calculate breaks between punch sessions
+// Util
 const calculateBreaks = (punchSessions) => {
   const autoBreaks = [];
   let totalBreakMinutes = 0;
 
-  // Only calculate breaks if there are multiple sessions
+
   if (punchSessions.length > 1) {
-    // Loop through sessions to calculate breaks between them
+
     for (let i = 1; i < punchSessions.length; i++) {
       const previousSession = punchSessions[i - 1];
       const currentSession = punchSessions[i];
-      
-      // Only calculate break if both sessions are complete (have punch in and punch out)
+
       if (previousSession.punchOut && currentSession.punchIn) {
         const breakStart = new Date(previousSession.punchOut);
         const breakEnd = new Date(currentSession.punchIn);
         const breakMinutes = (breakEnd - breakStart) / (1000 * 60);
-        
+
         if (breakMinutes > 0) {
           autoBreaks.push({
             start: breakStart,
             end: breakEnd,
             duration: Math.floor(breakMinutes)
           });
-          
+
           totalBreakMinutes += Math.floor(breakMinutes);
         }
       }
@@ -760,7 +758,7 @@ const getShiftWorkingMinutes = async (models, userId, date, status) => {
 
     // Store times as-is in UTC — frontend will display raw UTC hours as IST
     // e.g. shift 10:00-18:00 IST → stored as 10:00 UTC → displayed as 10:00 AM
-    const punchIn  = new Date(Date.UTC(
+    const punchIn = new Date(Date.UTC(
       ...date.split('-').map((v, i) => i === 1 ? Number(v) - 1 : Number(v)),
       startH, startM, 0
     ));
@@ -852,7 +850,7 @@ const getTodayAttendanceStatus = async (req, res) => {
     const { Attendance } = req.app.get('models');
     // req.user.id is populated by authMiddleware
     const userId = req.user?.id || req.query.userId;
-    
+
     if (!userId) {
       return res.status(400).json({
         success: false,
