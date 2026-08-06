@@ -288,6 +288,252 @@ const getStateHeadMobileDcr = async (req, res) => {
   }
 };
 
+/**
+ * GET User-Wise Visit List API
+ * Groups all 3 visit types (Doctor, Chemist, Stockist) by User / Field Force Executive
+ */
+const getUserWiseVisits = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+
+    if (!models) {
+      return res.status(500).json({
+        success: false,
+        message: 'Database models not initialized'
+      });
+    }
+
+    const {
+      DoctorVisit,
+      ChemistVisit,
+      StockistVisit,
+      Doctor,
+      Chemist,
+      Stockist,
+      User
+    } = models;
+
+    const loggedInUser = req.user;
+    const { filter = 'today', startDate, endDate, visit_type = 'all', user_id, role, state_id, page = 1, limit = 50 } = req.query;
+
+    // 1. Calculate Date Range
+    const { start: dateStart, end: dateEnd } = getDateRange(filter, startDate, endDate);
+
+    // 2. Determine target user IDs
+    let targetUserIds = [];
+
+    if (user_id) {
+      targetUserIds = [user_id];
+    } else {
+      targetUserIds.push(loggedInUser.id);
+
+      if (['State Head', 'National Head', 'Admin', 'Super Admin'].includes(loggedInUser.role)) {
+        const userWhere = { is_active: true };
+        if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
+          userWhere.state_id = state_id || loggedInUser.state_id;
+        }
+        if (role) {
+          userWhere.role = role;
+        }
+
+        const usersList = await User.findAll({
+          where: userWhere,
+          attributes: ['id']
+        });
+        const foundIds = usersList.map(u => u.id);
+        targetUserIds = Array.from(new Set([...targetUserIds, ...foundIds]));
+      }
+    }
+
+    // Date filter condition
+    const dateWhere = {
+      date: {
+        [Op.between]: [dateStart, dateEnd]
+      },
+      user_id: {
+        [Op.in]: targetUserIds
+      }
+    };
+
+    const userAttributes = ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'head_office_id', 'state_id'];
+
+    // 3. Fetch Visits in Parallel
+    const fetchPromises = [];
+
+    // Doctor Visits
+    if (visit_type === 'all' || visit_type === 'doctor') {
+      fetchPromises.push(
+        DoctorVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Doctor,
+              as: 'DoctorInfo',
+              attributes: ['id', 'name', 'email', 'phone', 'clinic_name', 'clinic_address', 'location', 'qualification', 'specialization']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'doctor', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    // Chemist Visits
+    if (visit_type === 'all' || visit_type === 'chemist') {
+      fetchPromises.push(
+        ChemistVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Chemist,
+              as: 'Chemist',
+              attributes: ['id', 'firm_name', 'contact_person_name', 'mobile_no', 'email_id', 'address', 'designation']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'chemist', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    // Stockist Visits
+    if (visit_type === 'all' || visit_type === 'stockist') {
+      fetchPromises.push(
+        StockistVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Stockist,
+              as: 'Stockist',
+              attributes: ['id', 'firm_name', 'registered_business_name', 'contact_person', 'mobile_number', 'email_address', 'registered_office_address', 'designation']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'stockist', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    const [doctorVisits, chemistVisits, stockistVisits] = await Promise.all(fetchPromises);
+    const combinedVisits = [...doctorVisits, ...chemistVisits, ...stockistVisits];
+
+    // 4. Group Visits by User
+    const userVisitMap = new Map();
+
+    const allUsersData = await User.findAll({
+      where: { id: targetUserIds },
+      attributes: userAttributes
+    });
+
+    allUsersData.forEach(u => {
+      userVisitMap.set(u.id, {
+        user: u.toJSON(),
+        stats: {
+          total_visits: 0,
+          doctor_visits_count: 0,
+          chemist_visits_count: 0,
+          stockist_visits_count: 0
+        },
+        visits: []
+      });
+    });
+
+    combinedVisits.forEach(v => {
+      let userEntry = userVisitMap.get(v.user_id);
+      if (!userEntry) {
+        userEntry = {
+          user: v.User || { id: v.user_id },
+          stats: {
+            total_visits: 0,
+            doctor_visits_count: 0,
+            chemist_visits_count: 0,
+            stockist_visits_count: 0
+          },
+          visits: []
+        };
+        userVisitMap.set(v.user_id, userEntry);
+      }
+
+      userEntry.visits.push(v);
+      userEntry.stats.total_visits += 1;
+      if (v.visit_type === 'doctor') userEntry.stats.doctor_visits_count += 1;
+      if (v.visit_type === 'chemist') userEntry.stats.chemist_visits_count += 1;
+      if (v.visit_type === 'stockist') userEntry.stats.stockist_visits_count += 1;
+    });
+
+    const userWiseList = Array.from(userVisitMap.values());
+    userWiseList.sort((a, b) => b.stats.total_visits - a.stats.total_visits);
+
+    userWiseList.forEach(item => {
+      item.visits.sort((a, b) => {
+        const timeA = a.created_at || a.createdAt || a.date;
+        const timeB = b.created_at || b.createdAt || b.date;
+        return new Date(timeB) - new Date(timeA);
+      });
+    });
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, parseInt(limit, 10));
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedUserList = userWiseList.slice(startIndex, startIndex + limitNum);
+
+    const activeUsersCount = userWiseList.filter(u => u.stats.total_visits > 0).length;
+
+    res.json({
+      success: true,
+      message: 'User-wise visit list retrieved successfully',
+      filter: {
+        applied: filter,
+        startDate: dateStart,
+        endDate: dateEnd,
+        visit_type: visit_type
+      },
+      summary: {
+        total_users: userWiseList.length,
+        active_users_with_visits: activeUsersCount,
+        total_visits: combinedVisits.length,
+        total_doctor_visits: doctorVisits.length,
+        total_chemist_visits: chemistVisits.length,
+        total_stockist_visits: stockistVisits.length
+      },
+      pagination: {
+        total_users: userWiseList.length,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(userWiseList.length / limitNum)
+      },
+      data: paginatedUserList
+    });
+
+  } catch (error) {
+    console.error('Get user-wise visits error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch user-wise visit list'
+    });
+  }
+};
+
 module.exports = {
-  getStateHeadMobileDcr
+  getStateHeadMobileDcr,
+  getUserWiseVisits
 };
