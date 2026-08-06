@@ -1,30 +1,43 @@
 const { Op } = require('sequelize');
 
 /**
- * Helper to compute date range based on filter string ('today', 'weekly', 'monthly', 'custom')
+ * Helper to get date string formatted in Indian Standard Time (Asia/Kolkata) as YYYY-MM-DD
+ */
+const getISTDateString = (d = new Date()) => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+};
+
+/**
+ * Helper to compute date range based on filter string ('today', 'weekly', 'monthly', 'custom') in IST
  */
 const getDateRange = (filter, startDate, endDate) => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-
-  // Format date to YYYY-MM-DD
-  const formatDate = (d) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
+  const todayISTStr = getISTDateString();
+  const [yearStr, monthStr, dayStr] = todayISTStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1;
+  const day = parseInt(dayStr, 10);
 
   if (filter === 'weekly') {
-    // Current week: Monday to Sunday
-    const currentDay = now.getDay();
+    const nowIST = new Date(year, month, day);
+    const currentDay = nowIST.getDay();
     const distanceToMonday = (currentDay === 0 ? -6 : 1) - currentDay;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + distanceToMonday);
+    const monday = new Date(nowIST);
+    monday.setDate(nowIST.getDate() + distanceToMonday);
 
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
+
+    const formatDate = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    };
 
     return {
       start: formatDate(monday),
@@ -33,12 +46,13 @@ const getDateRange = (filter, startDate, endDate) => {
   }
 
   if (filter === 'monthly') {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
+    const firstDayStr = `${yearStr}-${monthStr}-01`;
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const lastDayStr = `${yearStr}-${monthStr}-${String(lastDayNum).padStart(2, '0')}`;
 
     return {
-      start: formatDate(firstDay),
-      end: formatDate(lastDay)
+      start: firstDayStr,
+      end: lastDayStr
     };
   }
 
@@ -49,11 +63,10 @@ const getDateRange = (filter, startDate, endDate) => {
     };
   }
 
-  // Default: 'today'
-  const todayStr = formatDate(now);
+  // Default: 'today' in IST
   return {
-    start: todayStr,
-    end: todayStr
+    start: todayISTStr,
+    end: todayISTStr
   };
 };
 

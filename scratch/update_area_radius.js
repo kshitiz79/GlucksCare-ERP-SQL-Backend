@@ -3,7 +3,7 @@ const { URL } = require('url');
 
 const ADMIN_EMAIL = 'rajat@glucks.in';
 const ADMIN_PASSWORD = 'Rajatjha@99';
-const API_BASE = 'http://localhost:5051/api';
+const API_BASE = 'https://test.gluckscare.com/api';
 const TARGET_RADIUS = 200;
 
 async function fetchWithRetry(urlStr, options = {}, retries = 3) {
