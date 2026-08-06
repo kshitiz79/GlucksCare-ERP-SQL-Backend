@@ -139,7 +139,7 @@ const getStateHeadMobileDcr = async (req, res) => {
     };
 
     // User attributes for includes
-    const userAttributes = ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'hq', 'state_id'];
+    const userAttributes = ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'head_office_id', 'state_id'];
 
     // 3. Fetch Visits in Parallel
     const fetchPromises = [];
@@ -153,7 +153,7 @@ const getStateHeadMobileDcr = async (req, res) => {
             {
               model: Doctor,
               as: 'DoctorInfo',
-              attributes: ['id', 'name', 'email', 'mobile_number', 'address', 'qualification', 'specialty_id']
+              attributes: ['id', 'name', 'email', 'phone', 'clinic_name', 'clinic_address', 'location', 'qualification', 'specialization']
             },
             {
               model: User,
@@ -180,7 +180,7 @@ const getStateHeadMobileDcr = async (req, res) => {
             {
               model: Chemist,
               as: 'Chemist',
-              attributes: ['id', 'name', 'chemist_name', 'contact_person', 'mobile_number', 'email', 'address']
+              attributes: ['id', 'firm_name', 'contact_person_name', 'mobile_no', 'email_id', 'address', 'designation']
             },
             {
               model: User,
@@ -207,7 +207,7 @@ const getStateHeadMobileDcr = async (req, res) => {
             {
               model: Stockist,
               as: 'Stockist',
-              attributes: ['id', 'name', 'stockist_name', 'contact_person', 'mobile_number', 'email', 'address']
+              attributes: ['id', 'firm_name', 'registered_business_name', 'contact_person', 'mobile_number', 'email_address', 'registered_office_address', 'designation']
             },
             {
               model: User,
