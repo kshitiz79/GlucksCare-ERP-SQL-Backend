@@ -6,8 +6,7 @@ const { getStateHeadMobileDcr } = require('./dcrController');
 // All routes require authentication
 router.use(authMiddleware);
 
-// State Head Mobile DCR API (with spelling alias)
+// State Head Mobile DCR API
 router.get('/dcr-statehead-mobile', getStateHeadMobileDcr);
-router.get('/dcr-statehead-monile', getStateHeadMobileDcr);
 
 module.exports = router;
