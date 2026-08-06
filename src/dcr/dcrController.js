@@ -529,7 +529,185 @@ const getUserWiseVisits = async (req, res) => {
   }
 };
 
+/**
+ * GET DCR Visits for a Specific User ID
+ * Endpoint: GET /api/dcr/user/:userId
+ */
+const getUserDcrById = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+
+    if (!models) {
+      return res.status(500).json({
+        success: false,
+        message: 'Database models not initialized'
+      });
+    }
+
+    const {
+      DoctorVisit,
+      ChemistVisit,
+      StockistVisit,
+      Doctor,
+      Chemist,
+      Stockist,
+      User
+    } = models;
+
+    const { userId } = req.params;
+    const { filter = 'today', startDate, endDate, visit_type = 'all', page = 1, limit = 100 } = req.query;
+
+    // 1. Verify target user exists
+    const targetUser = await User.findByPk(userId, {
+      attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'head_office_id', 'state_id']
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: `User with ID ${userId} not found`
+      });
+    }
+
+    // 2. Calculate Date Range
+    const { start: dateStart, end: dateEnd } = getDateRange(filter, startDate, endDate);
+
+    const dateWhere = {
+      user_id: userId,
+      date: {
+        [Op.between]: [dateStart, dateEnd]
+      }
+    };
+
+    const userAttributes = ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role', 'head_office_id', 'state_id'];
+
+    // 3. Fetch Visits in Parallel
+    const fetchPromises = [];
+
+    // Doctor Visits
+    if (visit_type === 'all' || visit_type === 'doctor') {
+      fetchPromises.push(
+        DoctorVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Doctor,
+              as: 'DoctorInfo',
+              attributes: ['id', 'name', 'email', 'phone', 'clinic_name', 'clinic_address', 'location', 'qualification', 'specialization']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'doctor', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    // Chemist Visits
+    if (visit_type === 'all' || visit_type === 'chemist') {
+      fetchPromises.push(
+        ChemistVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Chemist,
+              as: 'Chemist',
+              attributes: ['id', 'firm_name', 'contact_person_name', 'mobile_no', 'email_id', 'address', 'designation']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'chemist', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    // Stockist Visits
+    if (visit_type === 'all' || visit_type === 'stockist') {
+      fetchPromises.push(
+        StockistVisit.findAll({
+          where: dateWhere,
+          include: [
+            {
+              model: Stockist,
+              as: 'Stockist',
+              attributes: ['id', 'firm_name', 'registered_business_name', 'contact_person', 'mobile_number', 'email_address', 'registered_office_address', 'designation']
+            },
+            {
+              model: User,
+              as: 'User',
+              attributes: userAttributes
+            }
+          ],
+          order: [['date', 'DESC']]
+        }).then(visits => visits.map(v => ({ visit_type: 'stockist', ...v.toJSON() })))
+      );
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    const [doctorVisits, chemistVisits, stockistVisits] = await Promise.all(fetchPromises);
+
+    // 4. Combine & Sort All Visits for this user
+    const combinedVisits = [...doctorVisits, ...chemistVisits, ...stockistVisits];
+    combinedVisits.sort((a, b) => {
+      const timeA = a.created_at || a.createdAt || a.date;
+      const timeB = b.created_at || b.createdAt || b.date;
+      return new Date(timeB) - new Date(timeA);
+    });
+
+    // 5. Pagination
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, parseInt(limit, 10));
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedVisits = combinedVisits.slice(startIndex, startIndex + limitNum);
+
+    res.json({
+      success: true,
+      message: `DCR visits for user ${targetUser.name} retrieved successfully`,
+      user: targetUser,
+      filter: {
+        applied: filter,
+        startDate: dateStart,
+        endDate: dateEnd,
+        visit_type: visit_type
+      },
+      stats: {
+        total_visits: combinedVisits.length,
+        doctor_visits_count: doctorVisits.length,
+        chemist_visits_count: chemistVisits.length,
+        stockist_visits_count: stockistVisits.length
+      },
+      pagination: {
+        total: combinedVisits.length,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(combinedVisits.length / limitNum)
+      },
+      data: paginatedVisits
+    });
+
+  } catch (error) {
+    console.error('Get user DCR by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch user DCR visits'
+    });
+  }
+};
+
 module.exports = {
   getStateHeadMobileDcr,
-  getUserWiseVisits
+  getUserWiseVisits,
+  getUserDcrById
 };
