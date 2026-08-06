@@ -17,6 +17,21 @@ const getISTDateString = (d = new Date()) => {
  */
 const getDateRange = (filter, startDate, endDate) => {
   const todayISTStr = getISTDateString();
+
+  if (startDate) {
+    return {
+      start: startDate,
+      end: endDate || startDate
+    };
+  }
+
+  if (filter && /^\d{4}-\d{2}-\d{2}$/.test(filter)) {
+    return {
+      start: filter,
+      end: filter
+    };
+  }
+
   const [yearStr, monthStr, dayStr] = todayISTStr.split('-');
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10) - 1;
@@ -53,13 +68,6 @@ const getDateRange = (filter, startDate, endDate) => {
     return {
       start: firstDayStr,
       end: lastDayStr
-    };
-  }
-
-  if (filter === 'custom' && startDate && endDate) {
-    return {
-      start: startDate,
-      end: endDate
     };
   }
 
