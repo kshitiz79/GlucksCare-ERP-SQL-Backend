@@ -39,6 +39,7 @@ const Attendance = (sequelize) => {
       type: DataTypes.INTEGER,
       defaultValue: 0
     },
+
     status: {
       type: DataTypes.ENUM(
         'present', 'absent', 'half_day', 'late', 'on_leave', 'punched_in', 'punched_out', 'week_off', 'holiday'

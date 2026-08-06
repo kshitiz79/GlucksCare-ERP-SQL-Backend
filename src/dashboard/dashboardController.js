@@ -34,13 +34,17 @@ const getUserDashboard = async (req, res) => {
             Department
         } = req.app.get('models');
 
+        // Get sequelize instance
+        const sequelize = req.app.get('sequelize');
+
         // Parallel data fetching for better performance
         const [
             visitStats,
             expenseData,
             targetData,
             userInfo,
-            todayBeat
+            todayBeat,
+            todayCollaboration
         ] = await Promise.all([
             getVisitStatistics(userId, monthStart, monthEnd, req.app.get('models')),
             getExpenseData(userId, monthStart, monthEnd, req.app.get('models')),
@@ -53,7 +57,8 @@ const getUserDashboard = async (req, res) => {
                     attributes: ['name']
                 }]
             }),
-            getTodayBeatAssigned(userId, req.app.get('models'))
+            getTodayBeatAssigned(userId, req.app.get('models')),
+            getTodayCollaboration(userId, req.app.get('models'), sequelize)
         ]);
 
         // Construct dashboard response
@@ -70,6 +75,7 @@ const getUserDashboard = async (req, res) => {
                 monthName: monthStart.toLocaleDateString('en-US', { month: 'long' })
             },
             todayBeatAssigned: todayBeat,
+            todayCollaboration: todayCollaboration,
             visits: {
                 doctor: {
                     scheduled: Math.floor(visitStats.doctor.scheduled),
@@ -556,6 +562,190 @@ const getTodayBeatAssigned = async (userId, models) => {
         return null;
     } catch (error) {
         console.error('Error fetching today beat assigned:', error);
+        return null;
+    }
+};
+
+/**
+ * Helper function to get same-day collaboration details for the user
+ */
+const getTodayCollaboration = async (userId, models, sequelize) => {
+    try {
+        const { TourPlan, TourPlanDay, User, Department, Beat } = models;
+        if (!TourPlanDay || !User || !TourPlan) return null;
+
+        const currentDate = new Date();
+        const year = currentDate.getFullYear();
+        const monthNum = currentDate.getMonth() + 1;
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const monthStr = String(monthNum).padStart(2, '0');
+        const todayStr = `${year}-${monthStr}-${day}`;
+
+        // 1. Own TourPlanDay for today with joint work / collaborator
+        const ownPlanDay = await TourPlanDay.findOne({
+            where: {
+                date: todayStr
+            },
+            include: [
+                {
+                    model: TourPlan,
+                    as: 'tourPlan',
+                    where: { user_id: userId },
+                    attributes: ['id', 'user_id', 'status']
+                },
+                {
+                    model: User,
+                    as: 'jointWorkWith',
+                    attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role'],
+                    include: [{
+                        model: Department,
+                        as: 'Department',
+                        attributes: ['name']
+                    }]
+                },
+                {
+                    model: Beat,
+                    as: 'beat1',
+                    attributes: ['id', 'name', 'color']
+                }
+            ]
+        });
+
+        // 2. Incoming/partner TourPlanDays for today where current user is collaborator
+        const incomingCondition = [
+            { joint_work_with_user_id: userId }
+        ];
+        if (sequelize) {
+            incomingCondition.push(sequelize.literal(`joint_work_user_ids::jsonb @> '"${userId}"'::jsonb`));
+        }
+
+        const incomingPlanDays = await TourPlanDay.findAll({
+            where: {
+                date: todayStr,
+                [Op.or]: incomingCondition
+            },
+            include: [
+                {
+                    model: TourPlan,
+                    as: 'tourPlan',
+                    where: { user_id: { [Op.ne]: userId } },
+                    include: [
+                        {
+                            model: User,
+                            as: 'user',
+                            attributes: ['id', 'name', 'employee_code', 'email', 'mobile_number', 'role'],
+                            include: [{
+                                model: Department,
+                                as: 'Department',
+                                attributes: ['name']
+                            }]
+                        }
+                    ]
+                },
+                {
+                    model: Beat,
+                    as: 'beat1',
+                    attributes: ['id', 'name', 'color']
+                }
+            ]
+        });
+
+        const collaboratorIds = new Set();
+
+        if (ownPlanDay) {
+            if (ownPlanDay.joint_work_with_user_id && ownPlanDay.joint_work_with_user_id !== userId) {
+                collaboratorIds.add(ownPlanDay.joint_work_with_user_id);
+            }
+            if (Array.isArray(ownPlanDay.joint_work_user_ids)) {
+                ownPlanDay.joint_work_user_ids.forEach(id => {
+                    if (id && id !== userId) collaboratorIds.add(id);
+                });
+            }
+        }
+
+        incomingPlanDays.forEach(incDay => {
+            if (incDay.tourPlan?.user_id && incDay.tourPlan.user_id !== userId) {
+                collaboratorIds.add(incDay.tourPlan.user_id);
+            }
+            if (Array.isArray(incDay.joint_work_user_ids)) {
+                incDay.joint_work_user_ids.forEach(id => {
+                    if (id && id !== userId) collaboratorIds.add(id);
+                });
+            }
+        });
+
+        // Build list of collaborating users with their joint work and handshake details for today
+        const collaboratingUsersList = [];
+
+        if (ownPlanDay) {
+            collaboratingUsersList.push({
+                day_id: ownPlanDay.id,
+                is_creator: true,
+                date: todayStr,
+                day_type: ownPlanDay.day_type || 'Joint work',
+                collaboration_status: ownPlanDay.collaboration_status || 'None',
+                handshake_status: ownPlanDay.handshake_status || 'None',
+                handshake_time: ownPlanDay.handshake_time || null,
+                handshake_distance_meters: ownPlanDay.handshake_distance_meters || null,
+                beat_name: ownPlanDay.beat1?.name || null,
+                notes: ownPlanDay.notes || null,
+                user: ownPlanDay.jointWorkWith ? {
+                    id: ownPlanDay.jointWorkWith.id,
+                    name: ownPlanDay.jointWorkWith.name,
+                    employee_code: ownPlanDay.jointWorkWith.employee_code,
+                    email: ownPlanDay.jointWorkWith.email,
+                    mobile_number: ownPlanDay.jointWorkWith.mobile_number,
+                    role: ownPlanDay.jointWorkWith.role,
+                    department: ownPlanDay.jointWorkWith.Department?.name || 'N/A'
+                } : null
+            });
+        }
+
+        incomingPlanDays.forEach(incDay => {
+            const creatorUser = incDay.tourPlan?.user;
+            collaboratingUsersList.push({
+                day_id: incDay.id,
+                is_creator: false,
+                date: todayStr,
+                day_type: incDay.day_type || 'Joint work',
+                collaboration_status: incDay.collaboration_status || 'None',
+                handshake_status: incDay.handshake_status || 'None',
+                handshake_time: incDay.handshake_time || null,
+                handshake_distance_meters: incDay.handshake_distance_meters || null,
+                beat_name: incDay.beat1?.name || null,
+                notes: incDay.notes || null,
+                user: creatorUser ? {
+                    id: creatorUser.id,
+                    name: creatorUser.name,
+                    employee_code: creatorUser.employee_code,
+                    email: creatorUser.email,
+                    mobile_number: creatorUser.mobile_number,
+                    role: creatorUser.role,
+                    department: creatorUser.Department?.name || 'N/A'
+                } : null
+            });
+        });
+
+        if (!activeDay && collaboratingUsersList.length === 0) {
+            return null;
+        }
+
+        return {
+            hasCollaboration: true,
+            day_id: activeDay?.id || null,
+            date: todayStr,
+            day_type: activeDay?.day_type || 'Joint work',
+            collaboration_status: activeDay?.collaboration_status || 'None',
+            handshake_status: activeDay?.handshake_status || 'None',
+            handshake_time: activeDay?.handshake_time || null,
+            handshake_distance_meters: activeDay?.handshake_distance_meters || null,
+            beat_name: activeDay?.beat1?.name || null,
+            notes: activeDay?.notes || null,
+            total_collaborators: collaboratingUsersList.length,
+            collaborating_users: collaboratingUsersList
+        };
+    } catch (error) {
+        console.error('Error fetching today collaboration:', error);
         return null;
     }
 };
