@@ -328,7 +328,7 @@ const getUserWiseVisits = async (req, res) => {
     } = models;
 
     const loggedInUser = req.user;
-    const { filter = 'today', startDate, endDate, visit_type = 'all', user_id, role, state_id, page = 1, limit = 50 } = req.query;
+    const { filter = 'today', startDate, endDate, visit_type = 'all', user_id, role, state_id, head_office_id, page = 1, limit = 50 } = req.query;
 
     // 1. Calculate Date Range
     const { start: dateStart, end: dateEnd } = getDateRange(filter, startDate, endDate);
@@ -342,6 +342,9 @@ const getUserWiseVisits = async (req, res) => {
       const userWhere = { is_active: true };
       if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
         userWhere.state_id = state_id || loggedInUser.state_id;
+      }
+      if (head_office_id) {
+        userWhere.head_office_id = head_office_id;
       }
       if (role) {
         userWhere.role = role;
