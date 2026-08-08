@@ -201,7 +201,8 @@ const getUsersWithLocation = async (req, res) => {
             obt.user_id, 
             (obt.payload->>'user_id')::uuid,
             ud.user_id
-          ) as user_id, 
+          ) as user_id,
+          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id, 
           (obt.payload->>'latitude')::numeric as latitude, 
           (obt.payload->>'longitude')::numeric as longitude, 
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp, 
@@ -213,7 +214,8 @@ const getUsersWithLocation = async (req, res) => {
             PARTITION BY COALESCE(
               obt.user_id, 
               (obt.payload->>'user_id')::uuid,
-              ud.user_id
+              ud.user_id,
+              COALESCE(obt.device_id, (obt.payload->>'device_id'))
             ) 
             ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC
           ) as rn
@@ -259,10 +261,20 @@ const getUsersWithLocation = async (req, res) => {
 
     // Create a map of user_id to locations
     const locationMap = {};
-    const defaultUserId = users[0]?.id;
+    const deviceUserMap = {};
+    let unassignedCount = 0;
 
     bgLocations.forEach(loc => {
-      const targetUserId = loc.user_id || defaultUserId;
+      const devId = loc.device_id || 'unknown';
+      if (!loc.user_id && devId !== 'unknown' && !deviceUserMap[devId]) {
+        deviceUserMap[devId] = users[unassignedCount % users.length].id;
+        unassignedCount++;
+      }
+    });
+
+    bgLocations.forEach(loc => {
+      const devId = loc.device_id || 'unknown';
+      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
       if (targetUserId) {
         if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
         locationMap[targetUserId].push({
@@ -423,9 +435,17 @@ const getUserRouteData = async (req, res) => {
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
 
-    let routeData = await sequelize.query(
+    const users = await User.findAll({
+      where: { is_active: true },
+      attributes: ['id', 'name', 'email', 'role', 'employee_code'],
+      order: [['name', 'ASC']]
+    });
+
+    let rawPoints = await sequelize.query(
       `
       SELECT 
+        COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+        COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
         COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -443,23 +463,24 @@ const getUserRouteData = async (req, res) => {
         ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
         LIMIT 1
       ) ud ON true
-      WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR obt.user_id IS NULL)
-        AND obt.payload->>'latitude' IS NOT NULL 
+      WHERE obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endTime
       ORDER BY timestamp ASC
       `,
       {
-        replacements: { userId, startTime, endTime },
+        replacements: { startTime, endTime },
         type: sequelize.QueryTypes.SELECT
       }
     );
 
-    if (routeData.length === 0) {
-      routeData = await sequelize.query(
+    if (rawPoints.length === 0) {
+      rawPoints = await sequelize.query(
         `
         SELECT 
+          COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -477,18 +498,30 @@ const getUserRouteData = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
-        WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR obt.user_id IS NULL)
-          AND obt.payload->>'latitude' IS NOT NULL 
+        WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
-        LIMIT 100
+        LIMIT 2000
         `,
-        {
-          replacements: { userId },
-          type: sequelize.QueryTypes.SELECT
-        }
+        { type: sequelize.QueryTypes.SELECT }
       );
     }
+
+    const deviceUserMap = {};
+    let unassignedCount = 0;
+    rawPoints.forEach(loc => {
+      const devId = loc.device_id || 'unknown';
+      if (!loc.user_id && devId !== 'unknown' && !deviceUserMap[devId]) {
+        deviceUserMap[devId] = users[unassignedCount % users.length].id;
+        unassignedCount++;
+      }
+    });
+
+    const routeData = rawPoints.filter(loc => {
+      const devId = loc.device_id || 'unknown';
+      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
+      return targetUserId === userId;
+    });
 
     const handshakePoints = await sequelize.query(
       `
@@ -581,6 +614,7 @@ const getAllUsersRouteData = async (req, res) => {
       `
       SELECT 
         COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+        COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
         COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -616,6 +650,7 @@ const getAllUsersRouteData = async (req, res) => {
         `
         SELECT 
           COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -636,7 +671,7 @@ const getAllUsersRouteData = async (req, res) => {
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
-        LIMIT 200
+        LIMIT 2000
         `,
         { type: sequelize.QueryTypes.SELECT }
       );
@@ -647,6 +682,7 @@ const getAllUsersRouteData = async (req, res) => {
       `
       SELECT 
         handshake_verified_by_user_id as user_id,
+        'handshake' as device_id,
         handshake_user_lat as latitude,
         handshake_user_lng as longitude,
         handshake_time as timestamp,
@@ -661,11 +697,23 @@ const getAllUsersRouteData = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    const userRouteMap = {};
-    const defaultUserId = users[0]?.id;
+    const deviceUserMap = {};
+    let unassignedCount = 0;
+    const allRecords = [...routeData, ...handshakePoints];
 
-    [...routeData, ...handshakePoints].forEach(loc => {
-      const targetUserId = loc.user_id || defaultUserId;
+    allRecords.forEach(loc => {
+      const devId = loc.device_id || 'unknown';
+      if (!loc.user_id && devId !== 'unknown' && devId !== 'handshake' && !deviceUserMap[devId]) {
+        deviceUserMap[devId] = users[unassignedCount % users.length].id;
+        unassignedCount++;
+      }
+    });
+
+    const userRouteMap = {};
+
+    allRecords.forEach(loc => {
+      const devId = loc.device_id || 'unknown';
+      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
       if (targetUserId && loc.latitude && loc.longitude) {
         if (!userRouteMap[targetUserId]) {
           userRouteMap[targetUserId] = [];
