@@ -192,7 +192,7 @@ const getUsersWithLocation = async (req, res) => {
 
     const userIds = users.map(u => u.id);
 
-    // Query 1: Latest locations from offline_bg_tracking table (joined with user_devices to resolve device_id to user_id)
+    // Query 1: Latest locations from offline_bg_tracking table (joined with user_devices and visit check-ins to resolve user_id)
     const bgLocations = await sequelize.query(
       `
       SELECT * FROM (
@@ -200,7 +200,8 @@ const getUsersWithLocation = async (req, res) => {
           COALESCE(
             obt.user_id, 
             (obt.payload->>'user_id')::uuid,
-            ud.user_id
+            ud.user_id,
+            visit_u.user_id
           ) as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id, 
           (obt.payload->>'latitude')::numeric as latitude, 
@@ -215,6 +216,7 @@ const getUsersWithLocation = async (req, res) => {
               obt.user_id, 
               (obt.payload->>'user_id')::uuid,
               ud.user_id,
+              visit_u.user_id,
               COALESCE(obt.device_id, (obt.payload->>'device_id'))
             ) 
             ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC
@@ -230,10 +232,23 @@ const getUsersWithLocation = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
+        LEFT JOIN LATERAL (
+          SELECT user_id FROM (
+            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+          ) v
+          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
+            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          LIMIT 1
+        ) visit_u ON true
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
-      WHERE rn <= 2
+      WHERE rn <= 2 AND user_id IS NOT NULL
       ORDER BY timestamp DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -261,23 +276,11 @@ const getUsersWithLocation = async (req, res) => {
 
     // Create a map of user_id to locations
     const locationMap = {};
-    const deviceUserMap = {};
-    let unassignedCount = 0;
 
     bgLocations.forEach(loc => {
-      const devId = loc.device_id || 'unknown';
-      if (!loc.user_id && devId !== 'unknown' && !deviceUserMap[devId]) {
-        deviceUserMap[devId] = users[unassignedCount % users.length].id;
-        unassignedCount++;
-      }
-    });
-
-    bgLocations.forEach(loc => {
-      const devId = loc.device_id || 'unknown';
-      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
-      if (targetUserId) {
-        if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
-        locationMap[targetUserId].push({
+      if (loc.user_id) {
+        if (!locationMap[loc.user_id]) locationMap[loc.user_id] = [];
+        locationMap[loc.user_id].push({
           latitude: parseFloat(loc.latitude),
           longitude: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
@@ -444,7 +447,12 @@ const getUserRouteData = async (req, res) => {
     let rawPoints = await sequelize.query(
       `
       SELECT 
-        COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+        COALESCE(
+          obt.user_id, 
+          (obt.payload->>'user_id')::uuid, 
+          ud.user_id,
+          visit_u.user_id
+        ) as user_id,
         COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
@@ -463,14 +471,28 @@ const getUserRouteData = async (req, res) => {
         ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
         LIMIT 1
       ) ud ON true
-      WHERE obt.payload->>'latitude' IS NOT NULL 
+      LEFT JOIN LATERAL (
+        SELECT user_id FROM (
+          SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+        ) v
+        WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
+          AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
+          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+        LIMIT 1
+      ) visit_u ON true
+      WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR visit_u.user_id = :userId)
+        AND obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endTime
       ORDER BY timestamp ASC
       `,
       {
-        replacements: { startTime, endTime },
+        replacements: { userId, startTime, endTime },
         type: sequelize.QueryTypes.SELECT
       }
     );
@@ -479,7 +501,12 @@ const getUserRouteData = async (req, res) => {
       rawPoints = await sequelize.query(
         `
         SELECT 
-          COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+          COALESCE(
+            obt.user_id, 
+            (obt.payload->>'user_id')::uuid, 
+            ud.user_id,
+            visit_u.user_id
+          ) as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
@@ -498,30 +525,33 @@ const getUserRouteData = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
-        WHERE obt.payload->>'latitude' IS NOT NULL 
+        LEFT JOIN LATERAL (
+          SELECT user_id FROM (
+            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+          ) v
+          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
+            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          LIMIT 1
+        ) visit_u ON true
+        WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR visit_u.user_id = :userId)
+          AND obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
         LIMIT 2000
         `,
-        { type: sequelize.QueryTypes.SELECT }
+        {
+          replacements: { userId },
+          type: sequelize.QueryTypes.SELECT
+        }
       );
     }
 
-    const deviceUserMap = {};
-    let unassignedCount = 0;
-    rawPoints.forEach(loc => {
-      const devId = loc.device_id || 'unknown';
-      if (!loc.user_id && devId !== 'unknown' && !deviceUserMap[devId]) {
-        deviceUserMap[devId] = users[unassignedCount % users.length].id;
-        unassignedCount++;
-      }
-    });
-
-    const routeData = rawPoints.filter(loc => {
-      const devId = loc.device_id || 'unknown';
-      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
-      return targetUserId === userId;
-    });
+    const routeData = rawPoints.filter(loc => loc.user_id === userId);
 
     const handshakePoints = await sequelize.query(
       `
@@ -609,11 +639,16 @@ const getAllUsersRouteData = async (req, res) => {
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
 
-    // Primary Query: Fetch route points from offline_bg_tracking within time window (joining user_devices to resolve user_id)
+    // Primary Query: Fetch route points from offline_bg_tracking within time window (joining user_devices and visit check-ins to resolve user_id)
     let routeData = await sequelize.query(
       `
       SELECT 
-        COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+        COALESCE(
+          obt.user_id, 
+          (obt.payload->>'user_id')::uuid, 
+          ud.user_id,
+          visit_u.user_id
+        ) as user_id,
         COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
@@ -632,6 +667,19 @@ const getAllUsersRouteData = async (req, res) => {
         ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
         LIMIT 1
       ) ud ON true
+      LEFT JOIN LATERAL (
+        SELECT user_id FROM (
+          SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+        ) v
+        WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
+          AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
+          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+        LIMIT 1
+      ) visit_u ON true
       WHERE obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
@@ -649,7 +697,12 @@ const getAllUsersRouteData = async (req, res) => {
       routeData = await sequelize.query(
         `
         SELECT 
-          COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as user_id,
+          COALESCE(
+            obt.user_id, 
+            (obt.payload->>'user_id')::uuid, 
+            ud.user_id,
+            visit_u.user_id
+          ) as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
@@ -668,6 +721,19 @@ const getAllUsersRouteData = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
+        LEFT JOIN LATERAL (
+          SELECT user_id FROM (
+            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            UNION ALL
+            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+          ) v
+          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
+            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          LIMIT 1
+        ) visit_u ON true
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
@@ -697,28 +763,15 @@ const getAllUsersRouteData = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    const deviceUserMap = {};
-    let unassignedCount = 0;
+    const userRouteMap = {};
     const allRecords = [...routeData, ...handshakePoints];
 
     allRecords.forEach(loc => {
-      const devId = loc.device_id || 'unknown';
-      if (!loc.user_id && devId !== 'unknown' && devId !== 'handshake' && !deviceUserMap[devId]) {
-        deviceUserMap[devId] = users[unassignedCount % users.length].id;
-        unassignedCount++;
-      }
-    });
-
-    const userRouteMap = {};
-
-    allRecords.forEach(loc => {
-      const devId = loc.device_id || 'unknown';
-      const targetUserId = loc.user_id || deviceUserMap[devId] || users[0]?.id;
-      if (targetUserId && loc.latitude && loc.longitude) {
-        if (!userRouteMap[targetUserId]) {
-          userRouteMap[targetUserId] = [];
+      if (loc.user_id && loc.latitude && loc.longitude) {
+        if (!userRouteMap[loc.user_id]) {
+          userRouteMap[loc.user_id] = [];
         }
-        userRouteMap[targetUserId].push({
+        userRouteMap[loc.user_id].push({
           lat: parseFloat(loc.latitude),
           lng: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
