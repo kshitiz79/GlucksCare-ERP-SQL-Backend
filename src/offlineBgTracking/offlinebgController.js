@@ -192,7 +192,7 @@ const getUsersWithLocation = async (req, res) => {
 
     const userIds = users.map(u => u.id);
 
-    // Query 1: Latest locations from offline_bg_tracking table (joined with user_devices and visit check-ins to resolve user_id)
+    // Query 1: Latest locations from offline_bg_tracking table (joined with user_devices to resolve device_id to user_id)
     const bgLocations = await sequelize.query(
       `
       SELECT * FROM (
@@ -200,8 +200,7 @@ const getUsersWithLocation = async (req, res) => {
           COALESCE(
             obt.user_id::text, 
             (obt.payload->>'user_id'),
-            ud.user_id::text,
-            visit_u.user_id::text
+            ud.user_id::text
           )::uuid as user_id,
           COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device, 
           (obt.payload->>'latitude')::numeric as latitude, 
@@ -216,7 +215,6 @@ const getUsersWithLocation = async (req, res) => {
               obt.user_id::text, 
               (obt.payload->>'user_id'),
               ud.user_id::text,
-              visit_u.user_id::text,
               (obt.payload->>'tracking_session_id'),
               obt.device_id,
               (obt.payload->>'device_id')
@@ -234,23 +232,10 @@ const getUsersWithLocation = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
-        LEFT JOIN LATERAL (
-          SELECT user_id FROM (
-            SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
-            UNION ALL
-            SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
-            UNION ALL
-            SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
-          ) v
-          WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
-            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
-          ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
-          LIMIT 1
-        ) visit_u ON true
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
-      WHERE rn <= 2 AND user_id IS NOT NULL
+      WHERE rn <= 2
       ORDER BY timestamp DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -272,6 +257,30 @@ const getUsersWithLocation = async (req, res) => {
       WHERE handshake_user_lat IS NOT NULL 
         AND handshake_user_lng IS NOT NULL
       ORDER BY handshake_time DESC
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    // Query 3: Latest Doctor/Chemist/Stockist Visit Check-in Locations for users without bg tracking
+    const visitLocations = await sequelize.query(
+      `
+      SELECT DISTINCT ON (user_id)
+        user_id,
+        latitude,
+        longitude,
+        created_at as timestamp,
+        30 as accuracy,
+        100 as battery_level,
+        'Visit Check-in' as network_type,
+        created_at
+      FROM (
+        SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
+        UNION ALL
+        SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
+        UNION ALL
+        SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
+      ) visits
+      ORDER BY user_id, created_at DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -302,6 +311,20 @@ const getUsersWithLocation = async (req, res) => {
           accuracy: 50,
           battery_level: 100,
           network_type: 'Handshake GPS',
+          created_at: loc.created_at
+        }];
+      }
+    });
+
+    visitLocations.forEach(loc => {
+      if (loc.user_id && (!locationMap[loc.user_id] || locationMap[loc.user_id].length === 0)) {
+        locationMap[loc.user_id] = [{
+          latitude: parseFloat(loc.latitude),
+          longitude: parseFloat(loc.longitude),
+          timestamp: loc.timestamp,
+          accuracy: 30,
+          battery_level: 100,
+          network_type: 'Visit Check-in',
           created_at: loc.created_at
         }];
       }
@@ -577,14 +600,49 @@ const getUserRouteData = async (req, res) => {
 
     const allPoints = [...routeData, ...handshakePoints];
 
-    const formattedRoute = allPoints.map(loc => ({
-      lat: parseFloat(loc.latitude),
-      lng: parseFloat(loc.longitude),
-      timestamp: loc.timestamp,
-      accuracy: loc.accuracy ? parseFloat(loc.accuracy) : 10,
-      battery_level: loc.battery_level ? parseFloat(loc.battery_level) : 100,
-      network_type: loc.network_type || 'GPS'
+    let formattedRoute = allPoints.map(pt => ({
+      lat: parseFloat(pt.latitude),
+      lng: parseFloat(pt.longitude),
+      timestamp: pt.timestamp,
+      accuracy: pt.accuracy ? parseFloat(pt.accuracy) : 10,
+      battery_level: pt.battery_level ? parseFloat(pt.battery_level) : 100,
+      network_type: pt.network_type || 'GPS'
     }));
+
+    if (formattedRoute.length === 0) {
+      const visitPoints = await sequelize.query(
+        `
+        SELECT 
+          latitude as lat,
+          longitude as lng,
+          created_at as timestamp,
+          30 as accuracy,
+          100 as battery_level,
+          'Visit Check-in' as network_type
+        FROM (
+          SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE user_id = :userId AND latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE user_id = :userId AND latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE user_id = :userId AND latitude IS NOT NULL
+        ) visits
+        ORDER BY created_at ASC
+        `,
+        {
+          replacements: { userId },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+
+      formattedRoute = visitPoints.map(pt => ({
+        lat: parseFloat(pt.lat),
+        lng: parseFloat(pt.lng),
+        timestamp: pt.timestamp,
+        accuracy: 30,
+        battery_level: 100,
+        network_type: 'Visit Check-in'
+      }));
+    }
 
     res.json({
       success: true,
@@ -783,6 +841,43 @@ const getAllUsersRouteData = async (req, res) => {
       }
     });
 
+    // Query Doctor/Chemist/Stockist visit locations for users with 0 route points
+    const userVisitLocations = await sequelize.query(
+      `
+      SELECT 
+        user_id,
+        latitude as lat,
+        longitude as lng,
+        created_at as timestamp,
+        30 as accuracy,
+        100 as battery_level,
+        'Visit Check-in' as network_type
+      FROM (
+        SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
+        UNION ALL
+        SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
+        UNION ALL
+        SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
+      ) visits
+      ORDER BY user_id, created_at ASC
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    userVisitLocations.forEach(loc => {
+      if (loc.user_id && (!userRouteMap[loc.user_id] || userRouteMap[loc.user_id].length === 0)) {
+        if (!userRouteMap[loc.user_id]) userRouteMap[loc.user_id] = [];
+        userRouteMap[loc.user_id].push({
+          lat: parseFloat(loc.lat),
+          lng: parseFloat(loc.lng),
+          timestamp: loc.timestamp,
+          accuracy: 30,
+          battery_level: 100,
+          network_type: 'Visit Check-in'
+        });
+      }
+    });
+
     const usersWithRoutes = users
       .filter(user => userRouteMap[user.id] && userRouteMap[user.id].length > 0)
       .map(user => ({
@@ -818,6 +913,164 @@ const getAllUsersRouteData = async (req, res) => {
   }
 };
 
+const getDevicesList = async (req, res) => {
+  try {
+    const sequelize = req.app.get('sequelize');
+    const models = req.app.get('models');
+    const { User } = models;
+
+    const devices = await sequelize.query(
+      `
+      SELECT 
+        d.device_id,
+        COALESCE(ud.user_id::text, d.payload_user_id::text, d.obt_user_id::text)::uuid as user_id,
+        d.total_points,
+        d.first_seen,
+        d.last_seen,
+        d.last_latitude,
+        d.last_longitude,
+        d.last_speed,
+        d.last_accuracy,
+        d.last_battery_level,
+        d.last_network_type,
+        ud.device_name,
+        ud.device_type,
+        ud.status as binding_status
+      FROM (
+        SELECT 
+          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
+          MAX(obt.user_id) as obt_user_id,
+          MAX((obt.payload->>'user_id')::uuid) as payload_user_id,
+          COUNT(*) as total_points,
+          MIN(COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc)) as first_seen,
+          MAX(COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc)) as last_seen,
+          (ARRAY_AGG((obt.payload->>'latitude')::numeric ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_latitude,
+          (ARRAY_AGG((obt.payload->>'longitude')::numeric ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_longitude,
+          (ARRAY_AGG((obt.payload->>'speed')::numeric ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_speed,
+          (ARRAY_AGG((obt.payload->>'accuracy')::numeric ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_accuracy,
+          (ARRAY_AGG((obt.payload->>'battery_level')::numeric ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_battery_level,
+          (ARRAY_AGG((obt.payload->>'network_type')::text ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC))[1] as last_network_type
+        FROM offline_bg_tracking obt
+        WHERE COALESCE(obt.device_id, (obt.payload->>'device_id')) IS NOT NULL
+        GROUP BY COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown')
+      ) d
+      LEFT JOIN LATERAL (
+        SELECT user_id, device_name, device_type, status 
+        FROM user_devices 
+        WHERE device_id = d.device_id OR android_id = d.device_id
+        ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) ud ON true
+      ORDER BY d.last_seen DESC
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const userIds = [...new Set(devices.map(d => d.user_id).filter(Boolean))];
+    const usersMap = {};
+    if (userIds.length > 0) {
+      const users = await User.findAll({
+        where: { id: userIds },
+        attributes: ['id', 'name', 'email', 'role', 'employee_code']
+      });
+      users.forEach(u => { usersMap[u.id] = u; });
+    }
+
+    const formattedDevices = devices.map(d => {
+      const u = d.user_id ? usersMap[d.user_id] : null;
+      const lastSeenDate = new Date(d.last_seen);
+      const now = new Date();
+      const diffMinutes = Math.floor((now - lastSeenDate) / (1000 * 60));
+
+      return {
+        device_id: d.device_id,
+        user_id: d.user_id,
+        user_name: u ? u.name : 'Unassigned Device',
+        user_email: u ? u.email : null,
+        employee_code: u ? u.employee_code : null,
+        user_role: u ? u.role : null,
+        total_points: parseInt(d.total_points || 0),
+        first_seen: d.first_seen,
+        last_seen: d.last_seen,
+        minutes_ago: diffMinutes,
+        is_active_now: diffMinutes <= 30,
+        last_coordinate: {
+          latitude: d.last_latitude ? parseFloat(d.last_latitude) : null,
+          longitude: d.last_longitude ? parseFloat(d.last_longitude) : null,
+          speed: d.last_speed ? parseFloat(d.last_speed) : 0,
+          accuracy: d.last_accuracy ? parseFloat(d.last_accuracy) : 10,
+          battery_level: d.last_battery_level ? parseFloat(d.last_battery_level) : 100,
+          network_type: d.last_network_type || 'GPS'
+        },
+        device_name: d.device_name,
+        device_type: d.device_type,
+        binding_status: d.binding_status || (u ? 'AUTO_MATCHED' : 'UNASSIGNED')
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedDevices,
+      metadata: {
+        total_devices: formattedDevices.length,
+        active_now: formattedDevices.filter(d => d.is_active_now).length,
+        unassigned: formattedDevices.filter(d => !d.user_id).length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in getDevicesList:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const bindDeviceToUser = async (req, res) => {
+  try {
+    const { device_id, user_id } = req.body;
+    if (!device_id || !user_id) {
+      return res.status(400).json({ success: false, message: 'device_id and user_id are required' });
+    }
+
+    const models = req.app.get('models');
+    const { UserDevice, User } = models;
+
+    const targetUser = await User.findByPk(user_id);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    let [device, created] = await UserDevice.findOrCreate({
+      where: { device_id },
+      defaults: {
+        user_id,
+        device_id,
+        android_id: device_id,
+        status: 'ACTIVE',
+        is_active: true,
+        last_login: new Date()
+      }
+    });
+
+    if (!created) {
+      await device.update({
+        user_id,
+        status: 'ACTIVE',
+        is_active: true,
+        last_login: new Date()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Device ${device_id} bound to ${targetUser.name} successfully`,
+      data: device
+    });
+  } catch (error) {
+    console.error('Error in bindDeviceToUser:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createOfflineBgTracking,
   getAllOfflineBgTracking,
@@ -825,5 +1078,7 @@ module.exports = {
   getUsersWithLocation,
   getUserLocationHistory,
   getUserRouteData,
-  getAllUsersRouteData
+  getAllUsersRouteData,
+  getDevicesList,
+  bindDeviceToUser
 };

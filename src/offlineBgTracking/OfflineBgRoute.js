@@ -7,14 +7,19 @@ const {
   getUsersWithLocation,
   getUserLocationHistory,
   getUserRouteData,
-  getAllUsersRouteData
+  getAllUsersRouteData,
+  getDevicesList,
+  bindDeviceToUser
 } = require('./offlinebgController');
 
 router.post('/', createOfflineBgTracking);
 router.get('/', getAllOfflineBgTracking);
 
-// Location and GPS tracking endpoints (registered before :id to prevent parameter conflict)
+// Location, Device management, and GPS tracking endpoints
 router.get('/users-with-location', getUsersWithLocation);
+router.get('/devices', getDevicesList);
+router.get('/device-last-coordinates', getDevicesList);
+router.post('/bind-device', bindDeviceToUser);
 router.get('/admin/user-history/:userId', getUserLocationHistory);
 router.get('/route/all', getAllUsersRouteData);
 router.get('/route/:userId', getUserRouteData);
