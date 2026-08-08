@@ -198,11 +198,11 @@ const getUsersWithLocation = async (req, res) => {
       SELECT * FROM (
         SELECT 
           COALESCE(
-            obt.user_id, 
-            (obt.payload->>'user_id')::uuid,
-            ud.user_id,
-            visit_u.user_id
-          ) as user_id,
+            obt.user_id::text, 
+            (obt.payload->>'user_id'),
+            ud.user_id::text,
+            visit_u.user_id::text
+          )::uuid as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id, 
           (obt.payload->>'latitude')::numeric as latitude, 
           (obt.payload->>'longitude')::numeric as longitude, 
@@ -213,11 +213,10 @@ const getUsersWithLocation = async (req, res) => {
           obt.created_at_utc as created_at,
           ROW_NUMBER() OVER (
             PARTITION BY COALESCE(
-              obt.user_id, 
-              (obt.payload->>'user_id')::uuid,
-              ud.user_id,
-              visit_u.user_id,
-              COALESCE(obt.device_id, (obt.payload->>'device_id'))
+              obt.user_id::text, 
+              (obt.payload->>'user_id'),
+              ud.user_id::text,
+              visit_u.user_id::text
             ) 
             ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC
           ) as rn
@@ -448,11 +447,11 @@ const getUserRouteData = async (req, res) => {
       `
       SELECT 
         COALESCE(
-          obt.user_id, 
-          (obt.payload->>'user_id')::uuid, 
-          ud.user_id,
-          visit_u.user_id
-        ) as user_id,
+          obt.user_id::text, 
+          (obt.payload->>'user_id'), 
+          ud.user_id::text,
+          visit_u.user_id::text
+        )::uuid as user_id,
         COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
@@ -484,7 +483,7 @@ const getUserRouteData = async (req, res) => {
           AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
         LIMIT 1
       ) visit_u ON true
-      WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR visit_u.user_id = :userId)
+      WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId OR visit_u.user_id::text = :userId)
         AND obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
@@ -502,11 +501,11 @@ const getUserRouteData = async (req, res) => {
         `
         SELECT 
           COALESCE(
-            obt.user_id, 
-            (obt.payload->>'user_id')::uuid, 
-            ud.user_id,
-            visit_u.user_id
-          ) as user_id,
+            obt.user_id::text, 
+            (obt.payload->>'user_id'), 
+            ud.user_id::text,
+            visit_u.user_id::text
+          )::uuid as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
@@ -644,11 +643,11 @@ const getAllUsersRouteData = async (req, res) => {
       `
       SELECT 
         COALESCE(
-          obt.user_id, 
-          (obt.payload->>'user_id')::uuid, 
-          ud.user_id,
-          visit_u.user_id
-        ) as user_id,
+          obt.user_id::text, 
+          (obt.payload->>'user_id'), 
+          ud.user_id::text,
+          visit_u.user_id::text
+        )::uuid as user_id,
         COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
@@ -698,11 +697,11 @@ const getAllUsersRouteData = async (req, res) => {
         `
         SELECT 
           COALESCE(
-            obt.user_id, 
-            (obt.payload->>'user_id')::uuid, 
-            ud.user_id,
-            visit_u.user_id
-          ) as user_id,
+            obt.user_id::text, 
+            (obt.payload->>'user_id'), 
+            ud.user_id::text,
+            visit_u.user_id::text
+          )::uuid as user_id,
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,

@@ -457,7 +457,7 @@ const getAllUsers = async (req, res) => {
             (obt.payload->>'battery_level')::numeric AS battery_level,
             (obt.payload->>'network_type')::text AS network_type
           FROM (
-            SELECT obt.*, COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as effective_user_id
+            SELECT obt.*, COALESCE(obt.user_id::text, (obt.payload->>'user_id'), ud.user_id::text)::uuid as effective_user_id
             FROM offline_bg_tracking obt
             LEFT JOIN LATERAL (
               SELECT user_id 
