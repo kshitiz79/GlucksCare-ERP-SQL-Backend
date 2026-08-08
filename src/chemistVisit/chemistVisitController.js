@@ -22,27 +22,28 @@ const getAllChemistVisits = async (req, res) => {
     const { ChemistVisit, User } = req.app.get('models');
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
-    const { startDate, endDate, range } = req.query;
+    const { startDate, endDate, range, all } = req.query;
 
     let whereClause = {};
     const today = new Date().toISOString().split('T')[0];
 
+    const activeRange = range || (!startDate && !endDate && all !== 'true' ? 'today' : null);
+
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
-    } else if (range === 'last7days') {
+    } else if (activeRange === 'last7days') {
       const d = new Date();
       d.setDate(d.getDate() - 7);
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (range === 'last30days') {
+    } else if (activeRange === 'last30days') {
       const d = new Date();
       d.setDate(d.getDate() - 30);
       whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (range === 'upcoming') {
+    } else if (activeRange === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'today') {
+    } else if (activeRange === 'today') {
       whereClause.date = today;
     }
-    // Default: No date filter - returns all visits
 
     const chemistVisits = await ChemistVisit.findAll({
       where: whereClause,
@@ -324,13 +325,15 @@ const getChemistVisitsByUserId = async (req, res) => {
       whereClause.date = today;
     }
 
-    // Trigger auto-scheduling of chemist visits
+    // Trigger auto-scheduling of chemist visits asynchronously in background
     try {
       const { autoScheduleVisits } = require('../utils/autoScheduler');
       const models = req.app.get('models');
-      await autoScheduleVisits(sequelize, models, userId, start, end, 'chemist');
+      autoScheduleVisits(sequelize, models, userId, start, end, 'chemist').catch(schedErr => {
+        console.error('Failed to run auto-scheduler for chemist visits:', schedErr);
+      });
     } catch (schedErr) {
-      console.error('Failed to run auto-scheduler for chemist visits:', schedErr);
+      console.error('Failed to initiate auto-scheduler for chemist visits:', schedErr);
     }
 
     const visits = await ChemistVisit.findAll({

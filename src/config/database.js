@@ -206,6 +206,27 @@ Object.values(models).forEach(model => {
 const applyAssociations = require('./associations');
 applyAssociations(models);
 
+// Function to ensure performance indexes on high-volume tables
+async function ensurePerformanceIndexes() {
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctor_visits_user_date ON doctor_visits (user_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_doctor_visits_date ON doctor_visits (date DESC);
+      CREATE INDEX IF NOT EXISTS idx_chemist_visits_user_date ON chemist_visits (user_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_chemist_visits_date ON chemist_visits (date DESC);
+      CREATE INDEX IF NOT EXISTS idx_stockist_visits_user_date ON stockist_visits (user_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_stockist_visits_date ON stockist_visits (date DESC);
+      CREATE INDEX IF NOT EXISTS idx_offline_bg_tracking_device ON offline_bg_tracking (device_id);
+    `);
+    console.log('✅ Performance indexes checked/created successfully');
+  } catch (err) {
+    console.error('⚠️ Warning: Failed to create performance indexes:', err.message);
+  }
+}
+
+// Run index creation in background
+ensurePerformanceIndexes();
+
 module.exports = {
     sequelize,
     ...models
