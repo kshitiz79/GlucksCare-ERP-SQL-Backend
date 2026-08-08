@@ -445,20 +445,34 @@ const getAllUsers = async (req, res) => {
       try {
         const userIds = users.map(u => u.id);
 
-        // OPTIMIZED: Use DISTINCT ON to get only latest location per user from offline_bg_tracking
+        // OPTIMIZED: Use DISTINCT ON to get only latest location per user from offline_bg_tracking (joined with user_devices)
         const locationDetails = await sequelize.query(
           `
-          SELECT DISTINCT ON (user_id)
-            user_id,
-            (payload->>'latitude')::numeric AS latitude,
-            (payload->>'longitude')::numeric AS longitude,
-            COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) AS timestamp,
-            (payload->>'accuracy')::numeric AS accuracy,
-            (payload->>'battery_level')::numeric AS battery_level,
-            (payload->>'network_type')::text AS network_type
-          FROM offline_bg_tracking
-          WHERE user_id IN (:userIds) AND entity_type = 'location'
-          ORDER BY user_id, COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) DESC
+          SELECT DISTINCT ON (effective_user_id)
+            effective_user_id AS user_id,
+            (obt.payload->>'latitude')::numeric AS latitude,
+            (obt.payload->>'longitude')::numeric AS longitude,
+            COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) AS timestamp,
+            (obt.payload->>'accuracy')::numeric AS accuracy,
+            (obt.payload->>'battery_level')::numeric AS battery_level,
+            (obt.payload->>'network_type')::text AS network_type
+          FROM (
+            SELECT obt.*, COALESCE(obt.user_id, (obt.payload->>'user_id')::uuid, ud.user_id) as effective_user_id
+            FROM offline_bg_tracking obt
+            LEFT JOIN LATERAL (
+              SELECT user_id 
+              FROM user_devices 
+              WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+                 OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+                 OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
+                 OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
+              ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
+              LIMIT 1
+            ) ud ON true
+            WHERE obt.entity_type = 'location'
+          ) sub
+          WHERE effective_user_id IN (:userIds)
+          ORDER BY effective_user_id, COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) DESC
           `,
           {
             replacements: { userIds },
