@@ -236,21 +236,21 @@ const getUsersWithLocation = async (req, res) => {
         ) ud ON true
         LEFT JOIN LATERAL (
           SELECT user_id FROM (
-            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
           ) v
-          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
-            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
-            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
+          ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
           LIMIT 1
         ) visit_u ON true
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
-      WHERE rn <= 2
+      WHERE rn <= 2 AND user_id IS NOT NULL
       ORDER BY timestamp DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -276,25 +276,12 @@ const getUsersWithLocation = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    // Map unassigned tracking sessions/devices to active users
-    const sessionUserMap = {};
-    let unmappedIndex = 0;
-    bgLocations.forEach(loc => {
-      const sId = loc.session_or_device || 'unknown';
-      if (!loc.user_id && sId !== 'unknown' && !sessionUserMap[sId]) {
-        sessionUserMap[sId] = users[unmappedIndex % users.length].id;
-        unmappedIndex++;
-      }
-    });
-
     const locationMap = {};
 
     bgLocations.forEach(loc => {
-      const sId = loc.session_or_device || 'unknown';
-      const targetUserId = loc.user_id || sessionUserMap[sId] || users[0]?.id;
-      if (targetUserId) {
-        if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
-        locationMap[targetUserId].push({
+      if (loc.user_id) {
+        if (!locationMap[loc.user_id]) locationMap[loc.user_id] = [];
+        locationMap[loc.user_id].push({
           latitude: parseFloat(loc.latitude),
           longitude: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
@@ -467,7 +454,7 @@ const getUserRouteData = async (req, res) => {
           ud.user_id::text,
           visit_u.user_id::text
         )::uuid as user_id,
-        COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
+        COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
         COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -487,15 +474,15 @@ const getUserRouteData = async (req, res) => {
       ) ud ON true
       LEFT JOIN LATERAL (
         SELECT user_id FROM (
-          SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
           UNION ALL
-          SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
           UNION ALL
-          SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
         ) v
-        WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
-          AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
-          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+        WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
+          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
+        ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
         LIMIT 1
       ) visit_u ON true
       WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId OR visit_u.user_id::text = :userId)
@@ -521,7 +508,7 @@ const getUserRouteData = async (req, res) => {
             ud.user_id::text,
             visit_u.user_id::text
           )::uuid as user_id,
-          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
+          COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -541,18 +528,18 @@ const getUserRouteData = async (req, res) => {
         ) ud ON true
         LEFT JOIN LATERAL (
           SELECT user_id FROM (
-            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
           ) v
-          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
-            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
-            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
+          ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
           LIMIT 1
         ) visit_u ON true
-        WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR visit_u.user_id = :userId)
+        WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId OR visit_u.user_id::text = :userId)
           AND obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
@@ -683,15 +670,15 @@ const getAllUsersRouteData = async (req, res) => {
       ) ud ON true
       LEFT JOIN LATERAL (
         SELECT user_id FROM (
-          SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
           UNION ALL
-          SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
           UNION ALL
-          SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+          SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
         ) v
-        WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
-          AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
-          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+        WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
+          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
+        ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
         LIMIT 1
       ) visit_u ON true
       WHERE obt.payload->>'latitude' IS NOT NULL 
@@ -737,15 +724,15 @@ const getAllUsersRouteData = async (req, res) => {
         ) ud ON true
         LEFT JOIN LATERAL (
           SELECT user_id FROM (
-            SELECT user_id, date, latitude, longitude FROM doctor_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM chemist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
             UNION ALL
-            SELECT user_id, date, latitude, longitude FROM stockist_visits WHERE latitude IS NOT NULL
+            SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
           ) v
-          WHERE v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date
-            AND ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.05
-            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.05
+          WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
+            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
+          ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
           LIMIT 1
         ) visit_u ON true
         WHERE obt.payload->>'latitude' IS NOT NULL 
@@ -777,28 +764,15 @@ const getAllUsersRouteData = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    const sessionUserMap = {};
-    let unmappedIndex = 0;
+    const userRouteMap = {};
     const allRecords = [...routeData, ...handshakePoints];
 
     allRecords.forEach(loc => {
-      const sId = loc.session_or_device || 'unknown';
-      if (!loc.user_id && sId !== 'unknown' && sId !== 'handshake' && !sessionUserMap[sId]) {
-        sessionUserMap[sId] = users[unmappedIndex % users.length].id;
-        unmappedIndex++;
-      }
-    });
-
-    const userRouteMap = {};
-
-    allRecords.forEach(loc => {
-      const sId = loc.session_or_device || 'unknown';
-      const targetUserId = loc.user_id || sessionUserMap[sId] || users[0]?.id;
-      if (targetUserId && loc.latitude && loc.longitude) {
-        if (!userRouteMap[targetUserId]) {
-          userRouteMap[targetUserId] = [];
+      if (loc.user_id && loc.latitude && loc.longitude) {
+        if (!userRouteMap[loc.user_id]) {
+          userRouteMap[loc.user_id] = [];
         }
-        userRouteMap[targetUserId].push({
+        userRouteMap[loc.user_id].push({
           lat: parseFloat(loc.latitude),
           lng: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
