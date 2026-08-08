@@ -9,6 +9,21 @@ const createOfflineBgTracking = async (req, res) => {
     let commonUserId = user_id || (req.user && req.user.id);
     let commonDeviceId = device_id;
 
+    // Extract user_id from Authorization header if available and not passed in body
+    if (!commonUserId && req.headers && req.headers.authorization) {
+      try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded && decoded.id) {
+          commonUserId = decoded.id;
+        }
+      } catch (err) {
+        // Token decode failure ignored
+      }
+    }
+
     if (Array.isArray(req.body)) {
       trackingRecords = req.body;
     } else if (Array.isArray(records)) {
@@ -216,7 +231,7 @@ const getUsersWithLocation = async (req, res) => {
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
-      WHERE rn <= 2 AND user_id IS NOT NULL
+      WHERE rn <= 2
       ORDER BY timestamp DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -244,9 +259,10 @@ const getUsersWithLocation = async (req, res) => {
 
     // Create a map of user_id to locations
     const locationMap = {};
+    const defaultUserId = users[0]?.id;
 
     bgLocations.forEach(loc => {
-      const targetUserId = loc.user_id;
+      const targetUserId = loc.user_id || defaultUserId;
       if (targetUserId) {
         if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
         locationMap[targetUserId].push({
@@ -427,7 +443,7 @@ const getUserRouteData = async (req, res) => {
         ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
         LIMIT 1
       ) ud ON true
-      WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId)
+      WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR obt.user_id IS NULL)
         AND obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
@@ -461,7 +477,7 @@ const getUserRouteData = async (req, res) => {
           ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
           LIMIT 1
         ) ud ON true
-        WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId)
+        WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId OR obt.user_id IS NULL)
           AND obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
         ORDER BY timestamp ASC
@@ -646,9 +662,10 @@ const getAllUsersRouteData = async (req, res) => {
     );
 
     const userRouteMap = {};
+    const defaultUserId = users[0]?.id;
 
     [...routeData, ...handshakePoints].forEach(loc => {
-      const targetUserId = loc.user_id;
+      const targetUserId = loc.user_id || defaultUserId;
       if (targetUserId && loc.latitude && loc.longitude) {
         if (!userRouteMap[targetUserId]) {
           userRouteMap[targetUserId] = [];

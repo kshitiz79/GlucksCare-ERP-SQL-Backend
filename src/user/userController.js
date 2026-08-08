@@ -471,7 +471,7 @@ const getAllUsers = async (req, res) => {
             ) ud ON true
             WHERE obt.entity_type = 'location'
           ) sub
-          WHERE effective_user_id IN (:userIds)
+          WHERE (effective_user_id IN (:userIds) OR effective_user_id IS NULL)
           ORDER BY effective_user_id, COALESCE((payload->>'timestamp_utc')::timestamp with time zone, created_at_utc) DESC
           `,
           {
@@ -483,16 +483,21 @@ const getAllUsers = async (req, res) => {
         const t2 = Date.now();
         console.log(`Found ${locationDetails.length} latest locations in ${t2 - t1}ms`);
 
+        const defaultUserId = users[0]?.id;
+
         // Map locations to users
         locationDetails.forEach(loc => {
-          locationMap[loc.user_id] = {
-            latitude: parseFloat(loc.latitude),
-            longitude: parseFloat(loc.longitude),
-            timestamp: loc.timestamp,
-            accuracy: loc.accuracy,
-            battery_level: loc.battery_level,
-            network_type: loc.network_type
-          };
+          const targetUserId = loc.user_id || defaultUserId;
+          if (targetUserId) {
+            locationMap[targetUserId] = {
+              latitude: parseFloat(loc.latitude),
+              longitude: parseFloat(loc.longitude),
+              timestamp: loc.timestamp,
+              accuracy: loc.accuracy,
+              battery_level: loc.battery_level,
+              network_type: loc.network_type
+            };
+          }
         });
 
         console.log(`Total query time: ${t2 - t0}ms`);
