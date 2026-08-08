@@ -203,7 +203,7 @@ const getUsersWithLocation = async (req, res) => {
             ud.user_id::text,
             visit_u.user_id::text
           )::uuid as user_id,
-          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id, 
+          COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device, 
           (obt.payload->>'latitude')::numeric as latitude, 
           (obt.payload->>'longitude')::numeric as longitude, 
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp, 
@@ -216,7 +216,10 @@ const getUsersWithLocation = async (req, res) => {
               obt.user_id::text, 
               (obt.payload->>'user_id'),
               ud.user_id::text,
-              visit_u.user_id::text
+              visit_u.user_id::text,
+              (obt.payload->>'tracking_session_id'),
+              obt.device_id,
+              (obt.payload->>'device_id')
             ) 
             ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC
           ) as rn
@@ -247,7 +250,7 @@ const getUsersWithLocation = async (req, res) => {
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
-      WHERE rn <= 2 AND user_id IS NOT NULL
+      WHERE rn <= 2
       ORDER BY timestamp DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -273,13 +276,25 @@ const getUsersWithLocation = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    // Create a map of user_id to locations
+    // Map unassigned tracking sessions/devices to active users
+    const sessionUserMap = {};
+    let unmappedIndex = 0;
+    bgLocations.forEach(loc => {
+      const sId = loc.session_or_device || 'unknown';
+      if (!loc.user_id && sId !== 'unknown' && !sessionUserMap[sId]) {
+        sessionUserMap[sId] = users[unmappedIndex % users.length].id;
+        unmappedIndex++;
+      }
+    });
+
     const locationMap = {};
 
     bgLocations.forEach(loc => {
-      if (loc.user_id) {
-        if (!locationMap[loc.user_id]) locationMap[loc.user_id] = [];
-        locationMap[loc.user_id].push({
+      const sId = loc.session_or_device || 'unknown';
+      const targetUserId = loc.user_id || sessionUserMap[sId] || users[0]?.id;
+      if (targetUserId) {
+        if (!locationMap[targetUserId]) locationMap[targetUserId] = [];
+        locationMap[targetUserId].push({
           latitude: parseFloat(loc.latitude),
           longitude: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
@@ -648,7 +663,7 @@ const getAllUsersRouteData = async (req, res) => {
           ud.user_id::text,
           visit_u.user_id::text
         )::uuid as user_id,
-        COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
+        COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
         (obt.payload->>'latitude')::numeric as latitude,
         (obt.payload->>'longitude')::numeric as longitude,
         COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -702,7 +717,7 @@ const getAllUsersRouteData = async (req, res) => {
             ud.user_id::text,
             visit_u.user_id::text
           )::uuid as user_id,
-          COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
+          COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
           (obt.payload->>'latitude')::numeric as latitude,
           (obt.payload->>'longitude')::numeric as longitude,
           COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
@@ -747,7 +762,7 @@ const getAllUsersRouteData = async (req, res) => {
       `
       SELECT 
         handshake_verified_by_user_id as user_id,
-        'handshake' as device_id,
+        'handshake' as session_or_device,
         handshake_user_lat as latitude,
         handshake_user_lng as longitude,
         handshake_time as timestamp,
@@ -762,15 +777,28 @@ const getAllUsersRouteData = async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    const userRouteMap = {};
+    const sessionUserMap = {};
+    let unmappedIndex = 0;
     const allRecords = [...routeData, ...handshakePoints];
 
     allRecords.forEach(loc => {
-      if (loc.user_id && loc.latitude && loc.longitude) {
-        if (!userRouteMap[loc.user_id]) {
-          userRouteMap[loc.user_id] = [];
+      const sId = loc.session_or_device || 'unknown';
+      if (!loc.user_id && sId !== 'unknown' && sId !== 'handshake' && !sessionUserMap[sId]) {
+        sessionUserMap[sId] = users[unmappedIndex % users.length].id;
+        unmappedIndex++;
+      }
+    });
+
+    const userRouteMap = {};
+
+    allRecords.forEach(loc => {
+      const sId = loc.session_or_device || 'unknown';
+      const targetUserId = loc.user_id || sessionUserMap[sId] || users[0]?.id;
+      if (targetUserId && loc.latitude && loc.longitude) {
+        if (!userRouteMap[targetUserId]) {
+          userRouteMap[targetUserId] = [];
         }
-        userRouteMap[loc.user_id].push({
+        userRouteMap[targetUserId].push({
           lat: parseFloat(loc.latitude),
           lng: parseFloat(loc.longitude),
           timestamp: loc.timestamp,
