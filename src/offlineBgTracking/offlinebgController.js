@@ -939,8 +939,8 @@ const getDevicesList = async (req, res) => {
       FROM (
         SELECT 
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
-          MAX(obt.user_id) as obt_user_id,
-          MAX((obt.payload->>'user_id')::uuid) as payload_user_id,
+          MAX(obt.user_id::text) as obt_user_id,
+          MAX(obt.payload->>'user_id') as payload_user_id,
           COUNT(*) as total_points,
           MIN(COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc)) as first_seen,
           MAX(COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc)) as last_seen,
