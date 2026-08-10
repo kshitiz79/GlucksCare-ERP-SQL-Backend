@@ -86,6 +86,17 @@ async function initializeDatabase() {
             console.warn('⚠️ Warning: Failed to alter users table:', alterErr.message);
         }
 
+        // Dynamically drop unique constraints on user_devices to remove boundation
+        try {
+            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS user_devices_device_id_key CASCADE;');
+            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS user_devices_device_fingerprint_key CASCADE;');
+            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS device_id_unique CASCADE;');
+            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS device_fingerprint_unique CASCADE;');
+            console.log('✅ Dropped unique constraints on user_devices table');
+        } catch (constraintErr) {
+            console.warn('⚠️ Warning: Failed to drop unique constraints on user_devices:', constraintErr.message);
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Unable to connect to PostgreSQL:', error);

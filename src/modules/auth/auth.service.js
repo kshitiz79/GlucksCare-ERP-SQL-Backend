@@ -326,51 +326,33 @@ class AuthService {
 
             console.log('🔐 Device identifier:', deviceFingerprint);
 
-            const existingUserDevice = await AuthRepository.findActiveUserDevice(user.id);
-
-            if (existingUserDevice) {
-                console.log('📱 User has existing device binding');
-
-                if (existingUserDevice.device_id !== activeDeviceId && existingUserDevice.android_id !== activeDeviceId && existingUserDevice.device_fingerprint !== deviceFingerprint) {
-                    console.log('🔄 Device changed - updating binding to new device:', activeDeviceId);
-                    await existingUserDevice.update({
-                        device_id: activeDeviceId,
-                        android_id: androidId || activeDeviceId,
-                        manufacturer: manufacturer || 'Android',
-                        model: model || 'Device',
-                        device_fingerprint: deviceFingerprint,
-                        device_name: deviceName,
-                        last_login: new Date()
-                    });
-                    await UserActivityLogService.logActivity(req, {
-                        userId: user.id,
-                        email: user.email,
-                        action: 'BIND_DEVICE',
-                        deviceId: activeDeviceId,
-                        details: { reason: 'Device changed on login', deviceName }
-                    });
-                } else {
-                    console.log('✅ Device matches - allowing login');
-                    await existingUserDevice.update({
-                        last_login: new Date()
-                    });
+            const { Op } = require('sequelize');
+            const models = req.app.get('models');
+            
+            let userDeviceRecord = await models.UserDevice.findOne({
+                where: {
+                    user_id: user.id,
+                    [Op.or]: [
+                        { device_id: activeDeviceId },
+                        { device_fingerprint: deviceFingerprint }
+                    ]
                 }
+            });
+
+            if (userDeviceRecord) {
+                console.log('🔄 Device mapping already exists for this user - updating activity timestamp');
+                await userDeviceRecord.update({
+                    android_id: androidId || activeDeviceId,
+                    manufacturer: manufacturer || 'Android',
+                    model: model || 'Device',
+                    device_fingerprint: deviceFingerprint,
+                    device_name: deviceName,
+                    status: 'ACTIVE',
+                    is_active: true,
+                    last_login: new Date()
+                });
             } else {
-                console.log('🆕 First login - binding device to user');
-
-                const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
-                                     await AuthRepository.findDeviceById(activeDeviceId);
-
-                if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
-                    console.log('🔄 Device already bound to another user - revoking old binding and mapping to new user');
-                    await bindingInUse.update({
-                        status: 'REVOKED',
-                        is_active: false,
-                        revoked_at: new Date(),
-                        revoke_reason: 'Device transferred to another user on login'
-                    });
-                }
-
+                console.log('🆕 Creating new device mapping for this user');
                 await AuthRepository.createDevice({
                     user_id: user.id,
                     device_id: activeDeviceId,
@@ -384,7 +366,6 @@ class AuthService {
                     is_active: true,
                     last_login: new Date()
                 });
-                console.log('✅ Device bound successfully:', deviceName);
                 await UserActivityLogService.logActivity(req, {
                     userId: user.id,
                     email: user.email,
