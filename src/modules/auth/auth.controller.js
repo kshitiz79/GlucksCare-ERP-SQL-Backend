@@ -100,7 +100,7 @@ class AuthController {
 
     static async login(req, res, next) {
         try {
-            const result = await authService.login(req.body);
+            const result = await authService.login(req.body, req);
             return res.json(result);
         } catch (err) {
             handleControllerError(err, res, 'Login error');

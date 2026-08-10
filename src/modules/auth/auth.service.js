@@ -268,8 +268,10 @@ class AuthService {
         }
     }
 
-    static async login(body) {
+    static async login(body, req) {
         const { email, password, device_id, androidId, manufacturer, model } = body;
+        const activeDeviceId = device_id || body.deviceId || androidId;
+        const UserActivityLogService = require('../../userActivityLog/userActivityLogService');
 
         if (!email || !password) {
             throw { statusCode: 400, message: 'Email and password are required' };
@@ -285,19 +287,31 @@ class AuthService {
 
         if (!user || !user.password_hash) {
             console.log('User not found or inactive, or no password set for:', email);
+            await UserActivityLogService.logActivity(req, {
+                email,
+                action: 'FAILED_LOGIN',
+                deviceId: activeDeviceId,
+                details: { reason: 'User not found or inactive' }
+            });
             throw { statusCode: 400, message: 'Invalid credentials' };
         }
 
         const isMatch = await user.comparePassword(password);
         if (!isMatch) {
             console.log('Password mismatch for user:', email);
+            await UserActivityLogService.logActivity(req, {
+                userId: user.id,
+                email: user.email,
+                action: 'FAILED_LOGIN',
+                deviceId: activeDeviceId,
+                details: { reason: 'Password mismatch' }
+            });
             throw { statusCode: 400, message: 'Invalid credentials' };
         }
         console.log('✅ Password verified for user:', email, 'Role:', user.role);
 
         // DEVICE FINGERPRINTING & BINDING LOGIC
         const { generateDeviceFingerprint, validateDeviceInfo, getDeviceName } = require('../../utils/deviceFingerprint');
-        const activeDeviceId = device_id || body.deviceId || androidId;
 
         if ((androidId && manufacturer && model) || activeDeviceId) {
             console.log('📱 Device info/ID provided:', { activeDeviceId, androidId, manufacturer, model });
@@ -319,6 +333,13 @@ class AuthService {
 
                 if (existingUserDevice.device_id !== activeDeviceId && existingUserDevice.android_id !== activeDeviceId && existingUserDevice.device_fingerprint !== deviceFingerprint) {
                     console.log('🚫 Device mismatch!');
+                    await UserActivityLogService.logActivity(req, {
+                        userId: user.id,
+                        email: user.email,
+                        action: 'FAILED_LOGIN',
+                        deviceId: activeDeviceId,
+                        details: { reason: 'Device registration mismatch', registeredDevice: existingUserDevice.device_name }
+                    });
                     throw {
                         statusCode: 403,
                         deviceMismatch: true,
@@ -343,6 +364,13 @@ class AuthService {
 
                 if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
                     console.log('🚫 Device already bound to another user');
+                    await UserActivityLogService.logActivity(req, {
+                        userId: user.id,
+                        email: user.email,
+                        action: 'FAILED_LOGIN',
+                        deviceId: activeDeviceId,
+                        details: { reason: 'Device already bound to another user' }
+                    });
                     throw {
                         statusCode: 403,
                         deviceInUse: true,
@@ -365,6 +393,13 @@ class AuthService {
                     last_login: new Date()
                 });
                 console.log('✅ Device bound successfully:', deviceName);
+                await UserActivityLogService.logActivity(req, {
+                    userId: user.id,
+                    email: user.email,
+                    action: 'BIND_DEVICE',
+                    deviceId: activeDeviceId,
+                    details: { deviceName, manufacturer, model }
+                });
             }
         } else if (device_id) {
             console.log('📱 Legacy device_id provided (no fingerprinting):', device_id);
@@ -389,6 +424,13 @@ class AuthService {
                         status: 'ACTIVE'
                     });
                     console.log('📱 Created new device mapping:', device_id, 'for user:', user.id);
+                    await UserActivityLogService.logActivity(req, {
+                        userId: user.id,
+                        email: user.email,
+                        action: 'BIND_DEVICE',
+                        deviceId: device_id,
+                        details: { legacy: true }
+                    });
                 }
             } catch (deviceError) {
                 console.error('Device registration error:', deviceError);
@@ -432,6 +474,14 @@ class AuthService {
         };
 
         console.log('✅ Login successful - Sending response for user:', responseUser.id);
+        
+        await UserActivityLogService.logActivity(req, {
+            userId: user.id,
+            email: user.email,
+            action: 'LOGIN',
+            deviceId: activeDeviceId,
+            details: { role: user.role }
+        });
 
         return {
             token,

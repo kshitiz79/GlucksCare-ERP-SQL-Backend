@@ -112,6 +112,7 @@ const TourPlan = require('../tourPlan/TourPlan');
 const TourPlanDay = require('../tourPlan/TourPlanDay');
 const FinancialYear = require('../financialYear/FinancialYear');
 const OfflineBgTracking = require('../offlineBgTracking/OfflineBgTracking');
+const UserActivityLog = require('../userActivityLog/UserActivityLog');
 
 // Initialize models
 const models = {
@@ -189,7 +190,8 @@ const models = {
     TourPlan: TourPlan(sequelize),
     TourPlanDay: TourPlanDay(sequelize),
     FinancialYear: FinancialYear(sequelize),
-    OfflineBgTracking: OfflineBgTracking(sequelize)
+    OfflineBgTracking: OfflineBgTracking(sequelize),
+    UserActivityLog: UserActivityLog(sequelize)
 };
 
 // Set up hooks
