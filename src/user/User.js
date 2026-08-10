@@ -180,6 +180,10 @@ const User = (sequelize) => {
         model: 'users',
         key: 'id'
       }
+    },
+    tokens_valid_after: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   }, {
     tableName: 'users',

@@ -2336,6 +2336,68 @@ const deleteFcmToken = async (req, res) => {
   }
 };
 
+// Force Logout a specific user
+const forceLogoutUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { User } = req.app.get('models');
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await user.update({ tokens_valid_after: new Date() });
+    
+    // Log Activity
+    const UserActivityLogService = require('../userActivityLog/userActivityLogService');
+    await UserActivityLogService.logActivity(req, {
+      userId: user.id,
+      email: user.email,
+      action: 'REVOKE_SESSION',
+      details: { adminId: req.user.id, adminEmail: req.user.email }
+    });
+
+    res.json({
+      success: true,
+      message: `Forced logout completed for ${user.name} successfully.`
+    });
+  } catch (error) {
+    console.error('Force logout user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Force Logout all users
+const forceLogoutAllUsers = async (req, res) => {
+  try {
+    const { User } = req.app.get('models');
+    
+    // Update all users tokens_valid_after timestamp
+    await User.update(
+      { tokens_valid_after: new Date() },
+      { where: {} }
+    );
+
+    // Log Activity
+    const UserActivityLogService = require('../userActivityLog/userActivityLogService');
+    await UserActivityLogService.logActivity(req, {
+      userId: req.user.id,
+      email: req.user.email,
+      action: 'REVOKE_ALL_SESSIONS',
+      details: { adminId: req.user.id, adminEmail: req.user.email }
+    });
+
+    res.json({
+      success: true,
+      message: 'Forced logout completed for all users successfully.'
+    });
+  } catch (error) {
+    console.error('Force logout all users error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUsersByRole,
@@ -2355,5 +2417,7 @@ module.exports = {
   getMyState,
   updateUserStatus,
   updateFcmToken,
-  deleteFcmToken
+  deleteFcmToken,
+  forceLogoutUser,
+  forceLogoutAllUsers
 };

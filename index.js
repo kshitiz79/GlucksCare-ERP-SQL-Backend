@@ -77,6 +77,15 @@ async function initializeDatabase() {
     try {
         await sequelize.authenticate();
         console.log('✅ PostgreSQL connection established successfully');
+        
+        // Dynamically add tokens_valid_after to users table if not exists
+        try {
+            await sequelize.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMP WITH TIME ZONE NULL;');
+            console.log('✅ Checked/Added tokens_valid_after column in users table');
+        } catch (alterErr) {
+            console.warn('⚠️ Warning: Failed to alter users table:', alterErr.message);
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Unable to connect to PostgreSQL:', error);

@@ -50,6 +50,18 @@ const authMiddleware = async (req, res, next) => {
             });
         }
 
+        // Check if token was issued before forced logout timestamp (tokens_valid_after)
+        if (user.tokens_valid_after && decoded.iat) {
+            const tokenIatMs = decoded.iat * 1000;
+            const validAfterMs = new Date(user.tokens_valid_after).getTime();
+            if (tokenIatMs < validAfterMs) {
+                return res.status(401).json({ 
+                    success: false,
+                    msg: 'Session has expired - forced logout by admin' 
+                });
+            }
+        }
+
         // NOTE: Temporarily bypassing active status check for testing
         // if (!user.isActive) {
         //     return res.status(401).json({ 

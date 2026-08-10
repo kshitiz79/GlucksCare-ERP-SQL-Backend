@@ -21,13 +21,15 @@ const {
   getMyState,
   updateUserStatus,
   updateFcmToken,
-  deleteFcmToken
+  deleteFcmToken,
+  forceLogoutUser,
+  forceLogoutAllUsers
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
 const { deleteUserSimple } = require('./simpleUserController');
 
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, adminAuth } = require('../middleware/authMiddleware');
 
 // REGISTER ADMIN (no auth required - for initial setup)
 router.post('/register-admin', registerAdmin);
@@ -94,6 +96,10 @@ router.put('/:id/deactivate', authMiddleware, softDeleteUser);
 
 // FORCE DELETE a user (use with extreme caution)
 router.delete('/:id/force', authMiddleware, forceDeleteUser);
+
+// FORCE LOGOUT SESSIONS (Admin privileges required)
+router.post('/force-logout-all', authMiddleware, adminAuth, forceLogoutAllUsers);
+router.post('/force-logout/:id', authMiddleware, adminAuth, forceLogoutUser);
 
 // FCM TOKEN MANAGEMENT
 // UPDATE/CREATE FCM token (POST)
