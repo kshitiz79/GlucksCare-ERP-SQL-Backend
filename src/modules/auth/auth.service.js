@@ -332,30 +332,29 @@ class AuthService {
                 console.log('📱 User has existing device binding');
 
                 if (existingUserDevice.device_id !== activeDeviceId && existingUserDevice.android_id !== activeDeviceId && existingUserDevice.device_fingerprint !== deviceFingerprint) {
-                    console.log('🚫 Device mismatch!');
+                    console.log('🔄 Device changed - updating binding to new device:', activeDeviceId);
+                    await existingUserDevice.update({
+                        device_id: activeDeviceId,
+                        android_id: androidId || activeDeviceId,
+                        manufacturer: manufacturer || 'Android',
+                        model: model || 'Device',
+                        device_fingerprint: deviceFingerprint,
+                        device_name: deviceName,
+                        last_login: new Date()
+                    });
                     await UserActivityLogService.logActivity(req, {
                         userId: user.id,
                         email: user.email,
-                        action: 'FAILED_LOGIN',
+                        action: 'BIND_DEVICE',
                         deviceId: activeDeviceId,
-                        details: { reason: 'Device registration mismatch', registeredDevice: existingUserDevice.device_name }
+                        details: { reason: 'Device changed on login', deviceName }
                     });
-                    throw {
-                        statusCode: 403,
-                        deviceMismatch: true,
-                        message: 'Device already registered',
-                        error: 'This account is already registered to another device. Please contact your administrator to reset the device binding if you have replaced your tablet or performed a factory reset.',
-                        registeredDevice: {
-                            name: existingUserDevice.device_name || 'Registered Device',
-                            lastLogin: existingUserDevice.last_login
-                        }
-                    };
+                } else {
+                    console.log('✅ Device matches - allowing login');
+                    await existingUserDevice.update({
+                        last_login: new Date()
+                    });
                 }
-
-                console.log('✅ Device matches - allowing login');
-                await existingUserDevice.update({
-                    last_login: new Date()
-                });
             } else {
                 console.log('🆕 First login - binding device to user');
 
@@ -363,20 +362,13 @@ class AuthService {
                                      await AuthRepository.findDeviceById(activeDeviceId);
 
                 if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
-                    console.log('🚫 Device already bound to another user');
-                    await UserActivityLogService.logActivity(req, {
-                        userId: user.id,
-                        email: user.email,
-                        action: 'FAILED_LOGIN',
-                        deviceId: activeDeviceId,
-                        details: { reason: 'Device already bound to another user' }
+                    console.log('🔄 Device already bound to another user - revoking old binding and mapping to new user');
+                    await bindingInUse.update({
+                        status: 'REVOKED',
+                        is_active: false,
+                        revoked_at: new Date(),
+                        revoke_reason: 'Device transferred to another user on login'
                     });
-                    throw {
-                        statusCode: 403,
-                        deviceInUse: true,
-                        message: 'Device already registered to another user',
-                        error: 'This device is already registered to another account. Each device can only be used by one user.'
-                    };
                 }
 
                 await AuthRepository.createDevice({
