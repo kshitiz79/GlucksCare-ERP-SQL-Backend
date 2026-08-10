@@ -293,54 +293,56 @@ class AuthService {
             console.log('Password mismatch for user:', email);
             throw { statusCode: 400, message: 'Invalid credentials' };
         }
-
         console.log('✅ Password verified for user:', email, 'Role:', user.role);
 
         // DEVICE FINGERPRINTING & BINDING LOGIC
         const { generateDeviceFingerprint, validateDeviceInfo, getDeviceName } = require('../../utils/deviceFingerprint');
+        const activeDeviceId = device_id || body.deviceId || androidId;
 
-        if (androidId && manufacturer && model) {
-            console.log('📱 Device info provided:', { androidId, manufacturer, model });
+        if ((androidId && manufacturer && model) || activeDeviceId) {
+            console.log('📱 Device info/ID provided:', { activeDeviceId, androidId, manufacturer, model });
 
-            if (!validateDeviceInfo({ androidId, manufacturer, model })) {
-                throw { statusCode: 400, message: 'Invalid device information provided' };
+            let deviceFingerprint = activeDeviceId;
+            let deviceName = activeDeviceId;
+
+            if (androidId && manufacturer && model && validateDeviceInfo({ androidId, manufacturer, model })) {
+                deviceFingerprint = generateDeviceFingerprint(androidId, manufacturer, model);
+                deviceName = getDeviceName(manufacturer, model);
             }
 
-            const deviceFingerprint = generateDeviceFingerprint(androidId, manufacturer, model);
-            const deviceName = getDeviceName(manufacturer, model);
-
-            console.log('🔐 Generated device fingerprint:', deviceFingerprint);
+            console.log('🔐 Device identifier:', deviceFingerprint);
 
             const existingUserDevice = await AuthRepository.findActiveUserDevice(user.id);
 
             if (existingUserDevice) {
                 console.log('📱 User has existing device binding');
 
-                if (existingUserDevice.device_fingerprint !== deviceFingerprint) {
-                    console.log('🚫 Device fingerprint mismatch!');
+                if (existingUserDevice.device_id !== activeDeviceId && existingUserDevice.android_id !== activeDeviceId && existingUserDevice.device_fingerprint !== deviceFingerprint) {
+                    console.log('🚫 Device mismatch!');
                     throw {
                         statusCode: 403,
                         deviceMismatch: true,
                         message: 'Device already registered',
                         error: 'This account is already registered to another device. Please contact your administrator to reset the device binding if you have replaced your tablet or performed a factory reset.',
                         registeredDevice: {
-                            name: existingUserDevice.device_name,
+                            name: existingUserDevice.device_name || 'Registered Device',
                             lastLogin: existingUserDevice.last_login
                         }
                     };
                 }
 
-                console.log('✅ Device fingerprint matches - allowing login');
+                console.log('✅ Device matches - allowing login');
                 await existingUserDevice.update({
                     last_login: new Date()
                 });
             } else {
                 console.log('🆕 First login - binding device to user');
 
-                const fingerprintInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint);
+                const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
+                                     await AuthRepository.findDeviceById(activeDeviceId);
 
-                if (fingerprintInUse && fingerprintInUse.user_id !== user.id) {
-                    console.log('🚫 Device fingerprint already in use by another user');
+                if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
+                    console.log('🚫 Device already bound to another user');
                     throw {
                         statusCode: 403,
                         deviceInUse: true,
@@ -351,18 +353,17 @@ class AuthService {
 
                 await AuthRepository.createDevice({
                     user_id: user.id,
-                    device_id: device_id || androidId,
-                    android_id: androidId,
-                    manufacturer: manufacturer,
-                    model: model,
+                    device_id: activeDeviceId,
+                    android_id: androidId || activeDeviceId,
+                    manufacturer: manufacturer || 'Android',
+                    model: model || 'Device',
                     device_fingerprint: deviceFingerprint,
                     device_name: deviceName,
                     device_type: 'android',
                     status: 'ACTIVE',
-                    last_login: new Date(),
-                    is_active: true
+                    is_active: true,
+                    last_login: new Date()
                 });
-
                 console.log('✅ Device bound successfully:', deviceName);
             }
         } else if (device_id) {
