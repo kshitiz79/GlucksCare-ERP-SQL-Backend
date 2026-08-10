@@ -133,6 +133,14 @@ router.post('/reset/:userId', authMiddleware, async (req, res) => {
 
         await Promise.all(revokePromises);
 
+        const UserActivityLogService = require('../userActivityLog/userActivityLogService');
+        await UserActivityLogService.logActivity(req, {
+            userId: userId,
+            email: user.email,
+            action: 'RESET_DEVICE',
+            details: { reason, adminId: req.user.id, adminEmail: req.user.email }
+        });
+
         console.log(`🔓 Admin ${req.user.email} reset device binding for user ${user.email}`);
 
         res.json({
@@ -205,6 +213,15 @@ router.post('/revoke/:deviceId', authMiddleware, async (req, res) => {
             revoked_by: req.user.id,
             revoked_at: new Date(),
             revoke_reason: reason || 'Revoked by admin'
+        });
+
+        const UserActivityLogService = require('../userActivityLog/userActivityLogService');
+        await UserActivityLogService.logActivity(req, {
+            userId: device.user_id,
+            email: device.user?.email,
+            action: 'REVOKE_DEVICE',
+            deviceId: device.device_id,
+            details: { reason, adminId: req.user.id, adminEmail: req.user.email }
         });
 
         console.log(`🔓 Admin ${req.user.email} revoked device ${device.device_name} for user ${device.user.email}`);

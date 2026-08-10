@@ -279,6 +279,10 @@ async function startServer() {
     const userDeviceRoutes = require('./src/userDevice/userDeviceRoutes');
     app.use('/api/user-devices', userDeviceRoutes);
 
+    // User activity log routes
+    const userActivityLogRoutes = require('./src/userActivityLog/userActivityLogRoutes');
+    app.use('/api/user-activity-logs', userActivityLogRoutes);
+
     // Mob image upload routes
     const mobImageRoutes = require('./src/mobimgupload/mobImageRoutes');
     app.use('/api/mobimages', mobImageRoutes);
