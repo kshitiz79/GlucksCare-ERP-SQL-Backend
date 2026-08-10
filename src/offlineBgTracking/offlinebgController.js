@@ -1,4 +1,4 @@
-const { OfflineBgTracking } = require('../config/database');
+const { OfflineBgTracking, UserDevice } = require('../config/database');
 
 const createOfflineBgTracking = async (req, res) => {
   try {
@@ -109,6 +109,53 @@ const createOfflineBgTracking = async (req, res) => {
           }
         });
       }
+    }
+
+    // Auto-bind device to user if user_id is authenticated/resolved and device has no binding yet
+    try {
+      const deviceUserPairs = [];
+      const seenPairs = new Set();
+      
+      recordsToInsert.forEach(record => {
+        if (record.device_id && record.user_id) {
+          const key = `${record.device_id}_${record.user_id}`;
+          if (!seenPairs.has(key)) {
+            seenPairs.add(key);
+            deviceUserPairs.push({
+              device_id: record.device_id,
+              user_id: record.user_id
+            });
+          }
+        }
+      });
+
+      for (const pair of deviceUserPairs) {
+        const existingBinding = await UserDevice.findOne({
+          where: { device_id: pair.device_id }
+        });
+
+        if (!existingBinding) {
+          // Automatic binding for new device uploading coordinates
+          await UserDevice.create({
+            user_id: pair.user_id,
+            device_id: pair.device_id,
+            android_id: pair.device_id,
+            status: 'ACTIVE',
+            is_active: true,
+            last_login: new Date()
+          });
+          console.log(`[Auto-Bind] Bound device ${pair.device_id} to user ${pair.user_id} automatically.`);
+        } else if (existingBinding.user_id === pair.user_id && existingBinding.status !== 'ACTIVE') {
+          // Re-activate binding if it matches the current user uploading coordinates
+          await existingBinding.update({
+            status: 'ACTIVE',
+            is_active: true,
+            last_login: new Date()
+          });
+        }
+      }
+    } catch (bindErr) {
+      console.warn('[Auto-Bind] Warning binding device automatically:', bindErr.message);
     }
 
     // Bulk create records (handling duplicates on entity_id)
