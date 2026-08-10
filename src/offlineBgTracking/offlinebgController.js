@@ -925,6 +925,18 @@ const getAllUsersRouteData = async (req, res) => {
       }
     });
 
+    // Fetch active device mappings
+    const activeDevices = await sequelize.query(
+      `SELECT user_id, device_id FROM user_devices WHERE status = 'ACTIVE'`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    const deviceMap = {};
+    activeDevices.forEach(d => {
+      if (d.user_id) {
+        deviceMap[d.user_id] = d.device_id;
+      }
+    });
+
     const usersWithRoutes = users
       .filter(user => userRouteMap[user.id] && userRouteMap[user.id].length > 0)
       .map(user => ({
@@ -933,7 +945,8 @@ const getAllUsersRouteData = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
-          employee_code: user.employee_code
+          employee_code: user.employee_code,
+          device_id: deviceMap[user.id] || null
         },
         route: userRouteMap[user.id],
         total_points: userRouteMap[user.id].length
