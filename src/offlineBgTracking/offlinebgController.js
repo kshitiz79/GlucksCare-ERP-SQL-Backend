@@ -656,6 +656,8 @@ const getUserRouteData = async (req, res) => {
       network_type: pt.network_type || 'GPS'
     }));
 
+    formattedRoute.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
     if (formattedRoute.length === 0) {
       const visitPoints = await sequelize.query(
         `
@@ -689,6 +691,8 @@ const getUserRouteData = async (req, res) => {
         battery_level: 100,
         network_type: 'Visit Check-in'
       }));
+
+      formattedRoute.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
 
     res.json({
@@ -922,6 +926,13 @@ const getAllUsersRouteData = async (req, res) => {
           battery_level: 100,
           network_type: 'Visit Check-in'
         });
+      }
+    });
+
+    // Sort each user's route points by timestamp ASC to ensure chronological order
+    Object.keys(userRouteMap).forEach(uid => {
+      if (userRouteMap[uid]) {
+        userRouteMap[uid].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       }
     });
 
