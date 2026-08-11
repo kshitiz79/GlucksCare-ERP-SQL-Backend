@@ -20,6 +20,7 @@ const UserDevice = (sequelize) => {
     device_id: {
       type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
       comment: 'Legacy field - kept for backward compatibility'
     },
     // Device fingerprint components
@@ -41,6 +42,7 @@ const UserDevice = (sequelize) => {
     device_fingerprint: {
       type: DataTypes.STRING,
       allowNull: true,
+      unique: true,
       comment: 'SHA-256 hash of android_id + manufacturer + model'
     },
     device_name: {

@@ -86,15 +86,18 @@ async function initializeDatabase() {
             console.warn('⚠️ Warning: Failed to alter users table:', alterErr.message);
         }
 
-        // Dynamically drop unique constraints on user_devices to remove boundation
+        // Dynamically add unique constraints back to user_devices to enforce device lock
         try {
-            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS user_devices_device_id_key CASCADE;');
-            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS user_devices_device_fingerprint_key CASCADE;');
-            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS device_id_unique CASCADE;');
-            await sequelize.query('ALTER TABLE user_devices DROP CONSTRAINT IF EXISTS device_fingerprint_unique CASCADE;');
-            console.log('✅ Dropped unique constraints on user_devices table');
+            await sequelize.query('ALTER TABLE user_devices ADD CONSTRAINT user_devices_device_id_key UNIQUE (device_id);');
+            console.log('✅ Re-added unique constraint on device_id');
         } catch (constraintErr) {
-            console.warn('⚠️ Warning: Failed to drop unique constraints on user_devices:', constraintErr.message);
+            // Already exists or fails safely
+        }
+        try {
+            await sequelize.query('ALTER TABLE user_devices ADD CONSTRAINT user_devices_device_fingerprint_key UNIQUE (device_fingerprint);');
+            console.log('✅ Re-added unique constraint on device_fingerprint');
+        } catch (constraintErr) {
+            // Already exists or fails safely
         }
 
         return true;

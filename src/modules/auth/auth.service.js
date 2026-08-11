@@ -326,33 +326,59 @@ class AuthService {
 
             console.log('🔐 Device identifier:', deviceFingerprint);
 
-            const { Op } = require('sequelize');
-            const models = req.app.get('models');
-            
-            let userDeviceRecord = await models.UserDevice.findOne({
-                where: {
-                    user_id: user.id,
-                    [Op.or]: [
-                        { device_id: activeDeviceId },
-                        { device_fingerprint: deviceFingerprint }
-                    ]
-                }
-            });
+            const existingUserDevice = await AuthRepository.findActiveUserDevice(user.id);
 
-            if (userDeviceRecord) {
-                console.log('🔄 Device mapping already exists for this user - updating activity timestamp');
-                await userDeviceRecord.update({
-                    android_id: androidId || activeDeviceId,
-                    manufacturer: manufacturer || 'Android',
-                    model: model || 'Device',
-                    device_fingerprint: deviceFingerprint,
-                    device_name: deviceName,
-                    status: 'ACTIVE',
-                    is_active: true,
+            if (existingUserDevice) {
+                console.log('📱 User has existing device binding');
+
+                if (existingUserDevice.device_id !== activeDeviceId && existingUserDevice.android_id !== activeDeviceId && existingUserDevice.device_fingerprint !== deviceFingerprint) {
+                    console.log('🚫 Device mismatch!');
+                    await UserActivityLogService.logActivity(req, {
+                        userId: user.id,
+                        email: user.email,
+                        action: 'FAILED_LOGIN',
+                        deviceId: activeDeviceId,
+                        details: { reason: 'Device registration mismatch', registeredDevice: existingUserDevice.device_name }
+                    });
+                    throw {
+                        statusCode: 403,
+                        deviceMismatch: true,
+                        message: 'Device already registered',
+                        error: 'This account is already registered to another device. Please contact your administrator to reset the device binding if you have replaced your tablet or performed a factory reset.',
+                        registeredDevice: {
+                            name: existingUserDevice.device_name || 'Registered Device',
+                            lastLogin: existingUserDevice.last_login
+                        }
+                    };
+                }
+
+                console.log('✅ Device matches - allowing login');
+                await existingUserDevice.update({
                     last_login: new Date()
                 });
             } else {
-                console.log('🆕 Creating new device mapping for this user');
+                console.log('🆕 First login - binding device to user');
+
+                const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
+                                     await AuthRepository.findDeviceById(activeDeviceId);
+
+                if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
+                    console.log('🚫 Device already bound to another user');
+                    await UserActivityLogService.logActivity(req, {
+                        userId: user.id,
+                        email: user.email,
+                        action: 'FAILED_LOGIN',
+                        deviceId: activeDeviceId,
+                        details: { reason: 'Device already bound to another user' }
+                    });
+                    throw {
+                        statusCode: 403,
+                        deviceInUse: true,
+                        message: 'Device already registered to another user',
+                        error: 'This device is already registered to another account. Each device can only be used by one user.'
+                    };
+                }
+
                 await AuthRepository.createDevice({
                     user_id: user.id,
                     device_id: activeDeviceId,
@@ -366,6 +392,7 @@ class AuthService {
                     is_active: true,
                     last_login: new Date()
                 });
+                console.log('✅ Device bound successfully:', deviceName);
                 await UserActivityLogService.logActivity(req, {
                     userId: user.id,
                     email: user.email,
