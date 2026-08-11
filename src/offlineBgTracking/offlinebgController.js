@@ -637,10 +637,12 @@ const getUserRouteData = async (req, res) => {
       WHERE handshake_verified_by_user_id = :userId
         AND handshake_user_lat IS NOT NULL 
         AND handshake_user_lng IS NOT NULL
+        AND handshake_time >= :startTime
+        AND handshake_time <= :endTime
       ORDER BY handshake_time ASC
       `,
       {
-        replacements: { userId },
+        replacements: { userId, startTime, endTime },
         type: sequelize.QueryTypes.SELECT
       }
     );
@@ -669,16 +671,16 @@ const getUserRouteData = async (req, res) => {
           100 as battery_level,
           'Visit Check-in' as network_type
         FROM (
-          SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE user_id = :userId AND latitude IS NOT NULL
+          SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE user_id = :userId AND latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
           UNION ALL
-          SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE user_id = :userId AND latitude IS NOT NULL
+          SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE user_id = :userId AND latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
           UNION ALL
-          SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE user_id = :userId AND latitude IS NOT NULL
+          SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE user_id = :userId AND latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
         ) visits
         ORDER BY created_at ASC
         `,
         {
-          replacements: { userId },
+          replacements: { userId, startTime, endTime },
           type: sequelize.QueryTypes.SELECT
         }
       );
@@ -868,9 +870,14 @@ const getAllUsersRouteData = async (req, res) => {
       FROM tour_plan_days
       WHERE handshake_user_lat IS NOT NULL 
         AND handshake_user_lng IS NOT NULL
+        AND handshake_time >= :startTime
+        AND handshake_time <= :endTime
       ORDER BY handshake_time ASC
       `,
-      { type: sequelize.QueryTypes.SELECT }
+      {
+        replacements: { startTime, endTime },
+        type: sequelize.QueryTypes.SELECT
+      }
     );
 
     const userRouteMap = {};
@@ -904,15 +911,18 @@ const getAllUsersRouteData = async (req, res) => {
         100 as battery_level,
         'Visit Check-in' as network_type
       FROM (
-        SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
+        SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
         UNION ALL
-        SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
+        SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
         UNION ALL
-        SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
+        SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL AND created_at >= :startTime AND created_at <= :endTime
       ) visits
       ORDER BY user_id, created_at ASC
       `,
-      { type: sequelize.QueryTypes.SELECT }
+      {
+        replacements: { startTime, endTime },
+        type: sequelize.QueryTypes.SELECT
+      }
     );
 
     userVisitLocations.forEach(loc => {
