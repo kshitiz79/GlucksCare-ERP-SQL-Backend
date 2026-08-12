@@ -86,6 +86,23 @@ async function initializeDatabase() {
             console.warn('⚠️ Warning: Failed to alter users table:', alterErr.message);
         }
 
+        // Dynamically create dcr_settings table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS dcr_settings (
+                id SERIAL PRIMARY KEY,
+                doctor_target INTEGER NOT NULL DEFAULT 10,
+                chemist_target INTEGER NOT NULL DEFAULT 5,
+                stockist_target INTEGER NOT NULL DEFAULT 2,
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              )
+            `);
+            console.log('✅ Checked/Created dcr_settings table');
+        } catch (tableErr) {
+            console.warn('⚠️ Warning: Failed to create dcr_settings table:', tableErr.message);
+        }
+
         // Dynamically add unique constraints back to user_devices to enforce device lock
         try {
             await sequelize.query('ALTER TABLE user_devices ADD CONSTRAINT user_devices_device_id_key UNIQUE (device_id);');
