@@ -2398,6 +2398,59 @@ const forceLogoutAllUsers = async (req, res) => {
   }
 };
 
+// Force logout all user sessions associated with a specific device_id
+const forceLogoutByDevice = async (req, res) => {
+  try {
+    const { device_id } = req.body;
+    if (!device_id) {
+      return res.status(400).json({ success: false, message: 'device_id is required' });
+    }
+
+    const sequelize = req.app.get('sequelize');
+    const { Op } = require('sequelize');
+    const models = req.app.get('models');
+    const { UserDevice, User } = models;
+
+    // Find all users who have ever bound to this device ID
+    const userDevices = await UserDevice.findAll({
+      where: {
+        [Op.or]: [
+          { device_id: device_id },
+          { android_id: device_id },
+          { device_fingerprint: device_id }
+        ]
+      },
+      attributes: ['user_id']
+    });
+
+    const userIds = [...new Set(userDevices.map(ud => ud.user_id).filter(Boolean))];
+
+    if (userIds.length > 0) {
+      await User.update(
+        { tokens_valid_after: new Date() },
+        { where: { id: userIds } }
+      );
+    }
+
+    // Log Activity
+    const UserActivityLogService = require('../userActivityLog/userActivityLogService');
+    await UserActivityLogService.logActivity(req, {
+      userId: req.user.id,
+      email: req.user.email,
+      action: 'REVOKE_DEVICE_SESSIONS',
+      details: { deviceId: device_id, loggedOutUserCount: userIds.length, adminId: req.user.id, adminEmail: req.user.email }
+    });
+
+    res.json({
+      success: true,
+      message: `Forced logout completed for device ${device_id} successfully. Affected users: ${userIds.length}`
+    });
+  } catch (error) {
+    console.error('Force logout by device error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUsersByRole,
@@ -2419,5 +2472,6 @@ module.exports = {
   updateFcmToken,
   deleteFcmToken,
   forceLogoutUser,
-  forceLogoutAllUsers
+  forceLogoutAllUsers,
+  forceLogoutByDevice
 };

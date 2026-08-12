@@ -23,10 +23,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            ' https://api.gluckscare.com ', // Add this for development
+            ' https://test.gluckscare.com ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            ' https://api.gluckscare.com ',
+            ' https://test.gluckscare.com ',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -48,11 +48,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    ' https://api.gluckscare.com ', // Add this for development
+    ' https://test.gluckscare.com ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    ' https://api.gluckscare.com ', // Add this for production frontend
+    ' https://test.gluckscare.com ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -77,7 +77,7 @@ async function initializeDatabase() {
     try {
         await sequelize.authenticate();
         console.log('✅ PostgreSQL connection established successfully');
-        
+
         // Dynamically add tokens_valid_after to users table if not exists
         try {
             await sequelize.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMP WITH TIME ZONE NULL;');

@@ -23,7 +23,8 @@ const {
   updateFcmToken,
   deleteFcmToken,
   forceLogoutUser,
-  forceLogoutAllUsers
+  forceLogoutAllUsers,
+  forceLogoutByDevice
 } = require('./userController');
 
 // Import simple MongoDB-style delete function
@@ -99,6 +100,7 @@ router.delete('/:id/force', authMiddleware, forceDeleteUser);
 
 // FORCE LOGOUT SESSIONS (Admin privileges required)
 router.post('/force-logout-all', authMiddleware, adminAuth, forceLogoutAllUsers);
+router.post('/force-logout-by-device', authMiddleware, adminAuth, forceLogoutByDevice);
 router.post('/force-logout/:id', authMiddleware, adminAuth, forceLogoutUser);
 
 // FCM TOKEN MANAGEMENT
