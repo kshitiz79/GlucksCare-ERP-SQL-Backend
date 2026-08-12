@@ -353,19 +353,39 @@ const getUserWiseVisits = async (req, res) => {
       if (state_id || (loggedInUser.role === 'State Head' && loggedInUser.state_id)) {
         userWhere.state_id = state_id || loggedInUser.state_id;
       }
-      if (head_office_id) {
-        userWhere.head_office_id = head_office_id;
-      }
       if (role) {
         userWhere.role = role;
       }
 
-      const usersList = await User.findAll({
-        where: userWhere,
-        attributes: ['id']
-      });
-      const foundIds = usersList.map(u => u.id);
-      targetUserIds = Array.from(new Set([loggedInUser.id, ...foundIds]));
+      let usersQuery;
+      if (head_office_id) {
+        // Filter by head office via both users.head_office_id and user_head_offices join table
+        const hoUsers = await sequelize.query(
+          `SELECT DISTINCT u.id FROM users u
+           LEFT JOIN user_head_offices uho ON u.id = uho.user_id
+           WHERE u.is_active = true
+             AND (u.head_office_id = :hoId OR uho.head_office_id = :hoId)
+             ${state_id ? 'AND u.state_id = :stateId' : ''}
+             ${role ? "AND u.role = :roleVal" : ''}`,
+          {
+            replacements: {
+              hoId: head_office_id,
+              ...(state_id ? { stateId: state_id } : {}),
+              ...(role ? { roleVal: role } : {})
+            },
+            type: sequelize.QueryTypes.SELECT
+          }
+        );
+        const foundIds = (hoUsers || []).map(u => u.id);
+        targetUserIds = Array.from(new Set([loggedInUser.id, ...foundIds]));
+      } else {
+        const usersList = await User.findAll({
+          where: userWhere,
+          attributes: ['id']
+        });
+        const foundIds = usersList.map(u => u.id);
+        targetUserIds = Array.from(new Set([loggedInUser.id, ...foundIds]));
+      }
     }
 
     // Date filter condition

@@ -23,10 +23,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            ' https://test.gluckscare.com ', // Add this for development
+            ' https://api.gluckscare.com ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            ' https://test.gluckscare.com ',
+            ' https://api.gluckscare.com ',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -48,11 +48,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    ' https://test.gluckscare.com ', // Add this for development
+    ' https://api.gluckscare.com ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    ' https://test.gluckscare.com ', // Add this for production frontend
+    ' https://api.gluckscare.com ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -328,6 +328,8 @@ async function startServer() {
     app.use('/api/tour-plan', tourPlanRoutes);
     const dcrRoutes = require('./src/dcr/dcrRoutes');
     app.use('/api/dcr', dcrRoutes);
+    const dcrSettingsRoutes = require('./src/dcrSettings/dcrSettingsRoutes');
+    app.use('/api/dcr-settings', dcrSettingsRoutes);
     app.use('/api/offline-bg-tracking', offlineBgTrackingRoutes);
     const purchaseRoutes = require('./src/purchase/purchaseRoutes');
     app.use('/api/purchases', purchaseRoutes);
