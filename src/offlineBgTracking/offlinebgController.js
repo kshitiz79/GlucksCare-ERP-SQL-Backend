@@ -489,7 +489,7 @@ const getUserLocationHistory = async (req, res) => {
 const getUserRouteData = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { hours = 24 } = req.query;
+    const { hours = 12 } = req.query;
 
     const models = req.app.get('models');
     const { User } = models;
@@ -521,8 +521,7 @@ const getUserRouteData = async (req, res) => {
         COALESCE(
           obt.user_id::text, 
           (obt.payload->>'user_id'), 
-          ud.user_id::text,
-          visit_u.user_id::text
+          ud.user_id::text
         )::uuid as user_id,
         COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
         (obt.payload->>'latitude')::numeric as latitude,
@@ -532,32 +531,15 @@ const getUserRouteData = async (req, res) => {
         (obt.payload->>'battery_level')::numeric as battery_level,
         (obt.payload->>'network_type')::text as network_type
       FROM offline_bg_tracking obt
-      LEFT JOIN LATERAL (
-        SELECT user_id 
-        FROM user_devices 
-        WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-           OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-        ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-        LIMIT 1
-      ) ud ON true
-      LEFT JOIN LATERAL (
-        SELECT user_id FROM (
-          SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
-          UNION ALL
-          SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
-          UNION ALL
-          SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
-        ) v
-        WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
-          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
-        ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
-        LIMIT 1
-      ) visit_u ON true
-      WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId OR visit_u.user_id::text = :userId)
+      LEFT JOIN user_devices ud ON (
+           (obt.device_id IS NOT NULL AND obt.device_id != '' AND (ud.device_id = obt.device_id OR ud.android_id = obt.device_id))
+        OR (obt.payload->>'device_id' IS NOT NULL AND (ud.device_id = (obt.payload->>'device_id') OR ud.android_id = (obt.payload->>'device_id')))
+      ) AND ud.status = 'ACTIVE'
+      WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId)
         AND obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
+        AND (obt.payload->>'latitude')::numeric != 0
+        AND (obt.payload->>'longitude')::numeric != 0
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endTime
       ORDER BY timestamp ASC
@@ -729,7 +711,7 @@ const getUserRouteData = async (req, res) => {
 
 const getAllUsersRouteData = async (req, res) => {
   try {
-    const { hours = 24 } = req.query;
+    const { hours = 12 } = req.query;
     const models = req.app.get('models');
     const { User } = models;
     const sequelize = req.app.get('sequelize');
@@ -747,19 +729,17 @@ const getAllUsersRouteData = async (req, res) => {
       });
     }
 
-    const userIds = users.map(u => u.id);
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
 
-    // Primary Query: Fetch route points from offline_bg_tracking within time window (joining user_devices and visit check-ins to resolve user_id)
+    // Primary Query: Fetch route points from offline_bg_tracking within time window (joining user_devices)
     let routeData = await sequelize.query(
       `
       SELECT 
         COALESCE(
           obt.user_id::text, 
           (obt.payload->>'user_id'), 
-          ud.user_id::text,
-          visit_u.user_id::text
+          ud.user_id::text
         )::uuid as user_id,
         COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
         (obt.payload->>'latitude')::numeric as latitude,
@@ -769,31 +749,14 @@ const getAllUsersRouteData = async (req, res) => {
         (obt.payload->>'battery_level')::numeric as battery_level,
         (obt.payload->>'network_type')::text as network_type
       FROM offline_bg_tracking obt
-      LEFT JOIN LATERAL (
-        SELECT user_id 
-        FROM user_devices 
-        WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-           OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-        ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-        LIMIT 1
-      ) ud ON true
-      LEFT JOIN LATERAL (
-        SELECT user_id FROM (
-          SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
-          UNION ALL
-          SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
-          UNION ALL
-          SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
-        ) v
-        WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
-          AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
-        ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
-        LIMIT 1
-      ) visit_u ON true
+      LEFT JOIN user_devices ud ON (
+           (obt.device_id IS NOT NULL AND obt.device_id != '' AND (ud.device_id = obt.device_id OR ud.android_id = obt.device_id))
+        OR (obt.payload->>'device_id' IS NOT NULL AND (ud.device_id = (obt.payload->>'device_id') OR ud.android_id = (obt.payload->>'device_id')))
+      ) AND ud.status = 'ACTIVE'
       WHERE obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
+        AND (obt.payload->>'latitude')::numeric != 0
+        AND (obt.payload->>'longitude')::numeric != 0
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startTime
         AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endTime
       ORDER BY timestamp ASC
@@ -804,7 +767,7 @@ const getAllUsersRouteData = async (req, res) => {
       }
     );
 
-    // Fallback: If 0 points found in last N hours, fetch all available historical location points
+    // Fallback: If 0 points found in last N hours, fetch historical location points with limit
     if (routeData.length === 0) {
       routeData = await sequelize.query(
         `
@@ -812,8 +775,7 @@ const getAllUsersRouteData = async (req, res) => {
           COALESCE(
             obt.user_id::text, 
             (obt.payload->>'user_id'), 
-            ud.user_id::text,
-            visit_u.user_id::text
+            ud.user_id::text
           )::uuid as user_id,
           COALESCE((obt.payload->>'tracking_session_id'), obt.device_id, (obt.payload->>'device_id'), 'unknown') as session_or_device,
           (obt.payload->>'latitude')::numeric as latitude,
@@ -823,33 +785,16 @@ const getAllUsersRouteData = async (req, res) => {
           (obt.payload->>'battery_level')::numeric as battery_level,
           (obt.payload->>'network_type')::text as network_type
         FROM offline_bg_tracking obt
-        LEFT JOIN LATERAL (
-          SELECT user_id 
-          FROM user_devices 
-          WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-             OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-             OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-             OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-          ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-          LIMIT 1
-        ) ud ON true
-        LEFT JOIN LATERAL (
-          SELECT user_id FROM (
-            SELECT user_id, date, latitude, longitude, created_at FROM doctor_visits WHERE latitude IS NOT NULL
-            UNION ALL
-            SELECT user_id, date, latitude, longitude, created_at FROM chemist_visits WHERE latitude IS NOT NULL
-            UNION ALL
-            SELECT user_id, date, latitude, longitude, created_at FROM stockist_visits WHERE latitude IS NOT NULL
-          ) v
-          WHERE ABS(v.latitude - (obt.payload->>'latitude')::numeric) < 0.25
-            AND ABS(v.longitude - (obt.payload->>'longitude')::numeric) < 0.25
-          ORDER BY (v.date = (COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc))::date) DESC, v.created_at DESC
-          LIMIT 1
-        ) visit_u ON true
+        LEFT JOIN user_devices ud ON (
+             (obt.device_id IS NOT NULL AND obt.device_id != '' AND (ud.device_id = obt.device_id OR ud.android_id = obt.device_id))
+          OR (obt.payload->>'device_id' IS NOT NULL AND (ud.device_id = (obt.payload->>'device_id') OR ud.android_id = (obt.payload->>'device_id')))
+        ) AND ud.status = 'ACTIVE'
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
+          AND (obt.payload->>'latitude')::numeric != 0
+          AND (obt.payload->>'longitude')::numeric != 0
         ORDER BY timestamp ASC
-        LIMIT 2000
+        LIMIT 1000
         `,
         { type: sequelize.QueryTypes.SELECT }
       );
@@ -939,10 +884,23 @@ const getAllUsersRouteData = async (req, res) => {
       }
     });
 
-    // Sort each user's route points by timestamp ASC to ensure chronological order
+    // Downsample & sort each user's route points to optimize payload and map performance
+    const MAX_POINTS_PER_USER = 150;
     Object.keys(userRouteMap).forEach(uid => {
       if (userRouteMap[uid]) {
-        userRouteMap[uid].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        let pts = userRouteMap[uid];
+        pts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (pts.length > MAX_POINTS_PER_USER) {
+          const sampled = [pts[0]];
+          const step = (pts.length - 2) / (MAX_POINTS_PER_USER - 2);
+          for (let i = 1; i < MAX_POINTS_PER_USER - 1; i++) {
+            const index = Math.floor(i * step);
+            if (pts[index]) sampled.push(pts[index]);
+          }
+          sampled.push(pts[pts.length - 1]);
+          userRouteMap[uid] = sampled;
+        }
       }
     });
 
