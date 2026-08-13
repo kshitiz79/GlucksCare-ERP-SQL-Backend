@@ -19,8 +19,11 @@ const getDcrSettings = async (req, res) => {
         success: true,
         data: {
           doctor_target: 10,
+          doctor_frequency: 'daily',
           chemist_target: 5,
+          chemist_frequency: 'daily',
           stockist_target: 2,
+          stockist_frequency: 'daily',
           total_target: 17,
           updated_by: null,
           created_at: null
@@ -34,8 +37,11 @@ const getDcrSettings = async (req, res) => {
       data: {
         id: cfg.id,
         doctor_target: parseInt(cfg.doctor_target, 10),
+        doctor_frequency: cfg.doctor_frequency || 'daily',
         chemist_target: parseInt(cfg.chemist_target, 10),
+        chemist_frequency: cfg.chemist_frequency || 'daily',
         stockist_target: parseInt(cfg.stockist_target, 10),
+        stockist_frequency: cfg.stockist_frequency || 'daily',
         total_target: parseInt(cfg.doctor_target, 10) + parseInt(cfg.chemist_target, 10) + parseInt(cfg.stockist_target, 10),
         updated_by: cfg.updated_by,
         created_at: cfg.created_at
@@ -78,7 +84,14 @@ const saveDcrSettings = async (req, res) => {
     const sequelize = req.app.get('sequelize');
     const userId = req.user?.id || null;
 
-    const { doctor_target, chemist_target, stockist_target } = req.body;
+    const {
+      doctor_target,
+      doctor_frequency = 'daily',
+      chemist_target,
+      chemist_frequency = 'daily',
+      stockist_target,
+      stockist_frequency = 'daily'
+    } = req.body;
 
     if (
       doctor_target === undefined || chemist_target === undefined || stockist_target === undefined ||
@@ -90,27 +103,39 @@ const saveDcrSettings = async (req, res) => {
       });
     }
 
+    const validFrequencies = ['daily', 'weekly', 'monthly'];
+    const drFreq = validFrequencies.includes(doctor_frequency) ? doctor_frequency : 'daily';
+    const chFreq = validFrequencies.includes(chemist_frequency) ? chemist_frequency : 'daily';
+    const stFreq = validFrequencies.includes(stockist_frequency) ? stockist_frequency : 'daily';
+
     const drT = Math.max(0, parseInt(doctor_target, 10));
     const chT = Math.max(0, parseInt(chemist_target, 10));
     const stT = Math.max(0, parseInt(stockist_target, 10));
 
-    // Ensure table exists
+    // Ensure table exists with columns
     await sequelize.query(`
       CREATE TABLE IF NOT EXISTS dcr_settings (
         id SERIAL PRIMARY KEY,
         doctor_target INTEGER NOT NULL DEFAULT 10,
+        doctor_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
         chemist_target INTEGER NOT NULL DEFAULT 5,
+        chemist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
         stockist_target INTEGER NOT NULL DEFAULT 2,
+        stockist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
         updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `);
 
+    await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS doctor_frequency VARCHAR(20) DEFAULT 'daily';`);
+    await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS chemist_frequency VARCHAR(20) DEFAULT 'daily';`);
+    await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS stockist_frequency VARCHAR(20) DEFAULT 'daily';`);
+
     await sequelize.query(
-      `INSERT INTO dcr_settings (doctor_target, chemist_target, stockist_target, updated_by, created_at)
-       VALUES (:drT, :chT, :stT, :userId, NOW())`,
+      `INSERT INTO dcr_settings (doctor_target, doctor_frequency, chemist_target, chemist_frequency, stockist_target, stockist_frequency, updated_by, created_at)
+       VALUES (:drT, :drFreq, :chT, :chFreq, :stT, :stFreq, :userId, NOW())`,
       {
-        replacements: { drT, chT, stT, userId },
+        replacements: { drT, drFreq, chT, chFreq, stT, stFreq, userId },
         type: sequelize.QueryTypes.INSERT
       }
     );
@@ -120,8 +145,11 @@ const saveDcrSettings = async (req, res) => {
       message: 'DCR targets saved successfully',
       data: {
         doctor_target: drT,
+        doctor_frequency: drFreq,
         chemist_target: chT,
+        chemist_frequency: chFreq,
         stockist_target: stT,
+        stockist_frequency: stFreq,
         total_target: drT + chT + stT
       }
     });

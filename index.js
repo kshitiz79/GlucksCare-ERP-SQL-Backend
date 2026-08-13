@@ -92,13 +92,19 @@ async function initializeDatabase() {
               CREATE TABLE IF NOT EXISTS dcr_settings (
                 id SERIAL PRIMARY KEY,
                 doctor_target INTEGER NOT NULL DEFAULT 10,
+                doctor_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
                 chemist_target INTEGER NOT NULL DEFAULT 5,
+                chemist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
                 stockist_target INTEGER NOT NULL DEFAULT 2,
+                stockist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
                 updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
               )
             `);
-            console.log('✅ Checked/Created dcr_settings table');
+            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS doctor_frequency VARCHAR(20) DEFAULT 'daily';`);
+            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS chemist_frequency VARCHAR(20) DEFAULT 'daily';`);
+            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS stockist_frequency VARCHAR(20) DEFAULT 'daily';`);
+            console.log('✅ Checked/Created dcr_settings table with frequency columns');
         } catch (tableErr) {
             console.warn('⚠️ Warning: Failed to create dcr_settings table:', tableErr.message);
         }
