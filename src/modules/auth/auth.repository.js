@@ -60,8 +60,8 @@ class AuthRepository {
         });
     }
 
-    static async createDevice(deviceData, transaction) {
-        return UserDevice.create(deviceData, transaction);
+    static async createDevice(deviceData, options = {}) {
+        return UserDevice.create(deviceData, options);
     }
 
     static async findHeadOfficeById(id, options = {}) {
