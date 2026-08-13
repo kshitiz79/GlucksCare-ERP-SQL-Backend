@@ -359,47 +359,62 @@ class AuthService {
             } else {
                 console.log('🆕 First login - binding device to user');
 
-                const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
-                                     await AuthRepository.findDeviceById(activeDeviceId);
+                try {
+                    const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
+                                         await AuthRepository.findDeviceById(activeDeviceId);
 
-                if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
-                    console.log('🚫 Device already bound to another user');
+                    if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
+                        console.log('🚫 Device already bound to another user');
+                        await UserActivityLogService.logActivity(req, {
+                            userId: user.id,
+                            email: user.email,
+                            action: 'FAILED_LOGIN',
+                            deviceId: activeDeviceId,
+                            details: { reason: 'Device already bound to another user' }
+                        });
+                        throw {
+                            statusCode: 403,
+                            deviceInUse: true,
+                            message: 'Device already registered to another user',
+                            error: 'This device is already registered to another account. Each device can only be used by one user.'
+                        };
+                    }
+
+                    if (bindingInUse) {
+                        console.log('📱 Updating existing device binding for user');
+                        await bindingInUse.update({
+                            user_id: user.id,
+                            status: 'ACTIVE',
+                            is_active: true,
+                            last_login: new Date()
+                        });
+                    } else {
+                        await AuthRepository.createDevice({
+                            user_id: user.id,
+                            device_id: activeDeviceId,
+                            android_id: androidId || activeDeviceId,
+                            manufacturer: manufacturer || 'Android',
+                            model: model || 'Device',
+                            device_fingerprint: deviceFingerprint,
+                            device_name: deviceName,
+                            device_type: 'android',
+                            status: 'ACTIVE',
+                            is_active: true,
+                            last_login: new Date()
+                        });
+                    }
+                    console.log('✅ Device bound successfully:', deviceName);
                     await UserActivityLogService.logActivity(req, {
                         userId: user.id,
                         email: user.email,
-                        action: 'FAILED_LOGIN',
+                        action: 'BIND_DEVICE',
                         deviceId: activeDeviceId,
-                        details: { reason: 'Device already bound to another user' }
+                        details: { deviceName, manufacturer, model }
                     });
-                    throw {
-                        statusCode: 403,
-                        deviceInUse: true,
-                        message: 'Device already registered to another user',
-                        error: 'This device is already registered to another account. Each device can only be used by one user.'
-                    };
+                } catch (deviceError) {
+                    if (deviceError.statusCode) throw deviceError;
+                    console.error('Device binding error (handled safely):', deviceError);
                 }
-
-                await AuthRepository.createDevice({
-                    user_id: user.id,
-                    device_id: activeDeviceId,
-                    android_id: androidId || activeDeviceId,
-                    manufacturer: manufacturer || 'Android',
-                    model: model || 'Device',
-                    device_fingerprint: deviceFingerprint,
-                    device_name: deviceName,
-                    device_type: 'android',
-                    status: 'ACTIVE',
-                    is_active: true,
-                    last_login: new Date()
-                });
-                console.log('✅ Device bound successfully:', deviceName);
-                await UserActivityLogService.logActivity(req, {
-                    userId: user.id,
-                    email: user.email,
-                    action: 'BIND_DEVICE',
-                    deviceId: activeDeviceId,
-                    details: { deviceName, manufacturer, model }
-                });
             }
         } else if (device_id) {
             console.log('📱 Legacy device_id provided (no fingerprinting):', device_id);
