@@ -11,18 +11,110 @@ const getISTDate = () => {
 
 // Utility function to get current IST datetime
 const getISTDateTime = () => {
-
   return new Date();
 };
 
-// Util
+// Helper to convert Date String (YYYY-MM-DD) and Time String (HH:MM:SS) to IST Date object
+const getShiftDateTime = (dateStr, timeStr) => {
+  if (!dateStr || !timeStr) return null;
+  const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number);
+  const pad = (n) => String(n).padStart(2, '0');
+  const isoStr = `${dateStr}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}+05:30`;
+  return new Date(isoStr);
+};
+
+// Helper to resolve an employee's effective assigned shift
+const getEffectiveUserShift = async (userId, dateStr, models) => {
+  try {
+    const { UserShift, Shift } = models;
+    if (!UserShift || !Shift) {
+      return {
+        id: null,
+        name: 'General Shift',
+        start_time: '10:00:00',
+        end_time: '18:00:00',
+        minimum_hours: 8,
+        half_day_threshold: 4,
+        grace_period: 15,
+        break_duration: 60
+      };
+    }
+
+    // 1. Try finding individual assigned shift (ordered by assigned_at DESC)
+    const userShift = await UserShift.findOne({
+      where: { user_id: userId },
+      include: [{ model: Shift, as: 'shift' }],
+      order: [['assigned_at', 'DESC NULLS LAST']]
+    });
+
+    if (userShift && userShift.shift && userShift.shift.is_active !== false) {
+      return userShift.shift;
+    }
+
+    // 2. Direct database query fallback to ensure exact assigned shift lookup
+    const sequelize = models.sequelize || UserShift.sequelize;
+    if (sequelize) {
+      const rows = await sequelize.query(
+        `
+        SELECT s.* 
+        FROM user_shifts us
+        JOIN shifts s ON s.id = us.shift_id
+        WHERE us.user_id = :userId AND (s.is_active = true OR s.is_active IS NULL)
+        ORDER BY us.assigned_at DESC NULLS LAST
+        LIMIT 1
+        `,
+        {
+          replacements: { userId },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+      if (rows && rows.length > 0) {
+        return rows[0];
+      }
+    }
+
+    // 3. Fallback to active default general shift in database
+    const defaultShift = await Shift.findOne({
+      where: { is_active: true },
+      order: [['created_at', 'ASC']]
+    });
+
+    if (defaultShift) {
+      return defaultShift;
+    }
+
+    // 4. Default fallback
+    return {
+      id: null,
+      name: 'General Shift',
+      start_time: '10:00:00',
+      end_time: '18:00:00',
+      minimum_hours: 8,
+      half_day_threshold: 4,
+      grace_period: 15,
+      break_duration: 60
+    };
+  } catch (err) {
+    console.warn('getEffectiveUserShift error:', err.message);
+    return {
+      id: null,
+      name: 'General Shift',
+      start_time: '10:00:00',
+      end_time: '18:00:00',
+      minimum_hours: 8,
+      half_day_threshold: 4,
+      grace_period: 15,
+      break_duration: 60
+    };
+  }
+};
+
+// Util to calculate break times
 const calculateBreaks = (punchSessions) => {
   const autoBreaks = [];
   let totalBreakMinutes = 0;
 
-
   if (punchSessions.length > 1) {
-
     for (let i = 1; i < punchSessions.length; i++) {
       const previousSession = punchSessions[i - 1];
       const currentSession = punchSessions[i];
@@ -51,11 +143,130 @@ const calculateBreaks = (punchSessions) => {
   };
 };
 
+// Auto Punch-Out & Working Hours settlement engine
+const processAutoPunchOut = async (attendance, models, now = new Date()) => {
+  try {
+    if (!attendance) return null;
+
+    const punchSessions = Array.isArray(attendance.punch_sessions)
+      ? JSON.parse(JSON.stringify(attendance.punch_sessions))
+      : [];
+    const currentSessionIdx = attendance.current_session;
+
+    const isOpen = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx] && !punchSessions[currentSessionIdx].punchOut)
+      || attendance.status === 'punched_in';
+
+    if (!isOpen) return attendance;
+
+    // Get effective shift for this attendance
+    const shift = await getEffectiveUserShift(attendance.user_id, attendance.date, models);
+    const expectedPunchOut = attendance.expected_punch_out
+      ? new Date(attendance.expected_punch_out)
+      : (shift ? getShiftDateTime(attendance.date, shift.end_time) : getShiftDateTime(attendance.date, '19:00:00'));
+
+    const expectedPunchIn = attendance.expected_punch_in
+      ? new Date(attendance.expected_punch_in)
+      : (shift ? getShiftDateTime(attendance.date, shift.start_time) : getShiftDateTime(attendance.date, '10:00:00'));
+
+    const todayIST = getISTDate();
+    const isPastDate = attendance.date < todayIST;
+    const isPastShiftEnd = expectedPunchOut && now >= expectedPunchOut;
+
+    // Settle open session if shift end has passed or date is in the past
+    if (isPastDate || isPastShiftEnd) {
+      const activeSession = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx])
+        ? punchSessions[currentSessionIdx]
+        : punchSessions[punchSessions.length - 1];
+
+      if (activeSession && !activeSession.punchOut) {
+        const punchInTime = new Date(activeSession.punchIn);
+        const autoPunchOutTime = (expectedPunchOut && expectedPunchOut > punchInTime)
+          ? expectedPunchOut
+          : now;
+
+        activeSession.punchOut = autoPunchOutTime;
+        const durationMinutes = Math.max(0, Math.floor((autoPunchOutTime - punchInTime) / (1000 * 60)));
+        activeSession.durationMinutes = durationMinutes;
+        activeSession.isAutoPunchOut = true;
+      }
+
+      // Calculate total working minutes across all closed sessions
+      const totalWorkingMinutes = punchSessions.reduce((sum, s) => sum + (Math.floor(s.durationMinutes) || 0), 0);
+      const { autoBreaks, totalBreakMinutes } = calculateBreaks(punchSessions);
+
+      const minHours = shift?.minimum_hours ? parseFloat(shift.minimum_hours) : 8;
+      const halfHours = shift?.half_day_threshold ? parseFloat(shift.half_day_threshold) : 4;
+
+      let newStatus = 'present';
+      if (totalWorkingMinutes >= minHours * 60) {
+        newStatus = 'present';
+      } else if (totalWorkingMinutes >= halfHours * 60) {
+        newStatus = 'half_day';
+      } else if (totalWorkingMinutes > 0) {
+        newStatus = 'half_day';
+      } else {
+        newStatus = 'absent';
+      }
+
+      const updateData = {
+        punch_sessions: punchSessions,
+        current_session: -1,
+        status: newStatus,
+        total_working_minutes: totalWorkingMinutes,
+        total_break_minutes: totalBreakMinutes,
+        auto_breaks: autoBreaks,
+        last_punch_out: expectedPunchOut || now,
+        shift_id: attendance.shift_id || shift?.id,
+        expected_punch_in: attendance.expected_punch_in || expectedPunchIn,
+        expected_punch_out: attendance.expected_punch_out || expectedPunchOut,
+        admin_remarks: attendance.admin_remarks || 'Auto punched out at shift end time'
+      };
+
+      await attendance.update(updateData);
+      await attendance.reload();
+    }
+
+    return attendance;
+  } catch (err) {
+    console.error('processAutoPunchOut error:', err);
+    return attendance;
+  }
+};
+
+// Global periodic Auto Punch-Out runner across all active users
+const runGlobalAutoPunchOut = async (app) => {
+  try {
+    const models = app.get('models');
+    if (!models || !models.Attendance) return;
+
+    const { Attendance } = models;
+    const todayIST = getISTDate();
+    const now = new Date();
+
+    const openRecords = await Attendance.findAll({
+      where: {
+        [Op.or]: [
+          { current_session: { [Op.gte]: 0 } },
+          { status: 'punched_in' },
+          { date: { [Op.lt]: todayIST }, last_punch_out: null, first_punch_in: { [Op.ne]: null } }
+        ]
+      }
+    });
+
+    for (const record of openRecords) {
+      await processAutoPunchOut(record, models, now);
+    }
+  } catch (err) {
+    console.warn('runGlobalAutoPunchOut error:', err.message);
+  }
+};
+
 // GET all attendance records
 const getAllAttendance = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
-    const attendance = await Attendance.findAll({
+    const models = req.app.get('models');
+    const { Attendance } = models;
+    let attendance = await Attendance.findAll({
       include: [
         {
           model: req.app.get('models').User,
@@ -65,10 +276,18 @@ const getAllAttendance = async (req, res) => {
         {
           model: req.app.get('models').Shift,
           as: 'shift',
-          attributes: ['id', 'name', 'start_time', 'end_time']
+          attributes: ['id', 'name', 'start_time', 'end_time', 'minimum_hours', 'half_day_threshold']
         }
       ]
     });
+
+    // Auto-settle any past/unclosed records on demand
+    for (let i = 0; i < attendance.length; i++) {
+      if (attendance[i].status === 'punched_in' || attendance[i].current_session >= 0) {
+        attendance[i] = await processAutoPunchOut(attendance[i], models);
+      }
+    }
+
     res.json({
       success: true,
       count: attendance.length,
@@ -85,10 +304,11 @@ const getAllAttendance = async (req, res) => {
 // GET today's attendance for admin dashboard
 const getTodayAttendanceForAdmin = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const today = getISTDate();
 
-    const attendance = await Attendance.findAll({
+    let attendance = await Attendance.findAll({
       where: {
         date: today
       },
@@ -101,10 +321,17 @@ const getTodayAttendanceForAdmin = async (req, res) => {
         {
           model: req.app.get('models').Shift,
           as: 'shift',
-          attributes: ['id', 'name', 'start_time', 'end_time']
+          attributes: ['id', 'name', 'start_time', 'end_time', 'minimum_hours', 'half_day_threshold']
         }
       ]
     });
+
+    // Auto-settle any open sessions if shift end time passed
+    for (let i = 0; i < attendance.length; i++) {
+      if (attendance[i].status === 'punched_in' || attendance[i].current_session >= 0) {
+        attendance[i] = await processAutoPunchOut(attendance[i], models);
+      }
+    }
 
     // Calculate summary
     const totalEmployees = await req.app.get('models').User.count({
@@ -165,16 +392,33 @@ const getTodayAttendanceForAdmin = async (req, res) => {
 // GET today's attendance for specific user
 const getTodayAttendanceForUser = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const { userId } = req.params;
     const today = getISTDate();
+
+    const shift = await getEffectiveUserShift(userId, today, models);
+    const expectedPunchIn = getShiftDateTime(today, shift.start_time);
+    const expectedPunchOut = getShiftDateTime(today, shift.end_time);
 
     let attendance = await Attendance.findOne({
       where: {
         user_id: userId,
         date: today
-      }
+      },
+      include: [
+        {
+          model: models.Shift,
+          as: 'shift',
+          attributes: ['id', 'name', 'start_time', 'end_time', 'minimum_hours', 'half_day_threshold']
+        }
+      ]
     });
+
+    // Auto-settle open session if shift end has passed
+    if (attendance) {
+      attendance = await processAutoPunchOut(attendance, models);
+    }
 
     // If no attendance record exists for today, return default structure
     if (!attendance) {
@@ -191,11 +435,27 @@ const getTodayAttendanceForUser = async (req, res) => {
           totalWorkingMinutes: 0,
           totalBreakMinutes: 0,
           autoBreaks: [],
+          expectedPunchIn,
+          expectedPunchOut,
+          shift,
           // Legacy fields
           punchIn: null,
           punchOut: null
         }
       });
+    }
+
+    // Sync attendance record if assigned shift changed
+    if (attendance && shift && shift.id && attendance.shift_id !== shift.id) {
+      await attendance.update({
+        shift_id: shift.id,
+        expected_punch_in: expectedPunchIn,
+        expected_punch_out: expectedPunchOut
+      });
+      attendance.shift_id = shift.id;
+      attendance.expected_punch_in = expectedPunchIn;
+      attendance.expected_punch_out = expectedPunchOut;
+      attendance.shift = shift;
     }
 
     // Return comprehensive attendance data
@@ -208,9 +468,13 @@ const getTodayAttendanceForUser = async (req, res) => {
         attendance.punch_sessions?.[attendance.current_session] : null,
       firstPunchIn: attendance.first_punch_in,
       lastPunchOut: attendance.last_punch_out,
+      expectedPunchIn: expectedPunchIn,
+      expectedPunchOut: expectedPunchOut,
+      shift: shift,
       totalWorkingMinutes: attendance.total_working_minutes || 0,
       totalBreakMinutes: attendance.total_break_minutes || 0,
       autoBreaks: attendance.auto_breaks || [],
+      adminRemarks: attendance.admin_remarks,
       // Legacy fields for compatibility
       punchIn: attendance.first_punch_in,
       punchOut: attendance.last_punch_out
@@ -232,7 +496,8 @@ const getTodayAttendanceForUser = async (req, res) => {
 // GET weekly attendance for user
 const getWeeklyAttendance = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const { userId } = req.params;
 
     // Get current week dates in IST
@@ -249,12 +514,16 @@ const getWeeklyAttendance = async (req, res) => {
       date.setDate(startOfWeek.getDate() + i);
       const dateStr = date.toISOString().split('T')[0];
 
-      const attendance = await Attendance.findOne({
+      let attendance = await Attendance.findOne({
         where: {
           user_id: userId,
           date: dateStr
         }
       });
+
+      if (attendance && (attendance.status === 'punched_in' || attendance.current_session >= 0)) {
+        attendance = await processAutoPunchOut(attendance, models);
+      }
 
       weeklyData.push({
         day: weekDays[i],
@@ -279,7 +548,8 @@ const getWeeklyAttendance = async (req, res) => {
 // GET monthly attendance for user
 const getMonthlyAttendance = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const { userId } = req.params;
 
     // Use query params if provided, otherwise fallback to current month
@@ -293,12 +563,16 @@ const getMonthlyAttendance = async (req, res) => {
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const attendance = await Attendance.findOne({
+      let attendance = await Attendance.findOne({
         where: {
           user_id: userId,
           date: dateStr
         }
       });
+
+      if (attendance && (attendance.status === 'punched_in' || attendance.current_session >= 0)) {
+        attendance = await processAutoPunchOut(attendance, models);
+      }
 
       monthlyData.push({
         day,
@@ -328,7 +602,8 @@ const getMonthlyAttendance = async (req, res) => {
 // GET attendance stats for user
 const getAttendanceStats = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const { userId } = req.params;
 
     // Get current month stats
@@ -345,6 +620,12 @@ const getAttendanceStats = async (req, res) => {
         }
       }
     });
+
+    for (let i = 0; i < attendanceRecords.length; i++) {
+      if (attendanceRecords[i].status === 'punched_in' || attendanceRecords[i].current_session >= 0) {
+        attendanceRecords[i] = await processAutoPunchOut(attendanceRecords[i], models);
+      }
+    }
 
     const stats = {
       presentDays: attendanceRecords.filter(a => ['present', 'punched_in'].includes(a.status)).length,
@@ -368,7 +649,8 @@ const getAttendanceStats = async (req, res) => {
 // Toggle punch in/out for user
 const togglePunch = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const { userId } = req.body;
 
     if (!userId) {
@@ -380,6 +662,26 @@ const togglePunch = async (req, res) => {
 
     const today = getISTDate();
     const now = getISTDateTime();
+
+    // Settle any unclosed previous days' records for this user first
+    const pastOpenRecords = await Attendance.findAll({
+      where: {
+        user_id: userId,
+        date: { [Op.lt]: today },
+        [Op.or]: [
+          { current_session: { [Op.gte]: 0 } },
+          { status: 'punched_in' }
+        ]
+      }
+    });
+    for (const pastRec of pastOpenRecords) {
+      await processAutoPunchOut(pastRec, models);
+    }
+
+    // Resolve effective shift
+    const shift = await getEffectiveUserShift(userId, today, models);
+    const expectedPunchIn = getShiftDateTime(today, shift.start_time);
+    const expectedPunchOut = getShiftDateTime(today, shift.end_time);
 
     let attendance = await Attendance.findOne({
       where: {
@@ -393,6 +695,9 @@ const togglePunch = async (req, res) => {
       attendance = await Attendance.create({
         user_id: userId,
         date: today,
+        shift_id: shift.id || null,
+        expected_punch_in: expectedPunchIn,
+        expected_punch_out: expectedPunchOut,
         status: 'absent',
         punch_sessions: [],
         current_session: -1,
@@ -413,17 +718,25 @@ const togglePunch = async (req, res) => {
 
     let action = '';
     let message = '';
-    let updateData = {};
+    let updateData = {
+      shift_id: attendance.shift_id || shift.id || null,
+      expected_punch_in: attendance.expected_punch_in || expectedPunchIn,
+      expected_punch_out: attendance.expected_punch_out || expectedPunchOut
+    };
 
     // Check if user is currently punched in
     if (currentSession >= 0 && punchSessions[currentSession] && !punchSessions[currentSession].punchOut) {
 
       // User is punched in, so punch out
-      punchSessions[currentSession].punchOut = now;
+      // If punch out is happening after shift end time, cap punchOut at shift end time
+      const punchInTime = new Date(punchSessions[currentSession].punchIn);
+      const isPastShiftEnd = expectedPunchOut && now > expectedPunchOut;
+      const effectivePunchOut = (isPastShiftEnd && expectedPunchOut > punchInTime) ? expectedPunchOut : now;
+
+      punchSessions[currentSession].punchOut = effectivePunchOut;
 
       // Calculate session duration
-      const punchIn = new Date(punchSessions[currentSession].punchIn);
-      const sessionMinutes = (now - punchIn) / (1000 * 60);
+      const sessionMinutes = (effectivePunchOut - punchInTime) / (1000 * 60);
       punchSessions[currentSession].durationMinutes = Math.floor(Math.max(0, sessionMinutes));
 
       action = 'punch-out';
@@ -435,23 +748,26 @@ const togglePunch = async (req, res) => {
         return sum + duration;
       }, 0);
 
-      // Determine status based on working hours
+      // Determine status based on shift thresholds
+      const minHours = shift?.minimum_hours ? parseFloat(shift.minimum_hours) : 8;
+      const halfHours = shift?.half_day_threshold ? parseFloat(shift.half_day_threshold) : 4;
+
       let newStatus = 'punched_out';
-      if (totalWorkingMinutes >= 480) { // 8 hours
+      if (totalWorkingMinutes >= minHours * 60) {
         newStatus = 'present';
-      } else if (totalWorkingMinutes >= 240) { // 4 hours
+      } else if (totalWorkingMinutes >= halfHours * 60) {
         newStatus = 'half_day';
       }
 
-      // Ensure all numeric values are integers
       const totalWorkingMinutesInt = Math.floor(Math.max(0, totalWorkingMinutes));
 
       updateData = {
+        ...updateData,
         punch_sessions: punchSessions,
         current_session: -1,
         status: newStatus,
         total_working_minutes: totalWorkingMinutesInt,
-        last_punch_out: now
+        last_punch_out: effectivePunchOut
       };
     } else {
 
@@ -467,14 +783,22 @@ const togglePunch = async (req, res) => {
       message = `Punched in successfully (Session ${punchSessions.length})`;
 
       updateData = {
+        ...updateData,
         punch_sessions: punchSessions,
         current_session: punchSessions.length - 1,
         status: 'punched_in'
       };
 
-      // Set first punch in if this is the first session
+      // Set first punch in and check lateness if this is the first session
       if (!attendance.first_punch_in) {
         updateData.first_punch_in = now;
+
+        const graceMinutes = shift.grace_period || 15;
+        const lateThreshold = expectedPunchIn ? new Date(expectedPunchIn.getTime() + graceMinutes * 60 * 1000) : null;
+        if (lateThreshold && now > lateThreshold) {
+          updateData.is_late = true;
+          updateData.late_by_minutes = Math.floor((now - expectedPunchIn) / (1000 * 60));
+        }
       }
     }
 
@@ -498,8 +822,6 @@ const togglePunch = async (req, res) => {
 
     // Update attendance record
     await attendance.update(updateData);
-
-    // Reload to get fresh data
     await attendance.reload();
 
     // Create summary data
@@ -512,6 +834,9 @@ const togglePunch = async (req, res) => {
         attendance.punch_sessions[attendance.current_session] : null,
       firstPunchIn: attendance.first_punch_in,
       lastPunchOut: attendance.last_punch_out,
+      expectedPunchIn: attendance.expected_punch_in || expectedPunchIn,
+      expectedPunchOut: attendance.expected_punch_out || expectedPunchOut,
+      shift,
       totalWorkingMinutes: attendance.total_working_minutes || 0,
       totalBreakMinutes: attendance.total_break_minutes || 0,
       autoBreaks: attendance.auto_breaks || [],
@@ -641,27 +966,17 @@ const deleteAttendance = async (req, res) => {
   }
 };
 
-// Admin: Upsert attendance (Create or Update by date and userId)
+// Admin: Upsert Attendance Record
 const upsertAttendance = async (req, res) => {
   try {
     const { Attendance } = req.app.get('models');
-    const models = req.app.get('models');
-    const { userId, date, status, firstPunchIn, lastPunchOut, totalWorkingMinutes, adminComment } = req.body;
+    const { userId, date, status, totalWorkingMinutes, adminRemarks } = req.body;
 
     if (!userId || !date) {
-      return res.status(400).json({ success: false, message: 'User ID and Date are required' });
-    }
-
-    let resolvedMinutes = totalWorkingMinutes || 0;
-    let resolvedPunchIn = firstPunchIn || null;
-    let resolvedPunchOut = lastPunchOut || null;
-
-    // Auto-calculate from shift if status is present/half_day and no manual times provided
-    if ((status === 'present' || status === 'half_day') && !firstPunchIn && !lastPunchOut) {
-      const shiftData = await getShiftWorkingMinutes(models, userId, date, status);
-      resolvedMinutes = shiftData.minutes;
-      resolvedPunchIn = shiftData.punchIn;
-      resolvedPunchOut = shiftData.punchOut;
+      return res.status(400).json({
+        success: false,
+        message: 'userId and date are required'
+      });
     }
 
     let attendance = await Attendance.findOne({
@@ -670,10 +985,8 @@ const upsertAttendance = async (req, res) => {
 
     const updateData = {
       status: status || 'present',
-      first_punch_in: resolvedPunchIn,
-      last_punch_out: resolvedPunchOut,
-      total_working_minutes: resolvedMinutes,
-      admin_remarks: adminComment || null
+      total_working_minutes: totalWorkingMinutes ? Math.floor(Number(totalWorkingMinutes)) : 0,
+      admin_remarks: adminRemarks || null
     };
 
     if (attendance) {
@@ -684,65 +997,84 @@ const upsertAttendance = async (req, res) => {
         date,
         ...updateData,
         punch_sessions: [],
-        current_session: -1
+        current_session: -1,
+        total_break_minutes: 0
       });
     }
 
-    res.json({ success: true, data: attendance });
+    res.json({
+      success: true,
+      message: 'Attendance saved successfully',
+      data: attendance
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
-// GET detailed attendance report for admin
+// Admin: Get Attendance Report (Date Range)
 const getAttendanceReport = async (req, res) => {
   try {
-    const { Attendance, User, Shift } = req.app.get('models');
-    const { startDate, endDate, userId, status } = req.query;
-    const { Op } = require('sequelize');
+    const models = req.app.get('models');
+    const { Attendance, User, Shift } = models;
+    const { startDate, endDate, userId } = req.query;
 
     const where = {};
     if (startDate && endDate) {
       where.date = { [Op.between]: [startDate, endDate] };
     } else if (startDate) {
-      where.date = startDate;
+      where.date = { [Op.gte]: startDate };
+    } else if (endDate) {
+      where.date = { [Op.lte]: endDate };
     }
 
-    if (userId) where.user_id = userId;
-    if (status) where.status = status;
+    if (userId) {
+      where.user_id = userId;
+    }
 
-    const attendance = await Attendance.findAll({
+    const records = await Attendance.findAll({
       where,
       include: [
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'name', 'employee_code']
+          attributes: ['id', 'name', 'employee_code', 'role']
         },
         {
           model: Shift,
           as: 'shift',
-          attributes: ['id', 'name', 'start_time', 'end_time']
+          attributes: ['id', 'name', 'start_time', 'end_time', 'minimum_hours', 'half_day_threshold']
         }
       ],
-      order: [['date', 'DESC'], ['user_id', 'ASC']]
+      order: [['date', 'DESC'], ['created_at', 'DESC']]
     });
+
+    for (let i = 0; i < records.length; i++) {
+      if (records[i].status === 'punched_in' || records[i].current_session >= 0) {
+        records[i] = await processAutoPunchOut(records[i], models);
+      }
+    }
 
     res.json({
       success: true,
-      data: attendance
+      count: records.length,
+      data: records
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
-// Helper: calculate working minutes from shift for a given status and date
+// Helper to auto-calculate working hours from shift when admin marks present/half_day
 const getShiftWorkingMinutes = async (models, userId, date, status) => {
   try {
     const { UserShift, Shift } = models;
-
-    // Find user's assigned shift
     const userShift = await UserShift.findOne({
       where: { user_id: userId },
       include: [{ model: Shift, as: 'shift' }]
@@ -752,12 +1084,9 @@ const getShiftWorkingMinutes = async (models, userId, date, status) => {
 
     const shift = userShift.shift;
 
-    // Parse shift start/end times (stored as HH:MM:SS, treated as IST)
     const [startH, startM] = shift.start_time.split(':').map(Number);
     const [endH, endM] = shift.end_time.split(':').map(Number);
 
-    // Store times as-is in UTC — frontend will display raw UTC hours as IST
-    // e.g. shift 10:00-18:00 IST → stored as 10:00 UTC → displayed as 10:00 AM
     const punchIn = new Date(Date.UTC(
       ...date.split('-').map((v, i) => i === 1 ? Number(v) - 1 : Number(v)),
       startH, startM, 0
@@ -847,8 +1176,8 @@ const bulkUpdateAttendance = async (req, res) => {
 // GET today's attendance status for the logged-in user
 const getTodayAttendanceStatus = async (req, res) => {
   try {
-    const { Attendance } = req.app.get('models');
-    // req.user.id is populated by authMiddleware
+    const models = req.app.get('models');
+    const { Attendance } = models;
     const userId = req.user?.id || req.query.userId;
 
     if (!userId) {
@@ -859,13 +1188,27 @@ const getTodayAttendanceStatus = async (req, res) => {
     }
 
     const today = getISTDate();
+    const shift = await getEffectiveUserShift(userId, today, models);
+    const expectedPunchIn = getShiftDateTime(today, shift.start_time);
+    const expectedPunchOut = getShiftDateTime(today, shift.end_time);
 
     let attendance = await Attendance.findOne({
       where: {
         user_id: userId,
         date: today
-      }
+      },
+      include: [
+        {
+          model: models.Shift,
+          as: 'shift',
+          attributes: ['id', 'name', 'start_time', 'end_time', 'minimum_hours', 'half_day_threshold']
+        }
+      ]
     });
+
+    if (attendance) {
+      attendance = await processAutoPunchOut(attendance, models);
+    }
 
     // If no attendance record exists for today, return default structure
     if (!attendance) {
@@ -882,10 +1225,26 @@ const getTodayAttendanceStatus = async (req, res) => {
           totalWorkingMinutes: 0,
           totalBreakMinutes: 0,
           autoBreaks: [],
+          expectedPunchIn,
+          expectedPunchOut,
+          shift,
           punchIn: null,
           punchOut: null
         }
       });
+    }
+
+    // Sync attendance record if assigned shift changed
+    if (attendance && shift && shift.id && attendance.shift_id !== shift.id) {
+      await attendance.update({
+        shift_id: shift.id,
+        expected_punch_in: expectedPunchIn,
+        expected_punch_out: expectedPunchOut
+      });
+      attendance.shift_id = shift.id;
+      attendance.expected_punch_in = expectedPunchIn;
+      attendance.expected_punch_out = expectedPunchOut;
+      attendance.shift = shift;
     }
 
     // Return comprehensive attendance data
@@ -898,9 +1257,13 @@ const getTodayAttendanceStatus = async (req, res) => {
         attendance.punch_sessions?.[attendance.current_session] : null,
       firstPunchIn: attendance.first_punch_in,
       lastPunchOut: attendance.last_punch_out,
+      expectedPunchIn: expectedPunchIn,
+      expectedPunchOut: expectedPunchOut,
+      shift: shift,
       totalWorkingMinutes: attendance.total_working_minutes || 0,
       totalBreakMinutes: attendance.total_break_minutes || 0,
       autoBreaks: attendance.auto_breaks || [],
+      adminRemarks: attendance.admin_remarks,
       punchIn: attendance.first_punch_in,
       punchOut: attendance.last_punch_out
     };
@@ -934,5 +1297,9 @@ module.exports = {
   upsertAttendance,
   getAttendanceReport,
   bulkUpdateAttendance,
-  calculateBreaks
+  calculateBreaks,
+  processAutoPunchOut,
+  runGlobalAutoPunchOut,
+  getEffectiveUserShift,
+  getShiftDateTime
 };

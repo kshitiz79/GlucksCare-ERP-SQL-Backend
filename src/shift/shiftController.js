@@ -85,8 +85,7 @@ const assignUsersToShift = async (req, res) => {
     const { shiftId } = req.params;
     const { userIds } = req.body;
 
-    // Verify shift exists
-    const { Shift } = req.app.get('models');
+    const { Shift, UserShift, Attendance } = req.app.get('models');
     const shift = await Shift.findByPk(shiftId);
     if (!shift) {
       return res.status(404).json({
@@ -96,18 +95,48 @@ const assignUsersToShift = async (req, res) => {
     }
 
     // Remove existing assignments for this shift
-    await req.app.get('models').UserShift.destroy({
+    await UserShift.destroy({
       where: { shift_id: shiftId }
     });
 
     // Create new assignments
     if (userIds && userIds.length > 0) {
+      // Remove any prior shift assignments for these users so each user has strictly one active assigned shift
+      await UserShift.destroy({
+        where: { user_id: { [Op.in]: userIds } }
+      });
+
       const assignments = userIds.map(userId => ({
         user_id: userId,
-        shift_id: shiftId
+        shift_id: shiftId,
+        assigned_at: new Date()
       }));
 
-      await req.app.get('models').UserShift.bulkCreate(assignments);
+      await UserShift.bulkCreate(assignments);
+
+      // Immediately sync today's attendance records for these users
+      const today = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const pad = (n) => String(n).padStart(2, '0');
+      const [startH, startM, startS = 0] = (shift.start_time || '10:00:00').split(':').map(Number);
+      const [endH, endM, endS = 0] = (shift.end_time || '18:00:00').split(':').map(Number);
+      const expectedPunchIn = new Date(`${today}T${pad(startH)}:${pad(startM)}:${pad(startS)}+05:30`);
+      const expectedPunchOut = new Date(`${today}T${pad(endH)}:${pad(endM)}:${pad(endS)}+05:30`);
+
+      if (Attendance) {
+        await Attendance.update(
+          {
+            shift_id: shiftId,
+            expected_punch_in: expectedPunchIn,
+            expected_punch_out: expectedPunchOut
+          },
+          {
+            where: {
+              user_id: { [Op.in]: userIds },
+              date: today
+            }
+          }
+        );
+      }
     }
 
     res.json({

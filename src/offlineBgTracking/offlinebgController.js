@@ -716,6 +716,23 @@ const getUserRouteData = async (req, res) => {
     let rawPoints = await sequelize.query(
       `
       SELECT 
+        lp.user_id,
+        COALESCE(lp.session_id, lp.device_id, 'unknown') as session_or_device,
+        lp.latitude,
+        lp.longitude,
+        lp.device_time_utc as timestamp,
+        lp.accuracy_m as accuracy,
+        lp.battery_pct as battery_level,
+        lp.network_type
+      FROM location_pings lp
+      WHERE lp.user_id::text = :userId
+        AND lp.latitude IS NOT NULL AND lp.longitude IS NOT NULL
+        AND lp.latitude != 0 AND lp.longitude != 0
+        AND lp.device_time_utc >= :startTime AND lp.device_time_utc <= :endTime
+
+      UNION ALL
+
+      SELECT 
         COALESCE(
           obt.user_id::text, 
           (obt.payload->>'user_id'), 

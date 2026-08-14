@@ -23,10 +23,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            ' https://api.gluckscare.com ', // Add this for development
+            ' http://localhost:5051 ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            ' https://api.gluckscare.com ',
+            ' http://localhost:5051 ',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -48,11 +48,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    ' https://api.gluckscare.com ', // Add this for development
+    ' http://localhost:5051 ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    ' https://api.gluckscare.com ', // Add this for production frontend
+    ' http://localhost:5051 ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -419,6 +419,20 @@ async function startServer() {
         console.log(`🚀 Server running on port ${PORT}`);
         console.log(`📊 Health check: http://localhost:${PORT}/health`);
         console.log('🔌 Socket.IO server initialized');
+
+        // Start background auto punch-out runner (runs every 5 minutes)
+        try {
+            const { runGlobalAutoPunchOut } = require('./src/attendance/attendanceController');
+            setInterval(() => {
+                runGlobalAutoPunchOut(app);
+            }, 5 * 60 * 1000);
+            setTimeout(() => {
+                runGlobalAutoPunchOut(app);
+            }, 10 * 1000);
+            console.log('⏰ Auto punch-out background scheduler initialized (every 5 mins)');
+        } catch (schedErr) {
+            console.warn('⚠️ Could not initialize auto punch-out scheduler:', schedErr.message);
+        }
     });
 
     // Socket.IO connection handling
