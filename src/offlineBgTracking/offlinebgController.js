@@ -1,4 +1,183 @@
-const { OfflineBgTracking, UserDevice } = require('../config/database');
+const { OfflineBgTracking, LocationPing, UserDevice } = require('../config/database');
+const crypto = require('crypto');
+
+const processTelemetryBatch = async (req, res) => {
+  try {
+    const { batch_id, device_id, session_id, user_id, fixes } = req.body;
+
+    let targetUserId = user_id || (req.user && req.user.id);
+    let targetDeviceId = device_id;
+
+    // JWT decode fallback if available
+    if (!targetUserId && req.headers && req.headers.authorization) {
+      try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        if (decoded && decoded.id) targetUserId = decoded.id;
+      } catch (e) {}
+    }
+
+    const fixList = Array.isArray(fixes) ? fixes : (Array.isArray(req.body) ? req.body : []);
+    if (fixList.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fixes array provided in telemetry batch payload' });
+    }
+
+    // Auto-resolve missing user_id from UserDevice if device_id is present
+    if (!targetUserId && targetDeviceId) {
+      const sequelize = req.app.get('sequelize');
+      if (sequelize) {
+        const matched = await sequelize.query(
+          `SELECT user_id FROM user_devices WHERE device_id = :d OR android_id = :d ORDER BY (status = 'ACTIVE') DESC LIMIT 1`,
+          { replacements: { d: targetDeviceId }, type: sequelize.QueryTypes.SELECT }
+        );
+        if (matched.length > 0) targetUserId = matched[0].user_id;
+      }
+    }
+
+    // Auto-bind device if valid user_id and device_id available
+    if (targetUserId && targetDeviceId) {
+      try {
+        const models = req.app.get('models') || {};
+        const UD = models.UserDevice || UserDevice;
+        if (UD) {
+          const [binding, created] = await UD.findOrCreate({
+            where: { device_id: targetDeviceId },
+            defaults: { user_id: targetUserId, device_id: targetDeviceId, android_id: targetDeviceId, status: 'ACTIVE', is_active: true, last_login: new Date() }
+          });
+          if (!created && binding.user_id !== targetUserId) {
+            await binding.update({ user_id: targetUserId, status: 'ACTIVE', is_active: true, last_login: new Date() });
+          }
+        }
+      } catch (err) {}
+    }
+
+    const serverRxTime = new Date();
+    let accepted = 0;
+    let duplicates = 0;
+    let rejected = 0;
+
+    const sequelize = req.app.get('sequelize');
+    const models = req.app.get('models') || {};
+    const PingModel = models.LocationPing || LocationPing;
+    const ObtModel = models.OfflineBgTracking || OfflineBgTracking;
+
+    const pingsToInsert = [];
+    const outboxToInsert = [];
+
+    for (const fix of fixList) {
+      const lat = parseFloat(fix.latitude || fix.lat);
+      const lng = parseFloat(fix.longitude || fix.lng);
+
+      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0 || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        rejected++;
+        continue;
+      }
+
+      const clientFixId = fix.client_fix_id || fix.entity_id || `FIX-${crypto.randomUUID()}`;
+      const devTime = fix.device_time_utc ? new Date(fix.device_time_utc) : (fix.timestamp ? new Date(fix.timestamp) : serverRxTime);
+      const clockSkew = (serverRxTime.getTime() - devTime.getTime()) / 1000;
+
+      const pingObj = {
+        client_fix_id: clientFixId,
+        user_id: fix.user_id || targetUserId || null,
+        device_id: fix.device_id || targetDeviceId || 'unknown',
+        session_id: fix.session_id || session_id || null,
+        latitude: lat,
+        longitude: lng,
+        accuracy_m: fix.accuracy_m !== undefined ? parseFloat(fix.accuracy_m) : (fix.accuracy ? parseFloat(fix.accuracy) : null),
+        speed_mps: fix.speed_mps !== undefined ? parseFloat(fix.speed_mps) : (fix.speed ? parseFloat(fix.speed) : null),
+        bearing_deg: fix.bearing_deg !== undefined ? parseFloat(fix.bearing_deg) : (fix.bearing ? parseFloat(fix.bearing) : null),
+        provider: fix.provider || 'fused',
+        is_mock_location: fix.is_mock_location || false,
+        battery_pct: fix.battery_pct !== undefined ? parseFloat(fix.battery_pct) : (fix.battery_level ? parseFloat(fix.battery_level) : null),
+        network_type: fix.network_type || null,
+        network_strength: fix.network_strength || null,
+        device_time_utc: devTime,
+        server_received_at_utc: serverRxTime,
+        clock_skew_seconds: clockSkew,
+        created_at: serverRxTime
+      };
+
+      pingsToInsert.push(pingObj);
+
+      outboxToInsert.push({
+        user_id: pingObj.user_id,
+        device_id: pingObj.device_id,
+        entity_type: 'LOCATION_FIX',
+        entity_id: clientFixId,
+        payload: {
+          latitude: lat,
+          longitude: lng,
+          accuracy: pingObj.accuracy_m,
+          speed: pingObj.speed_mps,
+          battery_level: pingObj.battery_pct,
+          network_type: pingObj.network_type,
+          timestamp_utc: devTime.toISOString(),
+          tracking_session_id: pingObj.session_id,
+          device_id: pingObj.device_id,
+          user_id: pingObj.user_id
+        },
+        status: 'SUCCESS',
+        retry_count: 0,
+        created_at_utc: serverRxTime
+      });
+    }
+
+    if (pingsToInsert.length > 0) {
+      if (PingModel) {
+        try {
+          const inserted = await PingModel.bulkCreate(pingsToInsert, { ignoreDuplicates: true });
+          accepted = inserted.length;
+          duplicates = pingsToInsert.length - accepted;
+        } catch (err) {
+          for (const p of pingsToInsert) {
+            try {
+              await PingModel.create(p);
+              accepted++;
+            } catch (e) {
+              duplicates++;
+            }
+          }
+        }
+      } else if (sequelize) {
+        for (const p of pingsToInsert) {
+          try {
+            await sequelize.query(
+              `INSERT INTO location_pings 
+              (client_fix_id, user_id, device_id, session_id, latitude, longitude, accuracy_m, speed_mps, bearing_deg, provider, is_mock_location, battery_pct, network_type, device_time_utc, server_received_at_utc, clock_skew_seconds)
+              VALUES (:client_fix_id, :user_id, :device_id, :session_id, :latitude, :longitude, :accuracy_m, :speed_mps, :bearing_deg, :provider, :is_mock_location, :battery_pct, :network_type, :device_time_utc, :server_received_at_utc, :clock_skew_seconds)
+              ON CONFLICT (client_fix_id) DO NOTHING`,
+              { replacements: p, type: sequelize.QueryTypes.INSERT }
+            );
+            accepted++;
+          } catch (err) {
+            duplicates++;
+          }
+        }
+      }
+
+      if (ObtModel && outboxToInsert.length > 0) {
+        try {
+          await ObtModel.bulkCreate(outboxToInsert, { updateOnDuplicate: ['status', 'payload'] });
+        } catch (e) {}
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      batch_id: batch_id || `BATCH-${crypto.randomUUID()}`,
+      accepted,
+      duplicates,
+      rejected,
+      server_received_at: serverRxTime.toISOString()
+    });
+  } catch (error) {
+    console.error('Error processing telemetry batch:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to process telemetry batch' });
+  }
+};
 
 const createOfflineBgTracking = async (req, res) => {
   try {
@@ -239,10 +418,29 @@ const getUsersWithLocation = async (req, res) => {
 
     const userIds = users.map(u => u.id);
 
-    // Query 1: Latest locations from offline_bg_tracking table (joined with user_devices to resolve device_id to user_id)
+    // Query 1: Latest locations from location_pings permanent store AND offline_bg_tracking queue
     const bgLocations = await sequelize.query(
       `
       SELECT * FROM (
+        SELECT 
+          lp.user_id,
+          COALESCE(lp.session_id, lp.device_id, 'unknown') as session_or_device,
+          lp.latitude,
+          lp.longitude,
+          lp.device_time_utc as timestamp,
+          lp.accuracy_m as accuracy,
+          lp.battery_pct as battery_level,
+          lp.network_type,
+          lp.created_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY lp.user_id
+            ORDER BY lp.device_time_utc DESC
+          ) as rn
+        FROM location_pings lp
+        WHERE lp.latitude IS NOT NULL AND lp.longitude IS NOT NULL AND lp.user_id IS NOT NULL
+
+        UNION ALL
+
         SELECT 
           COALESCE(
             obt.user_id::text, 
@@ -1111,6 +1309,7 @@ const bindDeviceToUser = async (req, res) => {
 };
 
 module.exports = {
+  processTelemetryBatch,
   createOfflineBgTracking,
   getAllOfflineBgTracking,
   getOfflineBgTrackingById,

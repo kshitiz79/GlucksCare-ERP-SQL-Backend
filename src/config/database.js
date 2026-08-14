@@ -112,6 +112,7 @@ const TourPlan = require('../tourPlan/TourPlan');
 const TourPlanDay = require('../tourPlan/TourPlanDay');
 const FinancialYear = require('../financialYear/FinancialYear');
 const OfflineBgTracking = require('../offlineBgTracking/OfflineBgTracking');
+const LocationPing = require('../offlineBgTracking/LocationPing');
 const UserActivityLog = require('../userActivityLog/UserActivityLog');
 
 // Initialize models
@@ -191,6 +192,7 @@ const models = {
     TourPlanDay: TourPlanDay(sequelize),
     FinancialYear: FinancialYear(sequelize),
     OfflineBgTracking: OfflineBgTracking(sequelize),
+    LocationPing: LocationPing(sequelize),
     UserActivityLog: UserActivityLog(sequelize)
 };
 
@@ -219,6 +221,9 @@ async function ensurePerformanceIndexes() {
       CREATE INDEX IF NOT EXISTS idx_stockist_visits_user_date ON stockist_visits (user_id, date DESC);
       CREATE INDEX IF NOT EXISTS idx_stockist_visits_date ON stockist_visits (date DESC);
       CREATE INDEX IF NOT EXISTS idx_offline_bg_tracking_device ON offline_bg_tracking (device_id);
+      CREATE INDEX IF NOT EXISTS idx_location_pings_user_time ON location_pings (user_id, device_time_utc DESC);
+      CREATE INDEX IF NOT EXISTS idx_location_pings_device_time ON location_pings (device_id, device_time_utc DESC);
+      CREATE INDEX IF NOT EXISTS idx_location_pings_fix_id ON location_pings (client_fix_id);
     `);
     console.log('✅ Performance indexes checked/created successfully');
   } catch (err) {

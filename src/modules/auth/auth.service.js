@@ -360,8 +360,8 @@ class AuthService {
                 console.log('🆕 First login - binding device to user');
 
                 try {
-                    const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) || 
-                                         await AuthRepository.findDeviceById(activeDeviceId);
+                    const bindingInUse = await AuthRepository.findActiveDeviceByFingerprint(deviceFingerprint) ||
+                        await AuthRepository.findDeviceById(activeDeviceId);
 
                     if (bindingInUse && bindingInUse.user_id !== user.id && bindingInUse.status === 'ACTIVE') {
                         console.log('🚫 Device already bound to another user');
@@ -489,7 +489,7 @@ class AuthService {
         };
 
         console.log('✅ Login successful - Sending response for user:', responseUser.id);
-        
+
         await UserActivityLogService.logActivity(req, {
             userId: user.id,
             email: user.email,
