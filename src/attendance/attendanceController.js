@@ -156,9 +156,10 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
     const isOpen = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx] && !punchSessions[currentSessionIdx].punchOut)
       || attendance.status === 'punched_in';
 
-    const isExcessiveDuration = (attendance.total_working_minutes || 0) > 1440;
+    const isSunday = new Date(attendance.date).getDay() === 0;
+    const isMisclassifiedHalfDay = (attendance.total_working_minutes || 0) >= 300 && attendance.status === 'half_day';
 
-    if (!isOpen && !isExcessiveDuration) return attendance;
+    if (!isOpen && !isExcessiveDuration && !isSunday && !isMisclassifiedHalfDay) return attendance;
 
     // Get effective shift for this attendance
     const shift = await getEffectiveUserShift(attendance.user_id, attendance.date, models);
@@ -171,8 +172,8 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
     const isPastDate = attendance.date < todayIST;
     const isPastShiftEnd = expectedPunchOut && now >= expectedPunchOut;
 
-    // Settle open session if shift end has passed or date is in the past, or repair excessive minutes
-    if (isPastDate || isPastShiftEnd || isExcessiveDuration) {
+    // Settle open session if shift end has passed or date is in the past, or repair excessive minutes / misclassifications
+    if (isPastDate || isPastShiftEnd || isExcessiveDuration || isSunday || isMisclassifiedHalfDay) {
       if (isOpen) {
         const activeSession = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx])
           ? punchSessions[currentSessionIdx]
@@ -222,22 +223,17 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
       totalWorkingMinutes = Math.min(totalWorkingMinutes, 1440);
       const { autoBreaks, totalBreakMinutes } = calculateBreaks(punchSessions);
 
-      const minHours = shift?.minimum_hours ? parseFloat(shift.minimum_hours) : 8;
-      const halfHours = shift?.half_day_threshold ? parseFloat(shift.half_day_threshold) : 4;
-
       // Status determination:
-      // Full Day (present): at least 6 hours (360 mins) or (minHours * 60 - 60)
-      // Half Day: at least 3.5 hours (210 mins) or (halfHours * 60)
-      // Absent: below half day
-      const fullDayThreshold = Math.max(6 * 60, Math.floor(minHours * 60) - 60);
-      const halfDayThreshold = Math.max(3.5 * 60, Math.floor(halfHours * 60));
-
+      // Sunday: week_off
+      // Full Day (present): at least 5 hours (300 mins)
+      // Half Day: at least 3 hours (180 mins) and < 5 hours
+      // Absent: below 3 hours
       let newStatus = 'present';
-      if (totalWorkingMinutes >= fullDayThreshold) {
+      if (isSunday) {
+        newStatus = 'week_off';
+      } else if (totalWorkingMinutes >= 300) {
         newStatus = 'present';
-      } else if (totalWorkingMinutes >= halfDayThreshold) {
-        newStatus = 'half_day';
-      } else if (totalWorkingMinutes > 0) {
+      } else if (totalWorkingMinutes >= 180) {
         newStatus = 'half_day';
       } else {
         newStatus = 'absent';
@@ -1169,12 +1165,21 @@ const getAttendanceReport = async (req, res) => {
     });
 
     for (let i = 0; i < records.length; i++) {
-      if (
-        records[i].status === 'punched_in' ||
-        records[i].current_session >= 0 ||
-        (records[i].total_working_minutes || 0) > 1440
+      const rec = records[i];
+      const isSunday = new Date(rec.date).getDay() === 0;
+
+      if (isSunday) {
+        if (rec.status !== 'week_off') {
+          await rec.update({ status: 'week_off' });
+          rec.status = 'week_off';
+        }
+      } else if (
+        rec.status === 'punched_in' ||
+        rec.current_session >= 0 ||
+        (rec.total_working_minutes || 0) > 1440 ||
+        (rec.total_working_minutes >= 300 && rec.status === 'half_day')
       ) {
-        records[i] = await processAutoPunchOut(records[i], models);
+        records[i] = await processAutoPunchOut(rec, models);
       }
     }
 
