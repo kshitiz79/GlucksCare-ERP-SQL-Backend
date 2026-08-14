@@ -156,51 +156,86 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
     const isOpen = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx] && !punchSessions[currentSessionIdx].punchOut)
       || attendance.status === 'punched_in';
 
-    if (!isOpen) return attendance;
+    const isExcessiveDuration = (attendance.total_working_minutes || 0) > 1440;
+
+    if (!isOpen && !isExcessiveDuration) return attendance;
 
     // Get effective shift for this attendance
     const shift = await getEffectiveUserShift(attendance.user_id, attendance.date, models);
-    const expectedPunchOut = attendance.expected_punch_out
-      ? new Date(attendance.expected_punch_out)
-      : (shift ? getShiftDateTime(attendance.date, shift.end_time) : getShiftDateTime(attendance.date, '19:00:00'));
-
-    const expectedPunchIn = attendance.expected_punch_in
-      ? new Date(attendance.expected_punch_in)
-      : (shift ? getShiftDateTime(attendance.date, shift.start_time) : getShiftDateTime(attendance.date, '10:00:00'));
+    const shiftEndTime = shift?.end_time || '18:00:00';
+    const shiftStartTime = shift?.start_time || '10:00:00';
+    const expectedPunchOut = getShiftDateTime(attendance.date, shiftEndTime);
+    const expectedPunchIn = getShiftDateTime(attendance.date, shiftStartTime);
 
     const todayIST = getISTDate();
     const isPastDate = attendance.date < todayIST;
     const isPastShiftEnd = expectedPunchOut && now >= expectedPunchOut;
 
-    // Settle open session if shift end has passed or date is in the past
-    if (isPastDate || isPastShiftEnd) {
-      const activeSession = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx])
-        ? punchSessions[currentSessionIdx]
-        : punchSessions[punchSessions.length - 1];
+    // Settle open session if shift end has passed or date is in the past, or repair excessive minutes
+    if (isPastDate || isPastShiftEnd || isExcessiveDuration) {
+      if (isOpen) {
+        const activeSession = (currentSessionIdx >= 0 && punchSessions[currentSessionIdx])
+          ? punchSessions[currentSessionIdx]
+          : punchSessions[punchSessions.length - 1];
 
-      if (activeSession && !activeSession.punchOut) {
-        const punchInTime = new Date(activeSession.punchIn);
-        const autoPunchOutTime = (expectedPunchOut && expectedPunchOut > punchInTime)
-          ? expectedPunchOut
-          : now;
+        if (activeSession && !activeSession.punchOut) {
+          const punchInTime = new Date(activeSession.punchIn);
+          let autoPunchOutTime = expectedPunchOut;
 
-        activeSession.punchOut = autoPunchOutTime;
-        const durationMinutes = Math.max(0, Math.floor((autoPunchOutTime - punchInTime) / (1000 * 60)));
-        activeSession.durationMinutes = durationMinutes;
-        activeSession.isAutoPunchOut = true;
+          // If punched in after shift end on that day, cap at punchInTime (0 min duration)
+          if (punchInTime > autoPunchOutTime) {
+            autoPunchOutTime = punchInTime;
+          }
+
+          activeSession.punchOut = autoPunchOutTime;
+          activeSession.durationMinutes = Math.max(0, Math.min(1440, Math.floor((autoPunchOutTime - punchInTime) / (1000 * 60))));
+          activeSession.isAutoPunchOut = true;
+        }
       }
 
-      // Calculate total working minutes across all closed sessions
-      const totalWorkingMinutes = punchSessions.reduce((sum, s) => sum + (Math.floor(s.durationMinutes) || 0), 0);
+      // Sanitize all sessions to ensure no session crosses day boundaries or has excessive duration
+      let totalWorkingMinutes = 0;
+      for (let i = 0; i < punchSessions.length; i++) {
+        const s = punchSessions[i];
+        if (s.punchIn && s.punchOut) {
+          const pIn = new Date(s.punchIn);
+          let pOut = new Date(s.punchOut);
+
+          // If punchOut is on a future date beyond attendance.date, cap to expectedPunchOut on attendance.date
+          const pOutDateStr = pOut.toISOString().split('T')[0];
+          if (pOutDateStr > attendance.date || pOut < pIn) {
+            pOut = (expectedPunchOut && expectedPunchOut > pIn) ? expectedPunchOut : pIn;
+            s.punchOut = pOut;
+          }
+
+          let dur = Math.max(0, Math.floor((pOut - pIn) / (1000 * 60)));
+          if (dur > 1440) {
+            dur = Math.max(0, Math.floor(((expectedPunchOut > pIn ? expectedPunchOut : pIn) - pIn) / (1000 * 60)));
+            dur = Math.min(dur, 1440);
+          }
+          s.durationMinutes = dur;
+          totalWorkingMinutes += dur;
+        }
+      }
+
+      // Cap totalWorkingMinutes to at most 24 hours (1440 mins)
+      totalWorkingMinutes = Math.min(totalWorkingMinutes, 1440);
       const { autoBreaks, totalBreakMinutes } = calculateBreaks(punchSessions);
 
       const minHours = shift?.minimum_hours ? parseFloat(shift.minimum_hours) : 8;
       const halfHours = shift?.half_day_threshold ? parseFloat(shift.half_day_threshold) : 4;
 
+      // Status determination:
+      // Full Day (present): at least 6 hours (360 mins) or (minHours * 60 - 60)
+      // Half Day: at least 3.5 hours (210 mins) or (halfHours * 60)
+      // Absent: below half day
+      const fullDayThreshold = Math.max(6 * 60, Math.floor(minHours * 60) - 60);
+      const halfDayThreshold = Math.max(3.5 * 60, Math.floor(halfHours * 60));
+
       let newStatus = 'present';
-      if (totalWorkingMinutes >= minHours * 60) {
+      if (totalWorkingMinutes >= fullDayThreshold) {
         newStatus = 'present';
-      } else if (totalWorkingMinutes >= halfHours * 60) {
+      } else if (totalWorkingMinutes >= halfDayThreshold) {
         newStatus = 'half_day';
       } else if (totalWorkingMinutes > 0) {
         newStatus = 'half_day';
@@ -215,7 +250,7 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
         total_working_minutes: totalWorkingMinutes,
         total_break_minutes: totalBreakMinutes,
         auto_breaks: autoBreaks,
-        last_punch_out: expectedPunchOut || now,
+        last_punch_out: expectedPunchOut || attendance.last_punch_out,
         shift_id: attendance.shift_id || shift?.id,
         expected_punch_in: attendance.expected_punch_in || expectedPunchIn,
         expected_punch_out: attendance.expected_punch_out || expectedPunchOut,
@@ -1053,7 +1088,11 @@ const getAttendanceReport = async (req, res) => {
     });
 
     for (let i = 0; i < records.length; i++) {
-      if (records[i].status === 'punched_in' || records[i].current_session >= 0) {
+      if (
+        records[i].status === 'punched_in' ||
+        records[i].current_session >= 0 ||
+        (records[i].total_working_minutes || 0) > 1440
+      ) {
         records[i] = await processAutoPunchOut(records[i], models);
       }
     }

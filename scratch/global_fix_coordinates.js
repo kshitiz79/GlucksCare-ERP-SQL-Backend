@@ -2,7 +2,7 @@ const fs = require('fs');
 
 const ADMIN_EMAIL = 'rajat@glucks.in';
 const ADMIN_PASSWORD = 'Rajatjha@99';
-const API_BASE = 'http://localhost:5051/api';
+const API_BASE = 'https://api.gluckscare.com/api';
 const SELECTED_JSON_FILE = '/Users/kshitizmaurya/Documents/Projects/Glcuks Care ERP/scratch_bihar_postoffices/selected.json';
 
 // Comprehensive Bihar pincode & town centroids
