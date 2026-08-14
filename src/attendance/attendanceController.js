@@ -272,24 +272,85 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
 const runGlobalAutoPunchOut = async (app) => {
   try {
     const models = app.get('models');
-    if (!models || !models.Attendance) return;
+    if (!models || !models.Attendance || !models.User) return;
 
-    const { Attendance } = models;
+    const { Attendance, User } = models;
     const todayIST = getISTDate();
     const now = new Date();
+    const todayDateObj = new Date(todayIST);
+    const isSundayToday = todayDateObj.getDay() === 0;
 
+    // 1. Settle all open sessions across all records
     const openRecords = await Attendance.findAll({
       where: {
         [Op.or]: [
           { current_session: { [Op.gte]: 0 } },
           { status: 'punched_in' },
-          { date: { [Op.lt]: todayIST }, last_punch_out: null, first_punch_in: { [Op.ne]: null } }
+          { date: { [Op.lt]: todayIST }, last_punch_out: null, first_punch_in: { [Op.ne]: null } },
+          { total_working_minutes: { [Op.gt]: 1440 } }
         ]
       }
     });
 
     for (const record of openRecords) {
       await processAutoPunchOut(record, models, now);
+    }
+
+    // 2. Auto-mark Absent (A) for active users who did not punch in after shift end
+    const activeUsers = await User.findAll({
+      where: { is_active: true },
+      attributes: ['id', 'name', 'employee_code', 'role']
+    });
+
+    for (const user of activeUsers) {
+      const shift = await getEffectiveUserShift(user.id, todayIST, models);
+      const expectedPunchIn = getShiftDateTime(todayIST, shift.start_time || '10:00:00');
+      const expectedPunchOut = getShiftDateTime(todayIST, shift.end_time || '18:00:00');
+      const isPastShiftEndToday = expectedPunchOut && now >= expectedPunchOut;
+
+      const todayRecord = await Attendance.findOne({
+        where: { user_id: user.id, date: todayIST }
+      });
+
+      if (!todayRecord) {
+        if (isSundayToday) {
+          await Attendance.create({
+            user_id: user.id,
+            date: todayIST,
+            shift_id: shift.id || null,
+            expected_punch_in: expectedPunchIn,
+            expected_punch_out: expectedPunchOut,
+            status: 'week_off',
+            punch_sessions: [],
+            current_session: -1,
+            total_working_minutes: 0,
+            total_break_minutes: 0,
+            admin_remarks: 'Sunday / Week Off'
+          });
+        } else if (isPastShiftEndToday) {
+          await Attendance.create({
+            user_id: user.id,
+            date: todayIST,
+            shift_id: shift.id || null,
+            expected_punch_in: expectedPunchIn,
+            expected_punch_out: expectedPunchOut,
+            status: 'absent',
+            punch_sessions: [],
+            current_session: -1,
+            total_working_minutes: 0,
+            total_break_minutes: 0,
+            admin_remarks: 'Auto marked absent (No punch-in)'
+          });
+        }
+      } else if (!isSundayToday && isPastShiftEndToday && (!todayRecord.first_punch_in || todayRecord.punch_sessions?.length === 0) && todayRecord.status !== 'on_leave' && todayRecord.status !== 'holiday') {
+        if (todayRecord.status !== 'absent') {
+          await todayRecord.update({
+            status: 'absent',
+            total_working_minutes: 0,
+            admin_remarks: todayRecord.admin_remarks || 'Auto marked absent (No punch-in)'
+          });
+        }
+      }
     }
   } catch (err) {
     console.warn('runGlobalAutoPunchOut error:', err.message);
@@ -718,12 +779,32 @@ const togglePunch = async (req, res) => {
     const expectedPunchIn = getShiftDateTime(today, shift.start_time);
     const expectedPunchOut = getShiftDateTime(today, shift.end_time);
 
+    // Check if today is Sunday or Non-working day
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayDateObj = new Date(today);
+    const dayOfWeek = todayDateObj.getDay(); // 0 = Sunday
+    const todayDayName = dayNames[dayOfWeek];
+    const isSunday = dayOfWeek === 0;
+
+    const isWorkDay = Array.isArray(shift?.work_days) && shift.work_days.length > 0
+      ? shift.work_days.some(d => d.toLowerCase() === todayDayName.toLowerCase())
+      : !isSunday;
+
     let attendance = await Attendance.findOne({
       where: {
         user_id: userId,
         date: today
       }
     });
+
+    // If attempting to punch in on Sunday / Week off, block and do not register
+    const isPunchingInAttempt = !attendance || attendance.current_session < 0 || attendance.status !== 'punched_in';
+    if (isPunchingInAttempt && (!isWorkDay || isSunday)) {
+      return res.status(400).json({
+        success: false,
+        message: `Today is ${todayDayName} (Week Off). Attendance / Punch-in is not allowed on Sundays or scheduled week offs.`
+      });
+    }
 
     // Create attendance record if it doesn't exist
     if (!attendance) {
