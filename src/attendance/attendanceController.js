@@ -1133,6 +1133,52 @@ const getAttendanceReport = async (req, res) => {
     const models = req.app.get('models');
     const { Attendance, User, Shift } = models;
     const { startDate, endDate, userId } = req.query;
+    const todayIST = getISTDate();
+
+    // Auto-populate missing past attendance records for active users
+    if (startDate && endDate) {
+      const activeUsers = await User.findAll({
+        where: {
+          is_active: true,
+          ...(userId && { id: userId })
+        },
+        attributes: ['id', 'name', 'employee_code', 'role']
+      });
+
+      const start = new Date(startDate);
+      const endLimit = new Date(endDate < todayIST ? endDate : todayIST);
+
+      for (let cur = new Date(start); cur < new Date(todayIST) && cur <= endLimit; cur.setDate(cur.getDate() + 1)) {
+        const dateStr = cur.toISOString().split('T')[0];
+        const isSun = cur.getDay() === 0;
+
+        for (const user of activeUsers) {
+          const existing = await Attendance.findOne({
+            where: { user_id: user.id, date: dateStr }
+          });
+
+          if (!existing) {
+            const shift = await getEffectiveUserShift(user.id, dateStr, models);
+            const expectedPunchIn = getShiftDateTime(dateStr, shift.start_time || '10:00:00');
+            const expectedPunchOut = getShiftDateTime(dateStr, shift.end_time || '18:00:00');
+
+            await Attendance.create({
+              user_id: user.id,
+              date: dateStr,
+              shift_id: shift.id || null,
+              expected_punch_in: expectedPunchIn,
+              expected_punch_out: expectedPunchOut,
+              status: isSun ? 'week_off' : 'absent',
+              punch_sessions: [],
+              current_session: -1,
+              total_working_minutes: 0,
+              total_break_minutes: 0,
+              admin_remarks: isSun ? 'Sunday / Week Off' : 'Auto marked absent (No punch-in)'
+            });
+          }
+        }
+      }
+    }
 
     const where = {};
     if (startDate && endDate) {

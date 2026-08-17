@@ -64,65 +64,26 @@ const getPayrollSettingById = async (req, res) => {
 
 
 const createPayrollSetting = async (req, res) => {
-
   try {
     const PayrollSetting = req.app.get('models').PayrollSetting;
+    const data = { ...req.body };
 
-    const { full_day_hours, half_day_hours, working_days_per_month, full_day_deduction, half_day_deduction, absent_deduction, leave_deduction, overtime_rate, hra, da, pf, esi, late_coming_deduction, enable_overtime, enable_hra, enable_da, enable_pf, enable_esi, enable_half_day_deduction, enable_absent_deduction, enable_leave_deduction, enable_late_coming_deduction, shift_id, created_by, updated_by } = req.body;
-
-    const payrollSetting = await PayrollSetting.create({
-      full_day_hours,
-      half_day_hours,
-      working_days_per_month,
-      full_day_deduction,
-      half_day_deduction,
-      absent_deduction,
-      leave_deduction,
-      overtime_rate,
-      hra,
-      da,
-      pf,
-      esi,
-      late_coming_deduction,
-      enable_overtime,
-      enable_hra,
-      enable_da,
-      enable_pf,
-      enable_esi,
-      enable_half_day_deduction,
-      enable_absent_deduction,
-      enable_leave_deduction,
-      enable_late_coming_deduction,
-      shift_id,
-      created_by,
-      updated_by
-    });
-
+    const payrollSetting = await PayrollSetting.create(data);
 
     res.status(201).json({
       success: true,
       message: "Payroll setting created successfully",
       data: payrollSetting
-    })
-
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: error.message
-    })
+    });
   }
-}
-
-
-
-
-
-
-
-
+};
 
 const updatePayrollSetting = async (req, res) => {
-
   try {
     const PayrollSetting = req.app.get('models').PayrollSetting;
 
@@ -134,49 +95,23 @@ const updatePayrollSetting = async (req, res) => {
       });
     }
 
-    const { full_day_hours, half_day_hours, working_days_per_month, full_day_deduction, half_day_deduction, absent_deduction, leave_deduction, overtime_rate, hra, da, pf, esi, late_coming_deduction, enable_overtime, enable_hra, enable_da, enable_pf, enable_esi, enable_half_day_deduction, enable_absent_deduction, enable_leave_deduction, enable_late_coming_deduction, shift_id, updated_by } = req.body;
+    const data = { ...req.body };
+    delete data.created_by; // Preserve created_by
 
-    await payrollSetting.update({
-      full_day_hours,
-      half_day_hours,
-      working_days_per_month,
-      full_day_deduction,
-      half_day_deduction,
-      absent_deduction,
-      leave_deduction,
-      overtime_rate,
-      hra,
-      da,
-      pf,
-      esi,
-      late_coming_deduction,
-      enable_overtime,
-      enable_hra,
-      enable_da,
-      enable_pf,
-      enable_esi,
-      enable_half_day_deduction,
-      enable_absent_deduction,
-      enable_leave_deduction,
-      enable_late_coming_deduction,
-      shift_id,
-      // Don't update created_by
-      updated_by
-    });
+    await payrollSetting.update(data);
 
     res.status(200).json({
       success: true,
       message: "Payroll setting updated successfully",
       data: payrollSetting
-    })
-
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: error.message
-    })
+    });
   }
-}
+};
 
 
 

@@ -1,16 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const { 
-  processTelemetryBatch,
-  createOfflineBgTracking, 
-  getAllOfflineBgTracking, 
-  getOfflineBgTrackingById,
-  getUsersWithLocation,
-  getUserLocationHistory,
-  getUserRouteData,
-  getAllUsersRouteData,
-  getDevicesList,
-  bindDeviceToUser
+
+const {
+  processTelemetryBatch,      // Handles batch GPS/telemetry ingestion
+  createOfflineBgTracking,    // Stores offline/background tracking records
+  getAllOfflineBgTracking,    // Returns all offline tracking records
+  getOfflineBgTrackingById,   // Returns one tracking record by ID
+
+  getUsersWithLocation,       // Returns active users along with latest location
+  getUserLocationHistory,     // Returns location history of a particular user
+
+  getUserRouteData,           // Returns route/path data for one user
+  getAllUsersRouteData,       // Returns route/path data for all users
+
+  getDevicesList,             // Returns all devices and their latest coordinates
+  bindDeviceToUser             // Assigns a device to a particular user
 } = require('./offlinebgController');
 
 // Batch telemetry ingestion from mobile foreground service / outbox queue

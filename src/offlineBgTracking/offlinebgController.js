@@ -1,5 +1,130 @@
 const { OfflineBgTracking, LocationPing, UserDevice } = require('../config/database');
 const crypto = require('crypto');
+const axios = require('axios');
+
+// Haversine distance in METERS between two lat/lng coordinates
+const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3; // Earth radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// Spatial filter: Removes stationary GPS jitter/drift (< 15 meters)
+const filterGPSJitter = (points, minDistanceMeters = 15) => {
+  if (!points || points.length === 0) return [];
+  const valid = points.filter(p => {
+    const lat = parseFloat(p.lat ?? p.latitude);
+    const lng = parseFloat(p.lng ?? p.longitude);
+    return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+  });
+  if (valid.length === 0) return [];
+
+  const cleaned = [valid[0]];
+  let lastKept = valid[0];
+
+  for (let i = 1; i < valid.length; i++) {
+    const curr = valid[i];
+    const lat1 = parseFloat(lastKept.lat ?? lastKept.latitude);
+    const lon1 = parseFloat(lastKept.lng ?? lastKept.longitude);
+    const lat2 = parseFloat(curr.lat ?? curr.latitude);
+    const lon2 = parseFloat(curr.lng ?? curr.longitude);
+
+    const dist = getDistanceMeters(lat1, lon1, lat2, lon2);
+    if (dist >= minDistanceMeters) {
+      cleaned.push(curr);
+      lastKept = curr;
+    }
+  }
+  return cleaned;
+};
+
+// Map-Matching / Snap-to-Road using OSRM with automatic fallback to cleaned raw points
+const snapRouteToRoads = async (cleanedPoints) => {
+  if (!cleanedPoints || cleanedPoints.length < 2) {
+    return {
+      success: true,
+      source: 'insufficient_points',
+      route: cleanedPoints.map(p => ({
+        lat: parseFloat(p.lat ?? p.latitude),
+        lng: parseFloat(p.lng ?? p.longitude),
+        timestamp: p.timestamp || p.device_time_utc || p.created_at,
+        accuracy: p.accuracy || 10,
+        battery_level: p.battery_level || 100,
+        network_type: p.network_type || 'GPS'
+      }))
+    };
+  }
+
+  try {
+    const maxPointsForAPI = 100; // Public OSRM parameter limit
+    const step = Math.max(1, Math.floor(cleanedPoints.length / maxPointsForAPI));
+    const apiPoints = cleanedPoints.filter((_, idx) => idx % step === 0);
+
+    // Ensure the final destination point is included
+    if (apiPoints[apiPoints.length - 1] !== cleanedPoints[cleanedPoints.length - 1]) {
+      apiPoints.push(cleanedPoints[cleanedPoints.length - 1]);
+    }
+
+    const coordString = apiPoints
+      .map(p => {
+        const lng = parseFloat(p.lng ?? p.longitude);
+        const lat = parseFloat(p.lat ?? p.latitude);
+        return `${lng.toFixed(6)},${lat.toFixed(6)}`;
+      })
+      .join(';');
+
+    const osrmUrl = `https://router.project-osrm.org/match/v1/driving/${coordString}?overview=full&geometries=geojson&steps=false`;
+
+    const response = await axios.get(osrmUrl, { timeout: 3500 });
+    if (response.data && response.data.code === 'Ok' && response.data.matchings && response.data.matchings.length > 0) {
+      const allSnappedCoords = [];
+      response.data.matchings.forEach(match => {
+        if (match.geometry && match.geometry.coordinates) {
+          match.geometry.coordinates.forEach(c => {
+            allSnappedCoords.push({
+              lat: c[1],
+              lng: c[0]
+            });
+          });
+        }
+      });
+
+      if (allSnappedCoords.length > 0) {
+        return {
+          success: true,
+          source: 'snapped',
+          route: allSnappedCoords,
+          confidence: response.data.matchings[0].confidence || 1.0
+        };
+      }
+    }
+  } catch (apiError) {
+    console.warn('[MapMatching] OSRM snap-to-road fallback to cleaned raw points:', apiError.message);
+  }
+
+  // Graceful fallback to formatted cleaned raw points
+  const fallbackRoute = cleanedPoints.map(p => ({
+    lat: parseFloat(p.lat ?? p.latitude),
+    lng: parseFloat(p.lng ?? p.longitude),
+    timestamp: p.timestamp || p.device_time_utc || p.created_at,
+    accuracy: p.accuracy || 10,
+    battery_level: p.battery_level || 100,
+    network_type: p.network_type || 'GPS'
+  }));
+
+  return {
+    success: true,
+    source: 'cleaned_raw',
+    route: fallbackRoute
+  };
+};
 
 const processTelemetryBatch = async (req, res) => {
   try {
@@ -669,10 +794,21 @@ const getUserLocationHistory = async (req, res) => {
       }
     );
 
+    // Spatial filtering to remove stationary jitter (< 15 meters)
+    const cleanedLocations = filterGPSJitter(
+      locations.map(loc => ({
+        ...loc,
+        lat: parseFloat(loc.latitude),
+        lng: parseFloat(loc.longitude)
+      })),
+      15
+    );
+
     res.json({
       success: true,
-      data: locations,
-      count: locations.length
+      data: cleanedLocations,
+      count: cleanedLocations.length,
+      raw_count: locations.length
     });
 
   } catch (error) {
@@ -894,6 +1030,12 @@ const getUserRouteData = async (req, res) => {
       formattedRoute.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
 
+    // 1. Spatial filter to remove stationary GPS drift/jitter (< 15 meters)
+    const cleanedPoints = filterGPSJitter(formattedRoute, 15);
+
+    // 2. Snap to Roads (Map Matching via OSRM with automatic fallback)
+    const snapResult = await snapRouteToRoads(cleanedPoints);
+
     res.json({
       success: true,
       data: {
@@ -904,13 +1046,17 @@ const getUserRouteData = async (req, res) => {
           role: user.role,
           employee_code: user.employee_code
         },
-        route: formattedRoute,
+        route: snapResult.route,
+        source: snapResult.source,
+        confidence: snapResult.confidence || null,
         metadata: {
-          total_points: formattedRoute.length,
+          raw_points: formattedRoute.length,
+          cleaned_points: cleanedPoints.length,
+          total_points: snapResult.route.length,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
           hours: hours,
-          interval_minutes: 10
+          source: snapResult.source
         }
       }
     });
@@ -1099,12 +1245,15 @@ const getAllUsersRouteData = async (req, res) => {
       }
     });
 
-    // Downsample & sort each user's route points to optimize payload and map performance
-    const MAX_POINTS_PER_USER = 150;
+    // Spatial filtering & sort each user's route points to optimize payload and eliminate stationary drift
+    const MAX_POINTS_PER_USER = 200;
     Object.keys(userRouteMap).forEach(uid => {
       if (userRouteMap[uid]) {
         let pts = userRouteMap[uid];
         pts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        // Filter out stationary jitter (< 15 meters)
+        pts = filterGPSJitter(pts, 15);
 
         if (pts.length > MAX_POINTS_PER_USER) {
           const sampled = [pts[0]];
@@ -1115,6 +1264,8 @@ const getAllUsersRouteData = async (req, res) => {
           }
           sampled.push(pts[pts.length - 1]);
           userRouteMap[uid] = sampled;
+        } else {
+          userRouteMap[uid] = pts;
         }
       }
     });

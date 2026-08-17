@@ -155,6 +155,38 @@ const PayrollSetting = (sequelize) => {
       type: DataTypes.BOOLEAN,
       defaultValue: true
     },
+    components_config: {
+      type: DataTypes.JSONB,
+      defaultValue: {}
+    },
+    company_name: {
+      type: DataTypes.STRING,
+      defaultValue: 'GLUCKSCARE PHARMACEUTICALS PVT. LTD.'
+    },
+    company_address: {
+      type: DataTypes.TEXT,
+      defaultValue: 'T3-236, Golden I, Techzone IV, Greater Noida West, Bisrakh, Gautam Buddha Nagar, Uttar Pradesh - 201306, India'
+    },
+    company_cin: {
+      type: DataTypes.STRING,
+      defaultValue: 'U46596UP2024PTC212076'
+    },
+    company_pan: {
+      type: DataTypes.STRING,
+      defaultValue: 'XXXXXXXX'
+    },
+    company_tan: {
+      type: DataTypes.STRING,
+      defaultValue: 'XXXXXXXX'
+    },
+    company_website: {
+      type: DataTypes.STRING,
+      defaultValue: 'www.gluckscare.com'
+    },
+    enable_qr_verification: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    },
     shift_id: {
       type: DataTypes.UUID,
       unique: true
