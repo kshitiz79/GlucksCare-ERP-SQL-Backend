@@ -696,6 +696,38 @@ const getInvoiceSignedUrl = async (req, res) => {
   }
 };
 
+// Public Stream endpoint for WhatsApp & PDF viewers (Short clean URL: < 70 chars)
+const serveInvoicePdf = async (req, res) => {
+  try {
+    const { InvoiceTracking } = req.app.get('models');
+    const { id } = req.params;
+
+    const record = await InvoiceTracking.findByPk(id);
+    if (!record || !record.invoice_image_public_id) {
+      return res.status(404).send('Invoice PDF not found');
+    }
+
+    const key = record.invoice_image_public_id;
+    const getObjectParams = {
+      Bucket: process.env.B2_S3_BUCKET_NAME,
+      Key: key
+    };
+
+    const command = new GetObjectCommand(getObjectParams);
+    const s3Response = await s3Client.send(command);
+
+    res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice_${record.invoice_number || id}.pdf"`);
+    if (s3Response.ContentLength) {
+      res.setHeader('Content-Length', s3Response.ContentLength);
+    }
+    return s3Response.Body.pipe(res);
+  } catch (err) {
+    console.error('Error streaming invoice pdf:', err);
+    res.status(500).send('Could not stream invoice PDF');
+  }
+};
+
 const sendInvoiceEmail = async (req, res) => {
   try {
     const { InvoiceTracking, Stockist } = req.app.get('models');
@@ -794,5 +826,6 @@ module.exports = {
   deleteInvoiceTracking,
   getStockistsForDropdown,
   getInvoiceSignedUrl,
+  serveInvoicePdf,
   sendInvoiceEmail
 };

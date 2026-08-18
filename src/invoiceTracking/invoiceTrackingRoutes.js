@@ -13,10 +13,14 @@ const {
   deleteInvoiceTracking,
   getStockistsForDropdown,
   getInvoiceSignedUrl,
+  serveInvoicePdf,
   sendInvoiceEmail
 } = require('./invoiceTrackingController');
 
-// Apply authentication middleware to all routes
+// Public route for WhatsApp and external PDF viewers (no auth required)
+router.get('/:id/pdf', serveInvoicePdf);
+
+// Apply authentication middleware to remaining routes
 router.use(authMiddleware);
 
 // GET routes

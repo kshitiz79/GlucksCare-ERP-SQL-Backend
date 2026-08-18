@@ -10,6 +10,102 @@ const ROLE_HIERARCHY = {
   'Super Admin': 8
 };
 
+/**
+ * Helper to enrich tour plan days with full joint work user objects (id, name, role, employee_code)
+ */
+const enrichTourPlanDaysWithJointUsers = async (daysOrDay, User) => {
+  if (!daysOrDay) return daysOrDay;
+  const isArray = Array.isArray(daysOrDay);
+  const rawDays = isArray ? daysOrDay : [daysOrDay];
+
+  const plainDays = rawDays.map(d => (d && typeof d.toJSON === 'function' ? d.toJSON() : JSON.parse(JSON.stringify(d))));
+
+  const userIds = new Set();
+  plainDays.forEach(day => {
+    if (day) {
+      if (Array.isArray(day.joint_work_user_ids)) {
+        day.joint_work_user_ids.forEach(id => {
+          if (id) userIds.add(id);
+        });
+      }
+      if (day.joint_work_with_user_id) {
+        userIds.add(day.joint_work_with_user_id);
+      }
+    }
+  });
+
+  const userMap = new Map();
+  if (userIds.size > 0 && User) {
+    const users = await User.findAll({
+      where: { id: Array.from(userIds) },
+      attributes: ['id', 'name', 'role', 'employee_code']
+    });
+    users.forEach(u => {
+      userMap.set(u.id, {
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        employee_code: u.employee_code || null
+      });
+    });
+  }
+
+  plainDays.forEach(day => {
+    if (day) {
+      const ids = Array.isArray(day.joint_work_user_ids) && day.joint_work_user_ids.length > 0
+        ? day.joint_work_user_ids
+        : (day.joint_work_with_user_id ? [day.joint_work_with_user_id] : []);
+
+      const jointUsers = ids.map(id => {
+        if (userMap.has(id)) {
+          return userMap.get(id);
+        }
+        if (day.jointWorkWith && day.jointWorkWith.id === id) {
+          return {
+            id: day.jointWorkWith.id,
+            name: day.jointWorkWith.name,
+            role: day.jointWorkWith.role,
+            employee_code: day.jointWorkWith.employee_code || null
+          };
+        }
+        return { id, name: 'Colleague', role: '-' };
+      });
+
+      day.joint_work_users = jointUsers;
+      day.jointWorkUsers = jointUsers;
+      if (!day.joint_work_user_ids || !Array.isArray(day.joint_work_user_ids)) {
+        day.joint_work_user_ids = ids;
+      }
+    }
+  });
+
+  return isArray ? plainDays : plainDays[0];
+};
+
+/**
+ * Helper to enrich tour plan(s) and their nested days with full joint work user objects
+ */
+const enrichTourPlansWithJointUsers = async (plansOrPlan, User) => {
+  if (!plansOrPlan) return plansOrPlan;
+  const isArray = Array.isArray(plansOrPlan);
+  const rawPlans = isArray ? plansOrPlan : [plansOrPlan];
+
+  const plainPlans = rawPlans.map(p => (p && typeof p.toJSON === 'function' ? p.toJSON() : JSON.parse(JSON.stringify(p))));
+
+  const allDays = [];
+  plainPlans.forEach(plan => {
+    if (plan && Array.isArray(plan.days)) {
+      allDays.push(...plan.days);
+    }
+  });
+
+  if (allDays.length > 0) {
+    await enrichTourPlanDaysWithJointUsers(allDays, User);
+  }
+
+  return isArray ? plainPlans : plainPlans[0];
+};
+
 // GET my tour plans
 const getMyPlans = async (req, res) => {
   try {
@@ -39,9 +135,11 @@ const getMyPlans = async (req, res) => {
       ]
     });
 
+    const enrichedPlans = await enrichTourPlansWithJointUsers(plans, User);
+
     res.json({
       success: true,
-      data: plans
+      data: enrichedPlans
     });
   } catch (error) {
     console.error('Get my plans error:', error);
@@ -90,9 +188,11 @@ const getPlanById = async (req, res) => {
       });
     }
 
+    const enrichedPlan = await enrichTourPlansWithJointUsers(plan, User);
+
     res.json({
       success: true,
-      data: plan
+      data: enrichedPlan
     });
   } catch (error) {
     console.error('Get plan by ID error:', error);
@@ -168,8 +268,8 @@ const saveDraft = async (req, res) => {
       const dayRecords = days.map(d => {
         const userIds = d.day_type === 'Joint work'
           ? (Array.isArray(d.joint_work_user_ids) && d.joint_work_user_ids.length > 0
-              ? d.joint_work_user_ids
-              : (d.joint_work_with_user_id ? [d.joint_work_with_user_id] : []))
+            ? d.joint_work_user_ids
+            : (d.joint_work_with_user_id ? [d.joint_work_with_user_id] : []))
           : [];
 
         return {
@@ -208,10 +308,12 @@ const saveDraft = async (req, res) => {
       ]
     });
 
+    const enrichedPlan = await enrichTourPlansWithJointUsers(updatedPlan, User);
+
     res.json({
       success: true,
       message: 'Draft saved successfully',
-      data: updatedPlan
+      data: enrichedPlan
     });
   } catch (error) {
     await transaction.rollback();
@@ -306,7 +408,7 @@ const approvePlan = async (req, res) => {
     plan.approved_by_name = req.user.name;
     plan.approved_by_role = req.user.role;
     plan.comments = req.body.comments || null;
-    
+
     const sequelize = req.app.get('sequelize');
     const transaction = await sequelize.transaction();
 
@@ -457,9 +559,11 @@ const getPendingApprovals = async (req, res) => {
       ]
     });
 
+    const enrichedPlans = await enrichTourPlansWithJointUsers(plans, User);
+
     res.json({
       success: true,
-      data: plans
+      data: enrichedPlans
     });
   } catch (error) {
     console.error('Get pending approvals error:', error);
@@ -503,9 +607,11 @@ const getAllPlansAdmin = async (req, res) => {
       ]
     });
 
+    const enrichedPlans = await enrichTourPlansWithJointUsers(plans, User);
+
     res.json({
       success: true,
-      data: plans
+      data: enrichedPlans
     });
   } catch (error) {
     console.error('Get all plans admin error:', error);
@@ -641,9 +747,11 @@ const getIncomingCollaborations = async (req, res) => {
       order: [['date', 'ASC']]
     });
 
+    const enrichedIncoming = await enrichTourPlanDaysWithJointUsers(incoming, User);
+
     res.json({
       success: true,
-      data: incoming
+      data: enrichedIncoming
     });
   } catch (error) {
     console.error('Get incoming collaborations error:', error);
@@ -686,9 +794,11 @@ const getAcceptedCollaborations = async (req, res) => {
       order: [['date', 'ASC']]
     });
 
+    const enrichedAccepted = await enrichTourPlanDaysWithJointUsers(accepted, User);
+
     res.json({
       success: true,
-      data: accepted
+      data: enrichedAccepted
     });
   } catch (error) {
     console.error('Get accepted collaborations error:', error);
@@ -1307,7 +1417,7 @@ const respondToDayChangeRequest = async (req, res) => {
       // 2. Perform rescheduling of visits for today
       try {
         console.log(`Rescheduling auto-visits for user ${day.tourPlan.user_id} on date ${day.date}...`);
-        
+
         // Delete all unconfirmed visits for today
         await DoctorVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
         await ChemistVisit.destroy({ where: { user_id: day.tourPlan.user_id, date: day.date, confirmed: false } });
@@ -1599,9 +1709,11 @@ const getAdminHandshakeData = async (req, res) => {
       order: [['date', 'DESC']]
     });
 
+    const enrichedHandshakes = await enrichTourPlanDaysWithJointUsers(handshakes, User);
+
     res.json({
       success: true,
-      data: handshakes
+      data: enrichedHandshakes
     });
   } catch (error) {
     console.error('Get admin handshake data error:', error);
