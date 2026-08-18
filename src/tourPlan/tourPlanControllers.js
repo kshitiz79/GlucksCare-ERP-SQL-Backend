@@ -92,15 +92,10 @@ const enrichTourPlansWithJointUsers = async (plansOrPlan, User) => {
 
   const plainPlans = rawPlans.map(p => (p && typeof p.toJSON === 'function' ? p.toJSON() : JSON.parse(JSON.stringify(p))));
 
-  const allDays = [];
-  plainPlans.forEach(plan => {
-    if (plan && Array.isArray(plan.days)) {
-      allDays.push(...plan.days);
+  for (const plan of plainPlans) {
+    if (plan && Array.isArray(plan.days) && plan.days.length > 0) {
+      plan.days = await enrichTourPlanDaysWithJointUsers(plan.days, User);
     }
-  });
-
-  if (allDays.length > 0) {
-    await enrichTourPlanDaysWithJointUsers(allDays, User);
   }
 
   return isArray ? plainPlans : plainPlans[0];
