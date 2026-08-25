@@ -102,7 +102,6 @@ const getAllChemistVisits = async (req, res) => {
       message: error.message
     });
   }
-  }
 };
 
 // GET chemist visit by ID
