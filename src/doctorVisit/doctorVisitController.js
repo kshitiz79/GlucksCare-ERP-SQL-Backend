@@ -26,16 +26,17 @@ const getAllDoctorVisits = async (req, res) => {
 
     let whereClause = {};
     const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + istOffsetMs);
     const formatYMD = (d) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
       return `${y}-${m}-${day}`;
     };
 
-    const today = formatYMD(now);
-    const yesterdayDate = new Date(now);
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const today = formatYMD(nowIST);
+    const yesterdayDate = new Date(nowIST.getTime() - 24 * 60 * 60 * 1000);
     const yesterday = formatYMD(yesterdayDate);
 
     // Apply date filters: if no parameter specified and all !== 'true', default to 'today'
@@ -50,19 +51,17 @@ const getAllDoctorVisits = async (req, res) => {
     } else if (activeRange === 'today') {
       whereClause.date = today;
     } else if (activeRange === 'last7days' || activeRange === 'week' || activeRange === 'thisweek') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 7);
+      const d = new Date(nowIST.getTime() - 7 * 24 * 60 * 60 * 1000);
       whereClause.date = { [Op.between]: [formatYMD(d), today] };
     } else if (activeRange === 'last30days') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
+      const d = new Date(nowIST.getTime() - 30 * 24 * 60 * 60 * 1000);
       whereClause.date = { [Op.between]: [formatYMD(d), today] };
     } else if (activeRange === 'month' || activeRange === 'thismonth') {
-      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const firstDay = `${nowIST.getUTCFullYear()}-${String(nowIST.getUTCMonth() + 1).padStart(2, '0')}-01`;
       whereClause.date = { [Op.between]: [firstDay, today] };
     } else if (activeRange === 'lastmonth') {
-      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      const firstDayLastMonth = new Date(Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth() - 1, 1));
+      const lastDayLastMonth = new Date(Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), 0));
       whereClause.date = { [Op.between]: [formatYMD(firstDayLastMonth), formatYMD(lastDayLastMonth)] };
     } else if (activeRange === 'upcoming') {
       whereClause.date = { [Op.gt]: today };
