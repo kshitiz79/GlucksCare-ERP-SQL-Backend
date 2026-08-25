@@ -37,7 +37,23 @@ const getDateRange = (filter, startDate, endDate) => {
   const month = parseInt(monthStr, 10) - 1;
   const day = parseInt(dayStr, 10);
 
-  if (filter === 'weekly') {
+  const formatDate = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
+
+  if (filter === 'yesterday') {
+    const yesterday = new Date(year, month, day - 1);
+    const yStr = formatDate(yesterday);
+    return {
+      start: yStr,
+      end: yStr
+    };
+  }
+
+  if (filter === 'weekly' || filter === 'week' || filter === 'thisweek') {
     const nowIST = new Date(year, month, day);
     const currentDay = nowIST.getDay();
     const distanceToMonday = (currentDay === 0 ? -6 : 1) - currentDay;
@@ -47,20 +63,29 @@ const getDateRange = (filter, startDate, endDate) => {
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
 
-    const formatDate = (d) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${dd}`;
-    };
-
     return {
       start: formatDate(monday),
       end: formatDate(sunday)
     };
   }
 
-  if (filter === 'monthly') {
+  if (filter === 'last7days') {
+    const past7 = new Date(year, month, day - 7);
+    return {
+      start: formatDate(past7),
+      end: todayISTStr
+    };
+  }
+
+  if (filter === 'last30days') {
+    const past30 = new Date(year, month, day - 30);
+    return {
+      start: formatDate(past30),
+      end: todayISTStr
+    };
+  }
+
+  if (filter === 'monthly' || filter === 'month' || filter === 'thismonth') {
     const firstDayStr = `${yearStr}-${monthStr}-01`;
     const lastDayNum = new Date(year, month + 1, 0).getDate();
     const lastDayStr = `${yearStr}-${monthStr}-${String(lastDayNum).padStart(2, '0')}`;
@@ -68,6 +93,15 @@ const getDateRange = (filter, startDate, endDate) => {
     return {
       start: firstDayStr,
       end: lastDayStr
+    };
+  }
+
+  if (filter === 'lastmonth') {
+    const firstDayLastMonth = new Date(year, month - 1, 1);
+    const lastDayLastMonth = new Date(year, month, 0);
+    return {
+      start: formatDate(firstDayLastMonth),
+      end: formatDate(lastDayLastMonth)
     };
   }
 

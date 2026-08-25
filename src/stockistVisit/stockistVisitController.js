@@ -25,24 +25,46 @@ const getAllStockistVisits = async (req, res) => {
     const { startDate, endDate, range, all } = req.query;
 
     let whereClause = {};
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const formatYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const today = formatYMD(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = formatYMD(yesterdayDate);
 
     const activeRange = range || (!startDate && !endDate && all !== 'true' ? 'today' : null);
 
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
-    } else if (activeRange === 'last7days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (activeRange === 'last30days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (activeRange === 'upcoming') {
-      whereClause.date = { [Op.gt]: today };
+    } else if (startDate) {
+      whereClause.date = startDate;
+    } else if (activeRange === 'yesterday') {
+      whereClause.date = yesterday;
     } else if (activeRange === 'today') {
       whereClause.date = today;
+    } else if (activeRange === 'last7days' || activeRange === 'week' || activeRange === 'thisweek') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (activeRange === 'last30days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (activeRange === 'month' || activeRange === 'thismonth') {
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      whereClause.date = { [Op.between]: [firstDay, today] };
+    } else if (activeRange === 'lastmonth') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      whereClause.date = { [Op.between]: [formatYMD(firstDayLastMonth), formatYMD(lastDayLastMonth)] };
+    } else if (activeRange === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
     }
 
     const stockistVisits = await StockistVisit.findAll({
@@ -53,15 +75,28 @@ const getAllStockistVisits = async (req, res) => {
           as: 'User',
           required: false,
           attributes: ['id', 'name', 'email', 'employee_code', 'is_active']
+        },
+        {
+          model: Stockist,
+          as: 'Stockist',
+          required: false,
+          attributes: ['id', 'firm_name', 'contact_person', 'mobile_number']
         }
       ]
     });
-    res.json({
-      success: true,
-      count: stockistVisits.length,
-      data: stockistVisits
+
+    const transformedVisits = stockistVisits.map(visit => {
+      const visitObj = visit.toJSON();
+      return {
+        ...visitObj,
+        stockist: visitObj.Stockist || null,
+        user: visitObj.User || null
+      };
     });
+
+    res.json(transformedVisits);
   } catch (error) {
+    console.error('Error fetching all stockist visits:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -292,7 +327,18 @@ const getStockistVisitsByUserId = async (req, res) => {
     const { startDate, endDate, range } = req.query;
 
     let whereClause = { user_id: userId };
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const formatYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const today = formatYMD(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = formatYMD(yesterdayDate);
 
     // Compute start and end dates for auto-scheduling
     let start = startDate || today;
@@ -301,28 +347,45 @@ const getStockistVisitsByUserId = async (req, res) => {
     // Apply date filters only if explicitly requested
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
-    } else if (range === 'last7days') {
-      const d = new Date();
+    } else if (startDate) {
+      whereClause.date = startDate;
+    } else if (range === 'yesterday') {
+      whereClause.date = yesterday;
+      start = yesterday;
+      end = yesterday;
+    } else if (range === 'today') {
+      whereClause.date = today;
+      start = today;
+      end = today;
+    } else if (range === 'last7days' || range === 'week' || range === 'thisweek') {
+      const d = new Date(now);
       d.setDate(d.getDate() - 7);
-      start = d.toISOString().split('T')[0];
+      start = formatYMD(d);
       end = today;
       whereClause.date = { [Op.between]: [start, today] };
     } else if (range === 'last30days') {
-      const d = new Date();
+      const d = new Date(now);
       d.setDate(d.getDate() - 30);
-      start = d.toISOString().split('T')[0];
+      start = formatYMD(d);
       end = today;
       whereClause.date = { [Op.between]: [start, today] };
+    } else if (range === 'month' || range === 'thismonth') {
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      start = firstDay;
+      end = today;
+      whereClause.date = { [Op.between]: [firstDay, today] };
+    } else if (range === 'lastmonth') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      start = formatYMD(firstDayLastMonth);
+      end = formatYMD(lastDayLastMonth);
+      whereClause.date = { [Op.between]: [start, end] };
     } else if (range === 'upcoming') {
-      const d = new Date();
+      const d = new Date(now);
       d.setDate(d.getDate() + 14); // auto-schedule upcoming 14 days
       start = today;
-      end = d.toISOString().split('T')[0];
+      end = formatYMD(d);
       whereClause.date = { [Op.gt]: today };
-    } else if (range === 'today') {
-      start = today;
-      end = today;
-      whereClause.date = today;
     }
 
     // Trigger auto-scheduling of stockist visits asynchronously in background

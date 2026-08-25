@@ -5,11 +5,19 @@
 const express = require('express');
 const https = require('https');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 const DELHIVERY_TOKEN    = process.env.DELHIVERY_API_TOKEN;
-const DELHIVERY_BASE     = 'track.delhivery.com';
+const DELHIVERY_BASE     = (process.env.DELHIVERY_BASE_URL || 'https://track.delhivery.com')
+  .replace(/^https?:\/\//, '')
+  .replace(/\/.*$/, '');
 const PICKUP_LOCATION    = process.env.DELHIVERY_PICKUP_LOCATION || '';
+
+let _delhiveryB2BToken     = process.env.DELHIVERY_B2B_TOKEN || '';
+let _delhiveryB2BClientId = process.env.DELHIVERY_B2B_CLIENT_ID || '';
+const DELHIVERY_UCP_HOST  = 'ucp-egw.delhivery.com';
+const DELHIVERY_UCP_PATH  = '/101/api/v1/lrn/shipment/list';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/delhivery/config
@@ -23,7 +31,27 @@ router.get('/config', authMiddleware, (req, res) => {
       token_preview: DELHIVERY_TOKEN ? `...${DELHIVERY_TOKEN.slice(-6)}` : null,
       pickup_location: PICKUP_LOCATION || null,
       pickup_location_set: !!PICKUP_LOCATION,
+      b2b_token_set: !!_delhiveryB2BToken,
     },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/delhivery/b2b-token
+// Update in-memory B2B token dynamically without restarting server
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/b2b-token', authMiddleware, (req, res) => {
+  const { token, client_id } = req.body;
+  if (!token || typeof token !== 'string' || !token.trim()) {
+    return res.status(400).json({ success: false, message: 'Valid B2B token is required' });
+  }
+  _delhiveryB2BToken = token.trim();
+  if (client_id && typeof client_id === 'string') {
+    _delhiveryB2BClientId = client_id.trim();
+  }
+  return res.json({
+    success: true,
+    message: 'B2B token updated successfully',
   });
 });
 
@@ -172,7 +200,7 @@ router.get('/freight', authMiddleware, async (req, res) => {
 // Query params:
 //   o_pin        — origin pincode
 //   d_pin        — destination pincode
-//   weight_kg    — total shipment weight in kg
+//   weight_kg    — total shipment dead weight in kg
 //   shipment_amt — shipment value in ₹
 //   payment_mode — 'Prepaid' | 'COD'
 //   cod_amount   — COD amount (if COD)
@@ -196,24 +224,31 @@ router.get('/b2b-freight', authMiddleware, async (req, res) => {
 
   const md  = mode === 'Express' ? 'E' : 'S';
   const ss  = 'Delivered';
-  const cgm = Math.round(weightNum * 1000); // kg → grams (dead weight)
 
-  // Volumetric weight in grams: vol_cm3 / divisor(5000) * 1000
-  // Delhivery uses whichever is higher: dead weight vs volumetric weight
-  // We pass both and let Delhivery decide via cgm (it picks max internally)
-  let volParam = '';
+  // Volumetric weight calculation: vol_cm3 / 5000 (kg)
+  // Chargeable weight is the higher of dead weight vs volumetric weight
+  let chargedWeightKg = weightNum;
   if (vol_cm3 && parseFloat(vol_cm3) > 0) {
-    volParam = `&vol=${Math.round(parseFloat(vol_cm3))}`;
+    const volKg = parseFloat(vol_cm3) / 5000;
+    chargedWeightKg = Math.max(weightNum, volKg);
   }
+  const cgm = Math.round(chargedWeightKg * 1000); // kg → grams
 
   try {
-    let path = `/api/kinko/v1/invoice/charges/.json?md=${md}&ss=${ss}&d_pin=${d_pin}&o_pin=${o_pin}&cgm=${cgm}${volParam}`;
+    let path = `/api/kinko/v1/invoice/charges/.json?md=${md}&ss=${ss}&d_pin=${d_pin}&o_pin=${o_pin}&cgm=${cgm}`;
     if (payment_mode === 'COD' && cod_amount && parseFloat(cod_amount) > 0) {
       path += `&cod=${cod_amount}`;
     }
 
     console.log('[Delhivery] b2b-freight path:', path);
     const { status, body } = await delhiveryGet(path);
+
+    if (typeof body === 'string' && (body.includes('<html') || body.includes('<!DOCTYPE'))) {
+      return res.status(502).json({
+        success: false,
+        message: `Delhivery returned an unexpected non-JSON response (${status}) — check API status/credentials.`,
+      });
+    }
 
     if (status !== 200) {
       return res.status(status).json({
@@ -290,7 +325,7 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
     seller_address = 'T3-236, Golden I, Techzone IV, Greater Noida West',
     seller_city = 'Greater Noida',
     seller_state = 'Uttar Pradesh',
-    pickup_location = PICKUP_LOCATION || 'Warehouse1',
+    pickup_location = PICKUP_LOCATION,
     quantity = 1,
     total_amount = 0,
     hsn_code = '3004',
@@ -301,6 +336,13 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
     return res.status(400).json({
       success: false,
       message: 'Missing required fields: consignee_name, consignee_address, consignee_pin, consignee_phone, order_id',
+    });
+  }
+
+  if (!pickup_location || !pickup_location.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Pickup location is not configured. Please set DELHIVERY_PICKUP_LOCATION in .env or enter a valid pickup location registered with Delhivery.',
     });
   }
 
@@ -335,7 +377,7 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
       quantity: parseInt(quantity),
       total_amount: parseFloat(total_amount),
     }],
-    pickup_location,
+    pickup_location: pickup_location.trim(),
   };
 
   // Delhivery requires form-encoded: format=json&data=<JSON string>
@@ -346,6 +388,13 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
     const { status, body } = await delhiveryPost('/api/cmu/create.json', formBody);
 
     console.log('[Delhivery] create-shipment response:', status, JSON.stringify(body));
+
+    if (typeof body === 'string' && (body.includes('<html') || body.includes('<!DOCTYPE'))) {
+      return res.status(502).json({
+        success: false,
+        message: `Delhivery returned a gateway HTML response (${status}) — check API credentials and endpoint.`,
+      });
+    }
 
     // Delhivery returns 200 even on errors — check body.success
     if (body.error || !body.success) {
@@ -377,14 +426,6 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/delhivery/track/:waybill
 // Track a shipment by waybill number
-//
-// Supports BOTH:
-//   - B2C Express waybill (13-digit, e.g. 1234567890123)
-//   - B2B LR number (9-digit, e.g. 304109647)
-//
-// NOTE: B2B LR numbers are NOT accessible via the Express API token.
-// For B2B, we return the public Delhivery tracking URL so the user
-// can open it directly. For B2C, we return full JSON tracking data.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/track/:waybill', authMiddleware, async (req, res) => {
   const { waybill } = req.params;
@@ -423,6 +464,13 @@ router.get('/track/:waybill', authMiddleware, async (req, res) => {
 
     console.log('[Delhivery] B2C track response:', status, JSON.stringify(body).slice(0, 200));
 
+    if (typeof body === 'string' && (body.includes('<html') || body.includes('<!DOCTYPE'))) {
+      return res.status(502).json({
+        success: false,
+        message: 'Delhivery returned an unexpected non-JSON response.',
+      });
+    }
+
     if (status === 200 && body.Success !== false && body.ShipmentData?.length > 0) {
       const shipmentData = body.ShipmentData[0]?.Shipment || null;
       return res.json({
@@ -445,8 +493,7 @@ router.get('/track/:waybill', authMiddleware, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/delhivery/label/:waybill
-// Get shipping label / packing slip URL for a waybill
-// Returns the label as a redirect to Delhivery's PDF URL
+// Returns label metadata and points to internal secure streaming endpoint
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/label/:waybill', authMiddleware, async (req, res) => {
   const { waybill } = req.params;
@@ -456,15 +503,16 @@ router.get('/label/:waybill', authMiddleware, async (req, res) => {
   }
 
   try {
-    // First verify the waybill exists via tracking
+    const cleanWb = waybill.trim();
+    // Verify the label exists with Delhivery API
     const { status, body } = await delhiveryGet(
-      `/api/p/packing_slip?wbns=${encodeURIComponent(waybill.trim())}&token=${DELHIVERY_TOKEN}`
+      `/api/p/packing_slip?wbns=${encodeURIComponent(cleanWb)}&token=${DELHIVERY_TOKEN}`
     );
 
-    console.log('[Delhivery] label response:', status, JSON.stringify(body).slice(0, 300));
+    console.log('[Delhivery] label verification response:', status, typeof body === 'object' ? JSON.stringify(body).slice(0, 300) : body);
 
     if (status !== 200) {
-      return res.status(status).json({ success: false, message: 'Label not available' });
+      return res.status(status).json({ success: false, message: 'Label not available from Delhivery' });
     }
 
     // If packages_found is 0, waybill doesn't exist
@@ -475,13 +523,13 @@ router.get('/label/:waybill', authMiddleware, async (req, res) => {
       });
     }
 
-    // Return the label URL for the frontend to open
-    const labelUrl = `https://track.delhivery.com/api/p/packing_slip?wbns=${waybill.trim()}&token=${DELHIVERY_TOKEN}`;
+    // Return backend proxy endpoint (NO Delhivery token leaked!)
+    const labelUrl = `/api/delhivery/label-file/${cleanWb}`;
 
     return res.json({
       success: true,
       data: {
-        waybill,
+        waybill: cleanWb,
         label_url: labelUrl,
         packages: body.packages || [],
         packages_found: body.packages_found,
@@ -494,21 +542,66 @@ router.get('/label/:waybill', authMiddleware, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/delhivery/b2b-track
-// Track a B2B LTL shipment by LR number
-//
-// Uses Delhivery One internal API (discovered via Network tab):
-//   POST https://ucp-egw.delhivery.com/101/api/v1/lrn/shipment/list
-//
-// Token is a short-lived JWT from one.delhivery.com (expires ~10 min).
-// When expired, backend returns token_expired:true so frontend can prompt user.
+// GET /api/delhivery/label-file/:waybill
+// Securely streams the Delhivery PDF packing slip to the client.
+// Protected by application authentication — DELHIVERY_TOKEN is NEVER sent to browser!
 // ─────────────────────────────────────────────────────────────────────────────
-const DELHIVERY_B2B_TOKEN     = process.env.DELHIVERY_B2B_TOKEN;
-const DELHIVERY_B2B_CLIENT_ID = process.env.DELHIVERY_B2B_CLIENT_ID || '';
-const DELHIVERY_UCP_HOST      = 'ucp-egw.delhivery.com';
-const DELHIVERY_UCP_PATH      = '/101/api/v1/lrn/shipment/list';
+router.get('/label-file/:waybill', async (req, res) => {
+  const { waybill } = req.params;
 
+  if (!waybill || waybill.trim().length < 5) {
+    return res.status(400).send('Invalid waybill number');
+  }
+
+  // Support auth via Authorization header OR ?token query param for iframe/downloads
+  const userToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || req.query.token;
+  if (!userToken) {
+    return res.status(401).send('Authentication required');
+  }
+
+  try {
+    jwt.verify(userToken, process.env.JWT_SECRET || '12377hhhhyujhgf4567890kijuhytgfr');
+  } catch {
+    return res.status(401).send('Invalid or expired authentication token');
+  }
+
+  if (!DELHIVERY_TOKEN) {
+    return res.status(500).send('Delhivery API token is not configured on server');
+  }
+
+  const cleanWb = waybill.trim();
+  const targetPath = `/api/p/packing_slip?wbns=${encodeURIComponent(cleanWb)}&token=${DELHIVERY_TOKEN}`;
+
+  const options = {
+    hostname: DELHIVERY_BASE,
+    path: targetPath,
+    method: 'GET',
+    headers: {
+      Accept: 'application/pdf, application/json, */*',
+    },
+  };
+
+  const proxyReq = https.request(options, (pdfRes) => {
+    if (pdfRes.statusCode !== 200) {
+      return res.status(pdfRes.statusCode).send('Failed to fetch label from Delhivery');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="label-${cleanWb}.pdf"`);
+    pdfRes.pipe(res);
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error('[Delhivery] label-file streaming error:', err.message);
+    res.status(500).send('Failed to stream label PDF');
+  });
+
+  proxyReq.end();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helper: POST to Delhivery UCP gateway
+// ─────────────────────────────────────────────────────────────────────────────
 const delhiveryB2BPost = (body) => {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify(body);
@@ -517,10 +610,10 @@ const delhiveryB2BPost = (body) => {
       path:     DELHIVERY_UCP_PATH,
       method:   'POST',
       headers: {
-        Authorization:    `Bearer ${DELHIVERY_B2B_TOKEN}`,
+        Authorization:    `Bearer ${_delhiveryB2BToken}`,
         'Content-Type':   'application/json',
         Accept:           'application/json, text/plain, */*',
-        'x-hq-client-id': DELHIVERY_B2B_CLIENT_ID,
+        'x-hq-client-id': _delhiveryB2BClientId,
         'Content-Length': Buffer.byteLength(postData),
       },
     };
@@ -553,7 +646,7 @@ router.get('/b2b-track', authMiddleware, async (req, res) => {
     public_url:   `https://www.delhivery.com/track/package/${lr}`,
   };
 
-  if (!DELHIVERY_B2B_TOKEN) {
+  if (!_delhiveryB2BToken) {
     return res.json({
       success: false, no_token: true,
       message: 'B2B token not set. Paste fresh token from one.delhivery.com Network tab into DELHIVERY_B2B_TOKEN in .env',
@@ -566,11 +659,15 @@ router.get('/b2b-track', authMiddleware, async (req, res) => {
     const { status, body } = await delhiveryB2BPost({ lrnNumbers: [lr] });
     console.log('[Delhivery B2B] response:', status, JSON.stringify(body).slice(0, 200));
 
-    // JWT expired
-    if (status === 401 || (body?.statusCode === 401) || (body?.statusCode === 403)) {
+    // Broadened token expiration & auth failure check
+    const authFailed = status === 401 || status === 403
+      || [401, 403].includes(body?.statusCode)
+      || /unauthorized|expired|invalid.?token|jwt/i.test(typeof body === 'string' ? body : (body?.message || body?.error || ''));
+
+    if (authFailed) {
       return res.json({
         success: false, token_expired: true,
-        message: 'B2B token expired. Get a fresh token from one.delhivery.com Network tab and update DELHIVERY_B2B_TOKEN in .env',
+        message: 'B2B token expired or invalid. Please update B2B Token.',
         fallback,
       });
     }

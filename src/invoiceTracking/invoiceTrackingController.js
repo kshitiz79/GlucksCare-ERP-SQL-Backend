@@ -703,11 +703,20 @@ const serveInvoicePdf = async (req, res) => {
     const { id } = req.params;
 
     const record = await InvoiceTracking.findByPk(id);
-    if (!record || !record.invoice_image_public_id) {
+    if (!record || (!record.invoice_image_public_id && !record.invoice_image_url)) {
       return res.status(404).send('Invoice PDF not found');
     }
 
-    const key = record.invoice_image_public_id;
+    let key = record.invoice_image_public_id;
+    if (!key && record.invoice_image_url) {
+      const urlWithoutQuery = record.invoice_image_url.split('?')[0];
+      key = urlWithoutQuery.substring(urlWithoutQuery.lastIndexOf('/') + 1);
+    }
+
+    if (!key) {
+      return res.status(404).send('Invoice PDF key not found');
+    }
+
     const getObjectParams = {
       Bucket: process.env.B2_S3_BUCKET_NAME,
       Key: key
@@ -717,7 +726,7 @@ const serveInvoicePdf = async (req, res) => {
     const s3Response = await s3Client.send(command);
 
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="invoice_${record.invoice_number || id}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="invoice_${(record.invoice_number || id).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf"`);
     if (s3Response.ContentLength) {
       res.setHeader('Content-Length', s3Response.ContentLength);
     }

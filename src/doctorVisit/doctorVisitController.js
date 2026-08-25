@@ -25,25 +25,47 @@ const getAllDoctorVisits = async (req, res) => {
     const { startDate, endDate, range, all } = req.query;
 
     let whereClause = {};
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const formatYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const today = formatYMD(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = formatYMD(yesterdayDate);
 
     // Apply date filters: if no parameter specified and all !== 'true', default to 'today'
     const activeRange = range || (!startDate && !endDate && all !== 'true' ? 'today' : null);
 
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
-    } else if (activeRange === 'last7days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (activeRange === 'last30days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (activeRange === 'upcoming') {
-      whereClause.date = { [Op.gt]: today };
+    } else if (startDate) {
+      whereClause.date = startDate;
+    } else if (activeRange === 'yesterday') {
+      whereClause.date = yesterday;
     } else if (activeRange === 'today') {
       whereClause.date = today;
+    } else if (activeRange === 'last7days' || activeRange === 'week' || activeRange === 'thisweek') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (activeRange === 'last30days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (activeRange === 'month' || activeRange === 'thismonth') {
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      whereClause.date = { [Op.between]: [firstDay, today] };
+    } else if (activeRange === 'lastmonth') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      whereClause.date = { [Op.between]: [formatYMD(firstDayLastMonth), formatYMD(lastDayLastMonth)] };
+    } else if (activeRange === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
     }
 
     const doctorVisits = await DoctorVisit.findAll({
@@ -151,23 +173,45 @@ const getDoctorVisitById = async (req, res) => {
     console.log('🔍 Not found as visit ID, checking if it\'s a user_id...');
 
     let whereClause = { user_id: id };
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const formatYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const today = formatYMD(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = formatYMD(yesterdayDate);
 
     // Apply date filters only if explicitly requested
     if (startDate && endDate) {
       whereClause.date = { [Op.between]: [startDate, endDate] };
-    } else if (range === 'last7days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (range === 'last30days') {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      whereClause.date = { [Op.between]: [d.toISOString().split('T')[0], today] };
-    } else if (range === 'upcoming') {
-      whereClause.date = { [Op.gt]: today };
+    } else if (startDate) {
+      whereClause.date = startDate;
+    } else if (range === 'yesterday') {
+      whereClause.date = yesterday;
     } else if (range === 'today') {
       whereClause.date = today;
+    } else if (range === 'last7days' || range === 'week' || range === 'thisweek') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (range === 'last30days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      whereClause.date = { [Op.between]: [formatYMD(d), today] };
+    } else if (range === 'month' || range === 'thismonth') {
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      whereClause.date = { [Op.between]: [firstDay, today] };
+    } else if (range === 'lastmonth') {
+      const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      whereClause.date = { [Op.between]: [formatYMD(firstDayLastMonth), formatYMD(lastDayLastMonth)] };
+    } else if (range === 'upcoming') {
+      whereClause.date = { [Op.gt]: today };
     }
     // Default: No date filter - returns all visits
 
