@@ -1328,7 +1328,13 @@ const getDevicesList = async (req, res) => {
         d.last_network_type,
         ud.device_name,
         ud.device_type,
-        ud.status as binding_status
+        ud.manufacturer,
+        ud.model,
+        ud.status as binding_status,
+        cd.company_device_id,
+        cd.brand as cd_brand,
+        cd.model as cd_model,
+        cd.serial_number as cd_serial
       FROM (
         SELECT 
           COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown') as device_id,
@@ -1347,13 +1353,8 @@ const getDevicesList = async (req, res) => {
         WHERE COALESCE(obt.device_id, (obt.payload->>'device_id')) IS NOT NULL
         GROUP BY COALESCE(obt.device_id, (obt.payload->>'device_id'), 'unknown')
       ) d
-      LEFT JOIN LATERAL (
-        SELECT user_id, device_name, device_type, status 
-        FROM user_devices 
-        WHERE device_id = d.device_id OR android_id = d.device_id
-        ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-        LIMIT 1
-      ) ud ON true
+      LEFT JOIN user_devices ud ON (ud.device_id = d.device_id OR ud.android_id = d.device_id)
+      LEFT JOIN company_devices cd ON (cd.company_device_id = d.device_id OR cd.android_id = d.device_id OR cd.serial_number = d.device_id OR cd.imei_1 = d.device_id)
       ORDER BY d.last_seen DESC
       `,
       { type: sequelize.QueryTypes.SELECT }
@@ -1375,8 +1376,16 @@ const getDevicesList = async (req, res) => {
       const now = new Date();
       const diffMinutes = Math.floor((now - lastSeenDate) / (1000 * 60));
 
+      const detectedModel = d.cd_model || d.model || (d.device_name && d.device_name !== 'Unknown Device' ? d.device_name : null) || 'Android Tablet/Mobile';
+      const detectedManufacturer = d.cd_brand || d.manufacturer || 'Samsung';
+
       return {
         device_id: d.device_id,
+        company_device_id: d.company_device_id || null,
+        serial_number: d.cd_serial || null,
+        manufacturer: detectedManufacturer,
+        model: detectedModel,
+        device_name: d.device_name || `${detectedManufacturer} ${detectedModel}`,
         user_id: d.user_id,
         user_name: u ? u.name : 'Unassigned Device',
         user_email: u ? u.email : null,
@@ -1395,7 +1404,6 @@ const getDevicesList = async (req, res) => {
           battery_level: d.last_battery_level ? parseFloat(d.last_battery_level) : 100,
           network_type: d.last_network_type || 'GPS'
         },
-        device_name: d.device_name,
         device_type: d.device_type,
         binding_status: d.binding_status || (u ? 'AUTO_MATCHED' : 'UNASSIGNED')
       };
