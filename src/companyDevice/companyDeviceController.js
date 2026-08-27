@@ -223,23 +223,7 @@ const getCompanyDeviceById = async (req, res) => {
       } catch (err) {}
     }
 
-    res.json({ success: true, data: plain });,
-            {
-              model: User,
-              as: 'admin',
-              attributes: ['id', 'name'],
-              required: false
-            }
-          ]
-        }
-      ]
-    });
-
-    if (!device) {
-      return res.status(404).json({ success: false, message: 'Company device not found' });
-    }
-
-    res.json({ success: true, data: device });
+    res.json({ success: true, data: plain });
   } catch (error) {
     console.error('Get company device by ID error:', error);
     res.status(500).json({ success: false, message: error.message });
