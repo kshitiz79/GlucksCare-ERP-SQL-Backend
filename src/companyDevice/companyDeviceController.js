@@ -86,16 +86,57 @@ const getAllCompanyDevices = async (req, res) => {
       order: [['company_device_id', 'ASC']]
     });
 
+    // Auto-sync live app versions from Version management table
+    const { Version } = req.app.get('models') || {};
+    const userIds = devices.map(d => d.current_user_id).filter(Boolean);
+    const versionsMap = {};
+    if (Version && userIds.length > 0) {
+      try {
+        const userVersions = await Version.findAll({
+          where: { user_id: userIds },
+          order: [['last_check_date', 'DESC'], ['created_at', 'DESC']]
+        });
+        userVersions.forEach(v => {
+          if (!versionsMap[v.user_id]) {
+            versionsMap[v.user_id] = v;
+          }
+        });
+      } catch (vErr) {
+        console.warn('Error fetching versions for company devices:', vErr.message);
+      }
+    }
+
+    const enhancedDevices = devices.map(d => {
+      const plain = d.toJSON();
+      if (d.current_user_id && versionsMap[d.current_user_id]) {
+        const v = versionsMap[d.current_user_id];
+        const vStr = v.current_version.startsWith('v') ? v.current_version : `v${v.current_version}`;
+        plain.app_version = vStr;
+        if (v.device_info) {
+          if (v.device_info.osVersion || v.device_info.androidVersion) {
+            plain.android_version = v.device_info.osVersion || v.device_info.androidVersion;
+          }
+          if (v.device_info.brand && (!plain.brand || plain.brand === 'Samsung')) {
+            plain.brand = v.device_info.brand;
+          }
+          if (v.device_info.model && (!plain.model || plain.model === 'Galaxy Tab A9+')) {
+            plain.model = v.device_info.model;
+          }
+        }
+      }
+      return plain;
+    });
+
     // Summary statistics
-    const totalCount = devices.length;
-    const activeCount = devices.filter(d => d.status === 'ACTIVE').length;
-    const inStockCount = devices.filter(d => d.status === 'IN_STOCK' || !d.current_user_id).length;
-    const inRepairCount = devices.filter(d => d.status === 'IN_REPAIR' || d.status === 'DAMAGED').length;
-    const onlineCount = devices.filter(d => d.is_online).length;
+    const totalCount = enhancedDevices.length;
+    const activeCount = enhancedDevices.filter(d => d.status === 'ACTIVE').length;
+    const inStockCount = enhancedDevices.filter(d => d.status === 'IN_STOCK' || !d.current_user_id).length;
+    const inRepairCount = enhancedDevices.filter(d => d.status === 'IN_REPAIR' || d.status === 'DAMAGED').length;
+    const onlineCount = enhancedDevices.filter(d => d.is_online).length;
 
     res.json({
       success: true,
-      data: devices,
+      data: enhancedDevices,
       stats: {
         total: totalCount,
         active: activeCount,
@@ -113,7 +154,7 @@ const getAllCompanyDevices = async (req, res) => {
 // GET single company device by ID
 const getCompanyDeviceById = async (req, res) => {
   try {
-    const { CompanyDevice, User, DeviceAssignmentHistory, HeadOffice, Designation, Department } = req.app.get('models');
+    const { CompanyDevice, User, DeviceAssignmentHistory, HeadOffice, Designation, Department, Version } = req.app.get('models');
     const { id } = req.params;
 
     const device = await CompanyDevice.findByPk(id, {
@@ -154,7 +195,35 @@ const getCompanyDeviceById = async (req, res) => {
               as: 'employee',
               attributes: ['id', 'name', 'employee_code', 'email'],
               required: false
-            },
+            }
+          ]
+        }
+      ]
+    });
+
+    if (!device) {
+      return res.status(404).json({ success: false, message: 'Company device not found' });
+    }
+
+    const plain = device.toJSON();
+    if (device.current_user_id && Version) {
+      try {
+        const v = await Version.findOne({
+          where: { user_id: device.current_user_id },
+          order: [['last_check_date', 'DESC'], ['created_at', 'DESC']]
+        });
+        if (v) {
+          plain.app_version = v.current_version.startsWith('v') ? v.current_version : `v${v.current_version}`;
+          if (v.device_info) {
+            if (v.device_info.osVersion || v.device_info.androidVersion) {
+              plain.android_version = v.device_info.osVersion || v.device_info.androidVersion;
+            }
+          }
+        }
+      } catch (err) {}
+    }
+
+    res.json({ success: true, data: plain });,
             {
               model: User,
               as: 'admin',

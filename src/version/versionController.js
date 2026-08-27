@@ -111,6 +111,54 @@ const checkAppVersion = async (req, res) => {
 
     await versionCheck.save();
 
+    // Auto-update CompanyDevice and UserDevice with live app version & device info
+    try {
+      const { CompanyDevice, UserDevice } = req.app.get('models');
+      const { Op } = require('sequelize');
+      const devId = deviceInfo?.deviceId || deviceInfo?.device_id || deviceInfo?.androidId || deviceInfo?.serialNumber;
+      const osVer = deviceInfo?.osVersion || deviceInfo?.androidVersion || (deviceInfo?.os ? `Android ${deviceInfo.os}` : null);
+      const appVerStr = currentVersion.startsWith('v') ? currentVersion : `v${currentVersion}`;
+
+      if (CompanyDevice) {
+        const orConds = [{ current_user_id: userId }];
+        if (devId) {
+          orConds.push(
+            { company_device_id: devId },
+            { android_id: devId },
+            { serial_number: devId },
+            { imei_1: devId }
+          );
+        }
+        const compDevice = await CompanyDevice.findOne({ where: { [Op.or]: orConds } });
+        if (compDevice) {
+          const updateObj = {
+            app_version: appVerStr,
+            last_sync_at: new Date(),
+            is_online: true
+          };
+          if (osVer && (!compDevice.android_version || compDevice.android_version === 'Android 14')) {
+            updateObj.android_version = osVer;
+          }
+          if (deviceInfo?.brand && (!compDevice.brand || compDevice.brand === 'Samsung')) {
+            updateObj.brand = deviceInfo.brand;
+          }
+          if (deviceInfo?.model && (!compDevice.model || compDevice.model === 'Galaxy Tab A9+')) {
+            updateObj.model = deviceInfo.model;
+          }
+          await compDevice.update(updateObj);
+        }
+      }
+
+      if (UserDevice && devId) {
+        await UserDevice.update(
+          { last_login: new Date(), status: 'ACTIVE' },
+          { where: { [Op.or]: [{ device_id: devId }, { android_id: devId }] } }
+        );
+      }
+    } catch (autoSyncErr) {
+      console.warn('Auto-sync company device version error:', autoSyncErr.message);
+    }
+
     // Automatically cleanup old version records for this user (keep only last 2)
     try {
       await cleanupOldVersions(userId);
