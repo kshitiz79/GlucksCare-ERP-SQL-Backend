@@ -575,6 +575,8 @@ const getAllUsers = async (req, res) => {
         emergencyContact: user.emergency_contact,
         reference: user.reference,
         isActive: user.is_active,
+        is_active: user.is_active,
+        employee_code: user.employee_code,
         emailVerified: user.email_verified,
         otp: user.otp,
         otpExpire: user.otp_expire,
