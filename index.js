@@ -23,10 +23,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            ' https://api.gluckscare.com ', // Add this for development
+            ' http://localhost:5051 ', // Add this for development
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            ' https://api.gluckscare.com ',
+            ' http://localhost:5051 ',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -48,11 +48,11 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    ' https://api.gluckscare.com ', // Add this for development
+    ' http://localhost:5051 ', // Add this for development
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    ' https://api.gluckscare.com ', // Add this for production frontend
+    ' http://localhost:5051 ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -121,6 +121,115 @@ async function initializeDatabase() {
             console.log('✅ Re-added unique constraint on device_fingerprint');
         } catch (constraintErr) {
             // Already exists or fails safely
+        }
+
+        // Dynamically create location_pings table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS location_pings (
+                id BIGSERIAL PRIMARY KEY,
+                client_fix_id VARCHAR(100) UNIQUE,
+                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                device_id VARCHAR(100) NOT NULL,
+                session_id VARCHAR(100),
+                latitude DECIMAL(10, 7) NOT NULL,
+                longitude DECIMAL(10, 7) NOT NULL,
+                accuracy_m DECIMAL(8, 2),
+                speed_mps DECIMAL(8, 2),
+                bearing_deg DECIMAL(6, 2),
+                provider VARCHAR(50) DEFAULT 'fused',
+                is_mock_location BOOLEAN DEFAULT false,
+                battery_pct DECIMAL(5, 2),
+                network_type VARCHAR(30),
+                network_strength INTEGER,
+                device_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,
+                server_received_at_utc TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                clock_skew_seconds DECIMAL(10, 2),
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+              );
+            `);
+            console.log('✅ Checked/Created location_pings table');
+        } catch (lpErr) {
+            console.warn('⚠️ Warning: Failed to create location_pings table:', lpErr.message);
+        }
+
+        // Dynamically create offline_bg_tracking table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS offline_bg_tracking (
+                id SERIAL PRIMARY KEY,
+                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                device_id VARCHAR(255) NOT NULL,
+                entity_type VARCHAR(255) NOT NULL,
+                entity_id VARCHAR(255) NOT NULL UNIQUE,
+                payload JSONB NOT NULL,
+                status VARCHAR(50) DEFAULT 'PENDING',
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                created_at_utc TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                last_attempt_utc TIMESTAMP WITH TIME ZONE
+              );
+            `);
+            console.log('✅ Checked/Created offline_bg_tracking table');
+        } catch (obtErr) {
+            console.warn('⚠️ Warning: Failed to create offline_bg_tracking table:', obtErr.message);
+        }
+
+        // Dynamically create company_devices table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS company_devices (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_device_id VARCHAR(255) NOT NULL UNIQUE,
+                brand VARCHAR(255) NOT NULL DEFAULT 'Samsung',
+                model VARCHAR(255) DEFAULT 'Galaxy Tab A9+',
+                imei_1 VARCHAR(255) UNIQUE,
+                imei_2 VARCHAR(255),
+                serial_number VARCHAR(255),
+                android_id VARCHAR(255),
+                android_version VARCHAR(255) DEFAULT 'Android 14',
+                app_version VARCHAR(255) DEFAULT 'v2.4.1',
+                mdm_enrollment_id VARCHAR(255),
+                current_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'IN_STOCK',
+                assigned_at TIMESTAMP WITH TIME ZONE,
+                last_sync_at TIMESTAMP WITH TIME ZONE,
+                last_latitude DECIMAL(10, 7),
+                last_longitude DECIMAL(10, 7),
+                last_address TEXT,
+                battery_pct DECIMAL(5, 2),
+                is_charging BOOLEAN DEFAULT false,
+                network_type VARCHAR(50),
+                is_online BOOLEAN DEFAULT false,
+                notes TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `);
+            console.log('✅ Checked/Created company_devices table');
+        } catch (devErr) {
+            console.warn('⚠️ Warning: Failed to create company_devices table:', devErr.message);
+        }
+
+        // Dynamically create device_assignment_histories table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS device_assignment_histories (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                device_id UUID NOT NULL REFERENCES company_devices(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                assigned_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                unassigned_at TIMESTAMP WITH TIME ZONE,
+                action_type VARCHAR(50) NOT NULL DEFAULT 'ASSIGNED',
+                reason TEXT,
+                assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                is_current BOOLEAN DEFAULT true,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `);
+            console.log('✅ Checked/Created device_assignment_histories table');
+        } catch (histErr) {
+            console.warn('⚠️ Warning: Failed to create device_assignment_histories table:', histErr.message);
         }
 
         return true;
@@ -261,6 +370,10 @@ async function startServer() {
     // WhatsApp routes
     const whatsappRoutes = require('./src/whatsapp/whatsappRoutes');
     app.use('/api/whatsapp', whatsappRoutes);
+
+    // Company Managed Device routes
+    const companyDeviceRoutes = require('./src/companyDevice/companyDeviceRoutes');
+    app.use('/api/company-devices', companyDeviceRoutes);
 
     // Mount routes
     app.use('/api/auth', authRoutes);

@@ -592,16 +592,10 @@ const getUsersWithLocation = async (req, res) => {
             ORDER BY COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) DESC
           ) as rn
         FROM offline_bg_tracking obt
-        LEFT JOIN LATERAL (
-          SELECT user_id 
-          FROM user_devices 
-          WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-             OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-             OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-             OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-          ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-          LIMIT 1
-        ) ud ON true
+        LEFT JOIN user_devices ud ON (
+          (ud.device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+          OR (ud.android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+        )
         WHERE obt.payload->>'latitude' IS NOT NULL 
           AND obt.payload->>'longitude' IS NOT NULL
       ) ranked
@@ -765,16 +759,10 @@ const getUserLocationHistory = async (req, res) => {
         (obt.payload->>'network_type')::text as network_type,
         obt.created_at_utc as created_at
       FROM offline_bg_tracking obt
-      LEFT JOIN LATERAL (
-        SELECT user_id 
-        FROM user_devices 
-        WHERE (device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
-           OR (device_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-           OR (android_id = (obt.payload->>'device_id') AND (obt.payload->>'device_id') IS NOT NULL)
-        ORDER BY (status = 'ACTIVE') DESC, last_login DESC NULLS LAST, created_at DESC
-        LIMIT 1
-      ) ud ON true
+      LEFT JOIN user_devices ud ON (
+        (ud.device_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+        OR (ud.android_id = obt.device_id AND obt.device_id IS NOT NULL AND obt.device_id != '')
+      )
       WHERE (obt.user_id = :userId OR (obt.payload->>'user_id')::uuid = :userId OR ud.user_id = :userId)
         AND obt.payload->>'latitude' IS NOT NULL
         AND obt.payload->>'longitude' IS NOT NULL

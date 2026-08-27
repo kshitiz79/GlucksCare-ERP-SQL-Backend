@@ -352,5 +352,19 @@ module.exports = (db) => {
   db.UserActivityLog.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
   db.User.hasMany(db.UserActivityLog, { foreignKey: 'user_id', as: 'activityLogs' });
 
+  // CompanyDevice & DeviceAssignmentHistory associations
+  if (db.CompanyDevice && db.DeviceAssignmentHistory) {
+    db.CompanyDevice.belongsTo(db.User, { foreignKey: 'current_user_id', as: 'currentUser' });
+    db.User.hasMany(db.CompanyDevice, { foreignKey: 'current_user_id', as: 'assignedDevices' });
+
+    db.CompanyDevice.hasMany(db.DeviceAssignmentHistory, { foreignKey: 'device_id', as: 'assignmentHistory' });
+    db.DeviceAssignmentHistory.belongsTo(db.CompanyDevice, { foreignKey: 'device_id', as: 'device' });
+
+    db.DeviceAssignmentHistory.belongsTo(db.User, { foreignKey: 'user_id', as: 'employee' });
+    db.User.hasMany(db.DeviceAssignmentHistory, { foreignKey: 'user_id', as: 'deviceHistories' });
+
+    db.DeviceAssignmentHistory.belongsTo(db.User, { foreignKey: 'assigned_by', as: 'admin' });
+  }
+
   return db;
 };

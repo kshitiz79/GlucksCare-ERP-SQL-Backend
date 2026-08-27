@@ -114,6 +114,8 @@ const FinancialYear = require('../financialYear/FinancialYear');
 const OfflineBgTracking = require('../offlineBgTracking/OfflineBgTracking');
 const LocationPing = require('../offlineBgTracking/LocationPing');
 const UserActivityLog = require('../userActivityLog/UserActivityLog');
+const CompanyDevice = require('../companyDevice/CompanyDevice');
+const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistory');
 
 // Initialize models
 const models = {
@@ -193,7 +195,9 @@ const models = {
     FinancialYear: FinancialYear(sequelize),
     OfflineBgTracking: OfflineBgTracking(sequelize),
     LocationPing: LocationPing(sequelize),
-    UserActivityLog: UserActivityLog(sequelize)
+    UserActivityLog: UserActivityLog(sequelize),
+    CompanyDevice: CompanyDevice(sequelize),
+    DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize)
 };
 
 // Set up hooks
