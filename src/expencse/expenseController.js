@@ -1,5 +1,6 @@
 const cloudinary = require('../config/cloudinary');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
 
 // Helper function to upload image to Cloudinary
 const uploadToCloudinary = async (imageData, isBase64 = true) => {
@@ -325,7 +326,7 @@ const createExpense = async (req, res) => {
 // UPDATE an expense
 const updateExpense = async (req, res) => {
   try {
-    const { Expense, ExpenseSetting } = req.app.get('models');
+    const { Expense, ExpenseSetting, User } = req.app.get('models');
     const {
       userId,
       category,
@@ -344,18 +345,40 @@ const updateExpense = async (req, res) => {
       });
     }
 
+    // Determine if requester is an Admin or Super Admin
+    let isAdmin = false;
+    const authHeader = req.headers.authorization || req.header('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '').trim();
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded && decoded.id) {
+          const reqUser = await User.findByPk(decoded.id);
+          if (reqUser && ['Admin', 'Super Admin'].includes(reqUser.role)) {
+            isAdmin = true;
+          }
+        }
+      } catch (jwtErr) {
+        console.warn('JWT verification in updateExpense:', jwtErr.message);
+      }
+    }
+
+    if (req.user && ['Admin', 'Super Admin'].includes(req.user.role)) {
+      isAdmin = true;
+    }
+
     // Check if expense can be edited
-    // Admin can edit at any status, but we'll reset to pending if it was approved/rejected
+    // Regular users can only edit once. Admin / Super Admin can edit unlimited times.
     const wasApprovedOrRejected = expense.status === 'approved' || expense.status === 'rejected';
 
-    if (expense.edit_count >= 1) {
+    if (!isAdmin && expense.edit_count >= 1) {
       return res.status(400).json({
         success: false,
         message: 'Expense can only be edited once'
       });
     }
 
-    if (userId && expense.user_id !== userId) {
+    if (!isAdmin && userId && expense.user_id !== userId) {
       return res.status(403).json({
         success: false,
         message: 'Unauthorized to edit this expense'
@@ -502,9 +525,9 @@ const updateExpense = async (req, res) => {
       rate_per_km: ratePerKm,
       total_distance_km: totalDistance,
       daily_allowance_type: category === 'daily' ? dailyAllowanceType : null,
-      edit_count: expense.edit_count + 1,
-      // Reset status to pending if it was approved or rejected
-      status: wasApprovedOrRejected ? 'pending' : expense.status
+      edit_count: (expense.edit_count || 0) + 1,
+      // For non-admin, reset to pending if approved/rejected. For admin, preserve or keep status
+      status: wasApprovedOrRejected && !isAdmin ? 'pending' : expense.status
     };
 
     await expense.update(updateData);
