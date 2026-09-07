@@ -49,23 +49,59 @@ const uploadDoctorGeoImage = async (req, res) => {
             });
         }
 
-        // Find the doctor
-        const doctor = await Doctor.findByPk(id);
+        // Find the doctor by Server ID or local clientGeneratedId
+        let doctor = null;
+        try {
+            doctor = await Doctor.findByPk(id);
+        } catch (e) {
+            // In case id is not a valid UUID format
+        }
+        if (!doctor) {
+            doctor = await Doctor.findOne({
+                where: { clientGeneratedId: id }
+            });
+        }
+
         if (!doctor) {
             return res.status(404).json({
                 success: false,
-                message: 'Doctor not found'
+                message: 'Doctor not found (neither by server ID nor clientGeneratedId)'
             });
         }
 
         // Upload the image to Cloudinary
         const imageUrl = await uploadImage(req.file);
 
-        // Update the doctor with the geo-image URL
-        await doctor.update({ geo_image_url: imageUrl });
+        // Update doctor with geo-image URL and increment sync version
+        const nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
+        await doctor.update({
+            geo_image_url: imageUrl,
+            sync_version: nextVersion
+        });
+
+        // Record change log for sync
+        const { DoctorChangeLog } = req.app.get('models');
+        try {
+            if (DoctorChangeLog) {
+                await DoctorChangeLog.create({
+                    doctorId: doctor.id,
+                    operation: 'UPDATE',
+                    headOfficeId: doctor.headOfficeId,
+                    areaId: doctor.areaId || null,
+                    snapshot: {
+                        id: doctor.id,
+                        name: doctor.name,
+                        geo_image_url: imageUrl,
+                        syncVersion: nextVersion
+                    }
+                });
+            }
+        } catch (logErr) {
+            console.warn('⚠️ Warning: Failed to log geo-image update:', logErr.message);
+        }
 
         // Fetch the updated doctor to return with all data
-        const updatedDoctor = await Doctor.findByPk(id);
+        const updatedDoctor = await Doctor.findByPk(doctor.id);
 
         res.status(200).json({
             success: true,
