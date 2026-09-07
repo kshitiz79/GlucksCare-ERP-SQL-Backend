@@ -16,6 +16,11 @@ const {
   setDoctorUcpmpCap
 } = require('./doctorController');
 
+const {
+  getDoctorBootstrapSync,
+  getDoctorDeltaSync
+} = require('./doctorSyncController');
+
 const { uploadDoctorGeoImage } = require('./doctorImageController');
 
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -36,6 +41,12 @@ const upload = multer({
     }
   }
 });
+
+// GET offline bootstrap doctor sync (paginated master sync)
+router.get('/sync/bootstrap', authMiddleware, getDoctorBootstrapSync);
+
+// GET offline delta doctor sync (upserts + deletes since afterVersion)
+router.get('/sync', authMiddleware, getDoctorDeltaSync);
 
 // GET all doctors
 router.get('/', authMiddleware, getAllDoctors);

@@ -50,6 +50,7 @@ const Leave = require('../leave/Leave');
 const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
+const DoctorChangeLog = require('../doctor/DoctorChangeLog');
 const InvestmentRequest = require('../investmentRequest/InvestmentRequest');
 const Sale = require('../sale/Sale');
 
@@ -127,6 +128,7 @@ const models = {
     LeaveType: LeaveType(sequelize),
     Shift: Shift(sequelize),
     Doctor: Doctor(sequelize),
+    DoctorChangeLog: DoctorChangeLog(sequelize),
     InvestmentRequest: InvestmentRequest(sequelize),
     Sale: Sale(sequelize),
 
@@ -217,7 +219,41 @@ applyAssociations(models);
 // Function to ensure performance indexes on high-volume tables
 async function ensurePerformanceIndexes() {
   try {
+    // Ensure doctors table has offline sync columns
+    try {
+      await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS client_generated_id VARCHAR(100);');
+    } catch (e) {}
+    try {
+      await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS sync_version BIGINT DEFAULT 1;');
+    } catch (e) {}
+
+    // Ensure sequence and doctor_change_logs table exist
+    try {
+      await sequelize.query('CREATE SEQUENCE IF NOT EXISTS doctor_change_version_seq;');
+    } catch (e) {}
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS doctor_change_logs (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          doctor_id UUID NOT NULL,
+          change_version BIGINT NOT NULL DEFAULT nextval('doctor_change_version_seq'),
+          operation VARCHAR(20) NOT NULL,
+          head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL,
+          area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
+          snapshot JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+    } catch (e) {}
+
+    // Ensure performance indexes
     await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctors_client_gen_id ON doctors (client_generated_id);
+      CREATE INDEX IF NOT EXISTS idx_doctors_sync_version ON doctors (sync_version);
+      CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_version ON doctor_change_logs (change_version);
+      CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_doctor ON doctor_change_logs (doctor_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_created ON doctor_change_logs (created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_doctor_visits_user_date ON doctor_visits (user_id, date DESC);
       CREATE INDEX IF NOT EXISTS idx_doctor_visits_date ON doctor_visits (date DESC);
       CREATE INDEX IF NOT EXISTS idx_chemist_visits_user_date ON chemist_visits (user_id, date DESC);
@@ -229,9 +265,9 @@ async function ensurePerformanceIndexes() {
       CREATE INDEX IF NOT EXISTS idx_location_pings_device_time ON location_pings (device_id, device_time_utc DESC);
       CREATE INDEX IF NOT EXISTS idx_location_pings_fix_id ON location_pings (client_fix_id);
     `);
-    console.log('✅ Performance indexes checked/created successfully');
+    console.log('✅ Doctor sync schema and performance indexes checked/created successfully');
   } catch (err) {
-    console.error('⚠️ Warning: Failed to create performance indexes:', err.message);
+    console.error('⚠️ Warning: Failed to create doctor sync schema/indexes:', err.message);
   }
 }
 

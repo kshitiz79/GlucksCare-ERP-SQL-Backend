@@ -41,7 +41,7 @@ const Challan = (sequelize) => {
         type: DataTypes.STRING,
         defaultValue: 'pending' // pending, invoiced, cancelled
     }
-  }, {
+  }, {  
     tableName: 'challans',
     timestamps: true,
     underscored: true

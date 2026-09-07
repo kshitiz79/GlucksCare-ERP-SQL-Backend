@@ -228,8 +228,40 @@ async function initializeDatabase() {
               );
             `);
             console.log('✅ Checked/Created device_assignment_histories table');
-        } catch (histErr) {
-            console.warn('⚠️ Warning: Failed to create device_assignment_histories table:', histErr.message);
+        // Dynamically add doctor sync columns and change logs table if not exists
+        try {
+            await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS client_generated_id VARCHAR(100);');
+        } catch (e) {}
+        try {
+            await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS sync_version BIGINT DEFAULT 1;');
+        } catch (e) {}
+        try {
+            await sequelize.query('CREATE SEQUENCE IF NOT EXISTS doctor_change_version_seq;');
+        } catch (e) {}
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS doctor_change_logs (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                doctor_id UUID NOT NULL,
+                change_version BIGINT NOT NULL DEFAULT nextval('doctor_change_version_seq'),
+                operation VARCHAR(20) NOT NULL,
+                head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL,
+                area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
+                snapshot JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `);
+            await sequelize.query(`
+              CREATE INDEX IF NOT EXISTS idx_doctors_client_gen_id ON doctors (client_generated_id);
+              CREATE INDEX IF NOT EXISTS idx_doctors_sync_version ON doctors (sync_version);
+              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_version ON doctor_change_logs (change_version);
+              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_doctor ON doctor_change_logs (doctor_id);
+              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
+              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_created ON doctor_change_logs (created_at DESC);
+            `);
+            console.log('✅ Checked/Created doctor sync columns and doctor_change_logs table');
+        } catch (syncErr) {
+            console.warn('⚠️ Warning: Failed to create doctor sync schema/indexes:', syncErr.message);
         }
 
         return true;

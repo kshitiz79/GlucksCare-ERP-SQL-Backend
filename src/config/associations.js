@@ -83,6 +83,11 @@ module.exports = (db) => {
   db.Doctor.hasMany(db.DoctorVisit, { foreignKey: 'doctor_id' });
   db.Area.hasMany(db.Doctor, { foreignKey: 'areaId', as: 'Doctors' });
 
+  if (db.DoctorChangeLog) {
+    db.DoctorChangeLog.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
+    db.DoctorChangeLog.belongsTo(db.Area, { foreignKey: 'area_id', as: 'Area' });
+  }
+
   // InvestmentRequest associations
   db.InvestmentRequest.belongsTo(db.User, { foreignKey: 'user_id', as: 'user' });
   db.InvestmentRequest.belongsTo(db.Doctor, { foreignKey: 'doctor_id', as: 'doctor' });

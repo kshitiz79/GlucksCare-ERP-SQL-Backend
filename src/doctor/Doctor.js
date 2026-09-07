@@ -100,11 +100,36 @@ const Doctor = (sequelize) => {
       allowNull: true,
       field: 'created_by_name',
       comment: 'Name of the user who created this record'
+    },
+    clientGeneratedId: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      field: 'client_generated_id',
+      comment: 'Client-generated UUID for offline creation idempotency'
+    },
+    syncVersion: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 1,
+      field: 'sync_version',
+      comment: 'Version number for optimistic concurrency and sync'
     }
   }, {
     tableName: 'doctors',
     timestamps: true,
-    underscored: true
+    underscored: true,
+    indexes: [
+      {
+        fields: ['client_generated_id'],
+        unique: false
+      },
+      {
+        fields: ['sync_version']
+      },
+      {
+        fields: ['head_office_id']
+      }
+    ]
   });
 };
 

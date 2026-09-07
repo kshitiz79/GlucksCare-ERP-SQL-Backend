@@ -346,7 +346,7 @@ const createDoctor = async (req, res) => {
     if (!models || !models.Doctor || !models.HeadOffice || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice, Area } = models;
+    const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
 
     // Log the incoming request body for debugging
     console.log('Incoming doctor data:', JSON.stringify(req.body, null, 2));
@@ -354,6 +354,49 @@ const createDoctor = async (req, res) => {
 
     // Process the incoming data
     const doctorData = { ...req.body };
+
+    // Support clientGeneratedId for offline idempotency
+    const clientGeneratedId = doctorData.clientGeneratedId || doctorData.client_generated_id || null;
+    if (clientGeneratedId) {
+      const existingDoctor = await Doctor.findOne({
+        where: { clientGeneratedId },
+        include: [
+          {
+            model: HeadOffice,
+            as: 'HeadOffice',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
+          }
+        ]
+      });
+
+      if (existingDoctor) {
+        console.log('Idempotency hit: Doctor with clientGeneratedId already exists:', clientGeneratedId);
+        const doctorObj = existingDoctor.toJSON();
+        const transformedDoctor = {
+          ...doctorObj,
+          headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+          area: doctorObj.Area || null,
+          is_assigned_to_area: !!doctorObj.areaId,
+          _id: doctorObj.id,
+          createdAt: doctorObj.created_at,
+          updatedAt: doctorObj.updated_at,
+          HeadOffice: undefined,
+          Area: undefined
+        };
+        return res.status(200).json({
+          success: true,
+          idempotent: true,
+          data: transformedDoctor
+        });
+      }
+      doctorData.clientGeneratedId = clientGeneratedId;
+      delete doctorData.client_generated_id;
+    }
 
     // Handle head office ID field conversion
     // The frontend might send headOfficeId, head_office_id, or headOffice
@@ -436,7 +479,6 @@ const createDoctor = async (req, res) => {
       } catch (uploadError) {
         console.error('Cloudinary upload error:', uploadError);
         // Continue with doctor creation even if image upload fails
-        // You can choose to return error instead if image is mandatory
       }
     }
 
@@ -454,6 +496,26 @@ const createDoctor = async (req, res) => {
     console.log('Creating doctor with data:', doctorData);
     const doctor = await Doctor.create(doctorData);
     console.log('Doctor created successfully:', doctor.id);
+
+    // Record change log for sync
+    try {
+      if (DoctorChangeLog) {
+        await DoctorChangeLog.create({
+          doctorId: doctor.id,
+          operation: 'CREATE',
+          headOfficeId: doctor.headOfficeId,
+          areaId: doctor.areaId || null,
+          snapshot: {
+            id: doctor.id,
+            name: doctor.name,
+            headOfficeId: doctor.headOfficeId,
+            areaId: doctor.areaId
+          }
+        });
+      }
+    } catch (logErr) {
+      console.warn('⚠️ Warning: Failed to create DoctorChangeLog on create:', logErr.message);
+    }
 
     // Fetch the created doctor with associations
     const createdDoctor = await Doctor.findByPk(doctor.id, {
@@ -533,7 +595,7 @@ const updateDoctor = async (req, res) => {
     if (!models || !models.Doctor || !models.HeadOffice || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice, Area } = models;
+    const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
 
     const doctor = await Doctor.findByPk(req.params.id);
     if (!doctor) {
@@ -541,6 +603,25 @@ const updateDoctor = async (req, res) => {
         success: false,
         message: 'Doctor not found'
       });
+    }
+
+    // Optimistic Concurrency Check (baseServerVersion)
+    const baseServerVersion = req.body.baseServerVersion !== undefined
+      ? req.body.baseServerVersion
+      : (req.body.base_server_version !== undefined ? req.body.base_server_version : req.headers['x-base-server-version']);
+
+    if (baseServerVersion !== undefined && baseServerVersion !== null && baseServerVersion !== '') {
+      const currentVersion = Number(doctor.syncVersion || doctor.sync_version || 1);
+      if (currentVersion > Number(baseServerVersion)) {
+        console.warn(`[Sync Conflict] Doctor ${doctor.id} server version ${currentVersion} > client base ${baseServerVersion}`);
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          message: 'Conflict detected: Doctor record has been modified by another client or server update.',
+          serverVersion: currentVersion,
+          data: doctor
+        });
+      }
     }
 
     // Handle geo_image upload if file is provided
@@ -581,6 +662,9 @@ const updateDoctor = async (req, res) => {
 
     // Map headOffice and area inputs to the camelCase attributes used in Doctor model definition
     const doctorData = { ...req.body };
+    delete doctorData.baseServerVersion;
+    delete doctorData.base_server_version;
+
     if (doctorData.headOffice) {
       doctorData.headOfficeId = doctorData.headOffice;
       delete doctorData.headOffice;
@@ -613,7 +697,7 @@ const updateDoctor = async (req, res) => {
     // while keeping headOfficeId and areaId in camelCase to match Doctor model attributes.
     const convertedData = {};
     Object.keys(doctorData).forEach(key => {
-      if (key === 'headOfficeId' || key === 'areaId') {
+      if (key === 'headOfficeId' || key === 'areaId' || key === 'clientGeneratedId') {
         convertedData[key] = doctorData[key];
       } else {
         const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -621,12 +705,37 @@ const updateDoctor = async (req, res) => {
       }
     });
 
+    // Increment syncVersion for change tracking
+    const nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
+    convertedData.sync_version = nextVersion;
+
     // Add uploaded image URL if available
     if (uploadedImageUrl) {
       convertedData.geo_image_url = uploadedImageUrl;
     }
 
     await doctor.update(convertedData);
+
+    // Record change log for sync
+    try {
+      if (DoctorChangeLog) {
+        await DoctorChangeLog.create({
+          doctorId: doctor.id,
+          operation: 'UPDATE',
+          headOfficeId: doctor.headOfficeId,
+          areaId: doctor.areaId || null,
+          snapshot: {
+            id: doctor.id,
+            name: doctor.name,
+            headOfficeId: doctor.headOfficeId,
+            areaId: doctor.areaId,
+            syncVersion: nextVersion
+          }
+        });
+      }
+    } catch (logErr) {
+      console.warn('⚠️ Warning: Failed to create DoctorChangeLog on update:', logErr.message);
+    }
 
     // Fetch the updated doctor with associations
     const updatedDoctor = await Doctor.findByPk(doctor.id, {
@@ -675,13 +784,34 @@ const updateDoctor = async (req, res) => {
 // DELETE a doctor
 const deleteDoctor = async (req, res) => {
   try {
-    const { Doctor } = req.app.get('models');
+    const models = req.app.get('models');
+    const { Doctor, DoctorChangeLog } = models;
     const doctor = await Doctor.findByPk(req.params.id);
     if (!doctor) {
       return res.status(404).json({
         success: false,
         message: 'Doctor not found'
       });
+    }
+
+    // Record tombstone change log before deleting
+    try {
+      if (DoctorChangeLog) {
+        await DoctorChangeLog.create({
+          doctorId: doctor.id,
+          operation: 'DELETE',
+          headOfficeId: doctor.headOfficeId,
+          areaId: doctor.areaId || null,
+          snapshot: {
+            id: doctor.id,
+            name: doctor.name,
+            headOfficeId: doctor.headOfficeId,
+            deletedAt: new Date()
+          }
+        });
+      }
+    } catch (logErr) {
+      console.warn('⚠️ Warning: Failed to create DoctorChangeLog on delete:', logErr.message);
     }
 
     await doctor.destroy();
