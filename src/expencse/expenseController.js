@@ -976,16 +976,9 @@ const sendExpenseReportEmail = async (req, res) => {
       });
     }
 
-    // Configure Nodemailer
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // Use TLS
-      auth: {
-        user: process.env.EMAIL_USER || 'gluckscarepharmaceuticals@gmail.com',
-        pass: process.env.EMAIL_PASS || 'ldgmqixyufjdzylv',
-      },
-    });
+    // Configure Nodemailer dynamically
+    const EmailService = require('../services/email.service');
+    const { transporter, config } = await EmailService.getTransporter(req.app.get('models'));
 
     // Prepare attachments
     const attachments = [];
@@ -1019,7 +1012,7 @@ const sendExpenseReportEmail = async (req, res) => {
 
     // Send email
     const mailOptions = {
-      from: '"GlucksCare ERP" <care@gluckscare.com>',
+      from: `"${config.fromName}" <${config.fromEmail || config.user}>`,
       to: user.email,
       subject: `Expense Report - ${user.name} ${monthYear ? `(${monthYear})` : ''}`,
       html: `

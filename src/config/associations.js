@@ -35,6 +35,10 @@ module.exports = (db) => {
   db.User.hasMany(db.PdfFile, { foreignKey: 'uploaded_by', as: 'uploadedFiles' });
   db.User.hasMany(db.UserDevice, { foreignKey: 'user_id' });
 
+  if (db.SmtpSetting) {
+    db.SmtpSetting.belongsTo(db.User, { foreignKey: 'updated_by', as: 'UpdatedByUser' });
+  }
+
 
 
   // Many-to-many relationship with HeadOffice

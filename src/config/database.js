@@ -80,6 +80,7 @@ const UserShift = require('../userShift/UserShift');
 const Holiday = require('../holiday/Holiday');
 const Expense = require('../expencse/Expense');
 const ExpenseSetting = require('../expenseSetting/ExpenseSetting');
+const SmtpSetting = require('../smtpSetting/SmtpSetting');
 const PayrollSetting = require('../payrollSetting/PayrollSetting');
 const Notification = require('../notification/Notification');
 const NotificationRecipient = require('../notificationRecipient/NotificationRecipient');
@@ -158,6 +159,7 @@ const models = {
     Holiday: Holiday(sequelize),
     Expense: Expense(sequelize),
     ExpenseSetting: ExpenseSetting(sequelize),
+    SmtpSetting: SmtpSetting(sequelize),
     PayrollSetting: PayrollSetting(sequelize),
     Notification: Notification(sequelize),
     NotificationRecipient: NotificationRecipient(sequelize),
@@ -242,6 +244,25 @@ async function ensurePerformanceIndexes() {
           area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
           snapshot JSONB,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+    } catch (e) {}
+
+    // Ensure smtp_settings table exists
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS smtp_settings (
+          id SERIAL PRIMARY KEY,
+          host VARCHAR(255) NOT NULL DEFAULT 'smtp.gmail.com',
+          port INTEGER NOT NULL DEFAULT 587,
+          secure BOOLEAN NOT NULL DEFAULT false,
+          email_user VARCHAR(255) NOT NULL,
+          email_pass VARCHAR(255) NOT NULL,
+          from_name VARCHAR(255) NOT NULL DEFAULT 'GlucksCare Pharmaceuticals',
+          from_email VARCHAR(255),
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
       `);
     } catch (e) {}

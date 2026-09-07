@@ -759,15 +759,8 @@ const sendInvoiceEmail = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Stockist email not found' });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER || 'gluckscarepharmaceuticals@gmail.com',
-        pass: process.env.EMAIL_PASS || 'ldgmqixyufjdzylv',
-      },
-    });
+    const EmailService = require('../services/email.service');
+    const { transporter, config } = await EmailService.getTransporter(req.app.get('models'));
 
     let attachment = [];
     if (invoice.invoice_image_public_id) {
@@ -785,7 +778,7 @@ const sendInvoiceEmail = async (req, res) => {
     }
 
     const mailOptions = {
-      from: '"GlucksCare ERP" <care@gluckscare.com>',
+      from: `"${config.fromName}" <${config.fromEmail || config.user}>`,
       to: invoice.Stockist.email_address,
       subject: `invoice - ${invoice.invoice_number}`,
       html: `

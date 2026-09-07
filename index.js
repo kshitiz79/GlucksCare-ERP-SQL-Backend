@@ -268,6 +268,28 @@ async function initializeDatabase() {
             console.warn('⚠️ Warning: Failed to create doctor sync schema/indexes:', syncErr.message);
         }
 
+        // Dynamically create smtp_settings table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS smtp_settings (
+                id SERIAL PRIMARY KEY,
+                host VARCHAR(255) NOT NULL DEFAULT 'smtp.gmail.com',
+                port INTEGER NOT NULL DEFAULT 587,
+                secure BOOLEAN NOT NULL DEFAULT false,
+                email_user VARCHAR(255) NOT NULL,
+                email_pass VARCHAR(255) NOT NULL,
+                from_name VARCHAR(255) NOT NULL DEFAULT 'GlucksCare Pharmaceuticals',
+                from_email VARCHAR(255),
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `);
+            console.log('✅ Checked/Created smtp_settings table');
+        } catch (smtpErr) {
+            console.warn('⚠️ Warning: Failed to create smtp_settings table:', smtpErr.message);
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Unable to connect to PostgreSQL:', error);
@@ -410,6 +432,10 @@ async function startServer() {
     // Company Managed Device routes
     const companyDeviceRoutes = require('./src/companyDevice/companyDeviceRoutes');
     app.use('/api/company-devices', companyDeviceRoutes);
+
+    // SMTP / Email Settings routes
+    const smtpSettingRoutes = require('./src/smtpSetting/smtpSettingRoutes');
+    app.use('/api/smtp-settings', smtpSettingRoutes);
 
     // Mount routes
     app.use('/api/auth', authRoutes);
