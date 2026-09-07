@@ -6,8 +6,6 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-
 const path = require('path');
 
 // Load environment variables
@@ -23,10 +21,10 @@ const io = new Server(server, {
             'http://localhost:5173',
             'http://localhost:5174',
             'http://localhost:3000',
-            ' https://api.gluckscare.com ', // Add this for development
+            'https://api.gluckscare.com',
             'https://gluckscare.com',
             'https://sales-rep-visite.gluckscare.com',
-            ' https://api.gluckscare.com ',
+            'https://demo.gluckscare.com',
             'https://gluckscare.rbshstudio.in'
         ],
         methods: ['GET', 'POST'],
@@ -48,11 +46,10 @@ const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    ' https://api.gluckscare.com ', // Add this for development
+    'https://api.gluckscare.com',
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    ' https://api.gluckscare.com ', // Add this for production frontend
     'https://gluckscare.rbshstudio.in'
 ];
 
@@ -69,238 +66,15 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Initialize database connection
+// Initialize database connection & models
 const { sequelize, ...models } = require('./src/config/database');
+const { initializeDatabase } = require('./src/config/initDatabase');
+const { setupSocket } = require('./src/config/socketHandler');
+const apiRoutes = require('./src/routes/apiRoutes');
 
-// Test database connection and sync models
-async function initializeDatabase() {
-    try {
-        await sequelize.authenticate();
-        console.log('✅ PostgreSQL connection established successfully');
-
-        // Dynamically add tokens_valid_after to users table if not exists
-        try {
-            await sequelize.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMP WITH TIME ZONE NULL;');
-            console.log('✅ Checked/Added tokens_valid_after column in users table');
-        } catch (alterErr) {
-            console.warn('⚠️ Warning: Failed to alter users table:', alterErr.message);
-        }
-
-        // Dynamically create dcr_settings table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS dcr_settings (
-                id SERIAL PRIMARY KEY,
-                doctor_target INTEGER NOT NULL DEFAULT 10,
-                doctor_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
-                chemist_target INTEGER NOT NULL DEFAULT 5,
-                chemist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
-                stockist_target INTEGER NOT NULL DEFAULT 2,
-                stockist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
-                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-              )
-            `);
-            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS doctor_frequency VARCHAR(20) DEFAULT 'daily';`);
-            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS chemist_frequency VARCHAR(20) DEFAULT 'daily';`);
-            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS stockist_frequency VARCHAR(20) DEFAULT 'daily';`);
-            console.log('✅ Checked/Created dcr_settings table with frequency columns');
-        } catch (tableErr) {
-            console.warn('⚠️ Warning: Failed to create dcr_settings table:', tableErr.message);
-        }
-
-        // Dynamically add unique constraints back to user_devices to enforce device lock
-        try {
-            await sequelize.query('ALTER TABLE user_devices ADD CONSTRAINT user_devices_device_id_key UNIQUE (device_id);');
-            console.log('✅ Re-added unique constraint on device_id');
-        } catch (constraintErr) {
-            // Already exists or fails safely
-        }
-        try {
-            await sequelize.query('ALTER TABLE user_devices ADD CONSTRAINT user_devices_device_fingerprint_key UNIQUE (device_fingerprint);');
-            console.log('✅ Re-added unique constraint on device_fingerprint');
-        } catch (constraintErr) {
-            // Already exists or fails safely
-        }
-
-        // Dynamically create location_pings table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS location_pings (
-                id BIGSERIAL PRIMARY KEY,
-                client_fix_id VARCHAR(100) UNIQUE,
-                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                device_id VARCHAR(100) NOT NULL,
-                session_id VARCHAR(100),
-                latitude DECIMAL(10, 7) NOT NULL,
-                longitude DECIMAL(10, 7) NOT NULL,
-                accuracy_m DECIMAL(8, 2),
-                speed_mps DECIMAL(8, 2),
-                bearing_deg DECIMAL(6, 2),
-                provider VARCHAR(50) DEFAULT 'fused',
-                is_mock_location BOOLEAN DEFAULT false,
-                battery_pct DECIMAL(5, 2),
-                network_type VARCHAR(30),
-                network_strength INTEGER,
-                device_time_utc TIMESTAMP WITH TIME ZONE NOT NULL,
-                server_received_at_utc TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                clock_skew_seconds DECIMAL(10, 2),
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-              );
-            `);
-            console.log('✅ Checked/Created location_pings table');
-        } catch (lpErr) {
-            console.warn('⚠️ Warning: Failed to create location_pings table:', lpErr.message);
-        }
-
-        // Dynamically create offline_bg_tracking table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS offline_bg_tracking (
-                id SERIAL PRIMARY KEY,
-                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                device_id VARCHAR(255) NOT NULL,
-                entity_type VARCHAR(255) NOT NULL,
-                entity_id VARCHAR(255) NOT NULL UNIQUE,
-                payload JSONB NOT NULL,
-                status VARCHAR(50) DEFAULT 'PENDING',
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                created_at_utc TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                last_attempt_utc TIMESTAMP WITH TIME ZONE
-              );
-            `);
-            console.log('✅ Checked/Created offline_bg_tracking table');
-        } catch (obtErr) {
-            console.warn('⚠️ Warning: Failed to create offline_bg_tracking table:', obtErr.message);
-        }
-
-        // Dynamically create company_devices table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS company_devices (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                company_device_id VARCHAR(255) NOT NULL UNIQUE,
-                brand VARCHAR(255) NOT NULL DEFAULT 'Samsung',
-                model VARCHAR(255) DEFAULT 'Galaxy Tab A9+',
-                imei_1 VARCHAR(255) UNIQUE,
-                imei_2 VARCHAR(255),
-                serial_number VARCHAR(255),
-                android_id VARCHAR(255),
-                android_version VARCHAR(255) DEFAULT 'Android 14',
-                app_version VARCHAR(255) DEFAULT 'v2.4.1',
-                mdm_enrollment_id VARCHAR(255),
-                current_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                status VARCHAR(50) NOT NULL DEFAULT 'IN_STOCK',
-                assigned_at TIMESTAMP WITH TIME ZONE,
-                last_sync_at TIMESTAMP WITH TIME ZONE,
-                last_latitude DECIMAL(10, 7),
-                last_longitude DECIMAL(10, 7),
-                last_address TEXT,
-                battery_pct DECIMAL(5, 2),
-                is_charging BOOLEAN DEFAULT false,
-                network_type VARCHAR(50),
-                is_online BOOLEAN DEFAULT false,
-                notes TEXT,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-              );
-            `);
-            console.log('✅ Checked/Created company_devices table');
-        } catch (devErr) {
-            console.warn('⚠️ Warning: Failed to create company_devices table:', devErr.message);
-        }
-
-        // Dynamically create device_assignment_histories table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS device_assignment_histories (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                device_id UUID NOT NULL REFERENCES company_devices(id) ON DELETE CASCADE,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                assigned_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                unassigned_at TIMESTAMP WITH TIME ZONE,
-                action_type VARCHAR(50) NOT NULL DEFAULT 'ASSIGNED',
-                reason TEXT,
-                assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
-                is_current BOOLEAN DEFAULT true,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-              );
-            `);
-            console.log('✅ Checked/Created device_assignment_histories table');
-        } catch (histErr) {
-            console.warn('⚠️ Warning: Failed to create device_assignment_histories table:', histErr.message);
-        }
-
-        // Dynamically add doctor sync columns and change logs table if not exists
-        try {
-            await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS client_generated_id VARCHAR(100);');
-        } catch (e) {}
-        try {
-            await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS sync_version BIGINT DEFAULT 1;');
-        } catch (e) {}
-        try {
-            await sequelize.query('CREATE SEQUENCE IF NOT EXISTS doctor_change_version_seq;');
-        } catch (e) {}
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS doctor_change_logs (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                doctor_id UUID NOT NULL,
-                change_version BIGINT NOT NULL DEFAULT nextval('doctor_change_version_seq'),
-                operation VARCHAR(20) NOT NULL,
-                head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL,
-                area_id UUID REFERENCES areas(id) ON DELETE SET NULL,
-                snapshot JSONB,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-              );
-            `);
-            await sequelize.query(`
-              CREATE INDEX IF NOT EXISTS idx_doctors_client_gen_id ON doctors (client_generated_id);
-              CREATE INDEX IF NOT EXISTS idx_doctors_sync_version ON doctors (sync_version);
-              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_version ON doctor_change_logs (change_version);
-              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_doctor ON doctor_change_logs (doctor_id);
-              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
-              CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_created ON doctor_change_logs (created_at DESC);
-            `);
-            console.log('✅ Checked/Created doctor sync columns and doctor_change_logs table');
-        } catch (syncErr) {
-            console.warn('⚠️ Warning: Failed to create doctor sync schema/indexes:', syncErr.message);
-        }
-
-        // Dynamically create smtp_settings table if not exists
-        try {
-            await sequelize.query(`
-              CREATE TABLE IF NOT EXISTS smtp_settings (
-                id SERIAL PRIMARY KEY,
-                host VARCHAR(255) NOT NULL DEFAULT 'smtp.gmail.com',
-                port INTEGER NOT NULL DEFAULT 587,
-                secure BOOLEAN NOT NULL DEFAULT false,
-                email_user VARCHAR(255) NOT NULL,
-                email_pass VARCHAR(255) NOT NULL,
-                from_name VARCHAR(255) NOT NULL DEFAULT 'GlucksCare Pharmaceuticals',
-                from_email VARCHAR(255),
-                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-              );
-            `);
-            console.log('✅ Checked/Created smtp_settings table');
-        } catch (smtpErr) {
-            console.warn('⚠️ Warning: Failed to create smtp_settings table:', smtpErr.message);
-        }
-
-        return true;
-    } catch (error) {
-        console.error('❌ Unable to connect to PostgreSQL:', error);
-        return false;
-    }
-}
-
-
-// Initialize server
+// Initialize and start server
 async function startServer() {
-    const dbConnected = await initializeDatabase();
+    const dbConnected = await initializeDatabase(sequelize);
 
     if (!dbConnected) {
         console.error('❌ Failed to connect to database. Exiting...');
@@ -311,244 +85,11 @@ async function startServer() {
     app.set('models', models);
     app.set('sequelize', sequelize);
 
-    // Add Socket.IO authentication middleware (after models are available)
-    io.use(async (socket, next) => {
-        try {
-            // Get token from socket handshake
-            const token = socket.handshake.auth?.token;
+    // Setup Socket.IO authentication and event routing
+    setupSocket(io, models);
 
-            if (!token) {
-                return next(new Error('Authentication error: No token provided'));
-            }
-
-            // Verify token
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-            // Get user from database (using the sequelize instance)
-            const User = models.User;
-            const user = await User.findByPk(decoded.id, {
-                attributes: { exclude: ['password'] }
-            });
-
-            if (!user) {
-                return next(new Error('Authentication error: User not found'));
-            }
-
-            // Add user to socket
-            socket.user = user;
-            next();
-        } catch (error) {
-            console.error('Socket.IO authentication error:', error);
-            next(new Error('Authentication error: Invalid token'));
-        }
-    });
-
-    // Import and mount routes after database connection
-    const authRoutes = require('./src/modules/auth/auth.routes');
-    const userRoutes = require('./src/user/userRoutes');
-    const masterRoutes = require('./src/user/masterRoutes');
-    const headOfficeRoutes = require('./src/headoffice/headOfficeRoutes');
-    const stateRoutes = require('./src/state/stateRoutes');
-    const doctorRoutes = require('./src/doctor/doctorRoutes');
-    const salesRoutes = require('./src/sale/salesRoutes');
-
-    const attendanceRoutes = require('./src/attendance/attendanceRoutes');
-    const leaveRoutes = require('./src/leave/leaveRoutes');
-    const leaveTypeRoutes = require('./src/leaveType/leaveTypeRoutes');
-    const shiftRoutes = require('./src/shift/shiftRoutes');
-
-    const stopEventsRoutes = require('./src/stopEvents/stopEventsRoutes');
-    const expenseRoutes = require('./src/expencse/expenseRoutes');
-    const expenseSettingRoutes = require('./src/expenseSetting/expenseSettingRoutes');
-    const payrollSettingRoutes = require('./src/payrollSetting/payrollSettingRoutes');
-    const financialYearRoutes = require('./src/financialYear/financialYearRoutes');
-    const notificationRoutes = require('./src/notification/notificationRoutes');
-    const notificationRecipientRoutes = require('./src/notificationRecipient/notificationRecipientRoutes');
-    const ticketRoutes = require('./src/ticket/ticketRoutes');
-    const holidayRoutes = require('./src/holiday/holidayRoutes');
-    const userHeadOfficeRoutes = require('./src/userHeadOffice/userHeadOfficeRoutes');
-    const userManagerRoutes = require('./src/userManager/userManagerRoutes');
-    const userShiftRoutes = require('./src/userShift/userShiftRoutes');
-    // New routes for stockists and chemists
-    const stockistRoutes = require('./src/stockist/stockistRoutes');
-    const chemistRoutes = require('./src/chemist/chemistRoutes');
-    const pdfRoutes = require('./src/pdf/pdfRoutes');
-    // Product routes
-    const productRoutes = require('./src/product/productRoutes');
-
-    const addressRoutes = require('./src/Address/AddressRoute');
-    const partyExpenseRoutes = require('./src/partyExpense/partyExpenseRoutes');
-    const productMasterRoutes = require('./src/productMaster/productMasterRoutes');
-    const partyRoutes = require('./src/party/PartyRoute');
-    const areaRoutes = require('./src/area/areaRoutes');
-    const beatRoutes = require('./src/beat/beatRoutes');
-    const tourPlanRoutes = require('./src/tourPlan/tourPlanRoutes');
-
-
-
-    // Version routes
-    const versionRoutes = require('./src/version/versionRoutes');
-
-    // New routes
-    const branchRoutes = require('./src/branch/branchRoutes');
-    const departmentRoutes = require('./src/department/departmentRoutes');
-    const designationRoutes = require('./src/designation/designationRoutes');
-    const employmentTypeRoutes = require('./src/employmentType/employmentTypeRoutes');
-    const doctorVisitHistoryRoutes = require('./src/doctorVisitHistory/doctorVisitHistoryRoutes');
-    const chemistAnnualTurnoverRoutes = require('./src/chemistAnnualTurnover/chemistAnnualTurnoverRoutes');
-    const stockistAnnualTurnoverRoutes = require('./src/stockistAnnualTurnover/stockistAnnualTurnoverRoutes');
-    const salesTargetRoutes = require('./src/salesTarget/salesTargetRoutes');
-    const doctorVisitRoutes = require('./src/doctorVisit/doctorVisitRoutes');
-    const chemistVisitRoutes = require('./src/chemistVisit/chemistVisitRoutes');
-    const stockistVisitRoutes = require('./src/stockistVisit/stockistVisitRoutes');
-    const visitProductPromotedRoutes = require('./src/visitProductPromoted/visitProductPromotedRoutes');
-    const visitProductAgreedRoutes = require('./src/visitProductAgreed/visitProductAgreedRoutes');
-    const visitProductNotAgreedRoutes = require('./src/visitProductNotAgreed/visitProductNotAgreedRoutes');
-    const offlineBgTrackingRoutes = require('./src/offlineBgTracking/OfflineBgRoute');
-    // const locationEventRoutes = require('./src/locationEvent/locationEventRoutes');
-
-    // Add this with the other route imports (around line 95)
-    const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
-
-    // Add this with the other route mounts (around line 205)
-    app.use('/api/dashboard', dashboardRoutes);
-
-    // Web dashboard routes (optimized for web frontend)
-    const webDashboardRoutes = require('./src/webDashboard/webDashboardRoutes');
-    app.use('/api/web-dashboard', webDashboardRoutes);
-
-    // Invoice tracking routes
-    const invoiceTrackingRoutes = require('./src/invoiceTracking/invoiceTrackingRoutes');
-    app.use('/api/invoice-tracking', invoiceTrackingRoutes);
-
-    // Forwarding note routes
-    const forwardingNoteRoutes = require('./src/forwardingNote/forwardingNoteRoutes');
-    app.use('/api/forwarding-notes', forwardingNoteRoutes);
-
-    // WhatsApp routes
-    const whatsappRoutes = require('./src/whatsapp/whatsappRoutes');
-    app.use('/api/whatsapp', whatsappRoutes);
-
-    // Company Managed Device routes
-    const companyDeviceRoutes = require('./src/companyDevice/companyDeviceRoutes');
-    app.use('/api/company-devices', companyDeviceRoutes);
-
-    // SMTP / Email Settings routes
-    const smtpSettingRoutes = require('./src/smtpSetting/smtpSettingRoutes');
-    app.use('/api/smtp-settings', smtpSettingRoutes);
-
-    // Mount routes
-    app.use('/api/auth', authRoutes);
-    app.use('/api/users', userRoutes);
-    app.use('/api/master', masterRoutes);
-    app.use('/api/headoffices', headOfficeRoutes);
-    app.use('/api/states', stateRoutes);
-    app.use('/api/doctors', doctorRoutes);
-    app.use('/api/sales', salesRoutes);
-
-    app.use('/api/attendance', attendanceRoutes);
-    app.use('/api/leaves', leaveRoutes);
-    app.use('/api/leave-types', leaveTypeRoutes);
-    app.use('/api/shifts', shiftRoutes);
-
-    app.use('/api/stop-events', stopEventsRoutes);
-
-
-
-    // New route mounts
-    app.use('/api/branches', branchRoutes);
-    app.use('/api/departments', departmentRoutes);
-    app.use('/api/designations', designationRoutes);
-    app.use('/api/employment-types', employmentTypeRoutes);
-    app.use('/api/doctor-visit-histories', doctorVisitHistoryRoutes);
-    app.use('/api/chemist-annual-turnovers', chemistAnnualTurnoverRoutes);
-    app.use('/api/stockist-annual-turnovers', stockistAnnualTurnoverRoutes);
-    app.use('/api/sales-targets', salesTargetRoutes);
-    app.use('/api/doctor-visits', doctorVisitRoutes);
-    app.use('/api/chemist-visits', chemistVisitRoutes);
-    app.use('/api/stockist-visits', stockistVisitRoutes);
-    app.use('/api/visit-products-promoted', visitProductPromotedRoutes);
-    app.use('/api/visit-products-agreed', visitProductAgreedRoutes);
-    app.use('/api/visit-products-not-agreed', visitProductNotAgreedRoutes);
-
-    app.use('/api/expenses', expenseRoutes);
-    app.use('/api/expense-settings', expenseSettingRoutes);
-    app.use('/api/payroll-settings', payrollSettingRoutes);
-    app.use('/api/financial-years', financialYearRoutes);
-    app.use('/api/notifications', notificationRoutes);
-    app.use('/api/notification-recipients', notificationRecipientRoutes);
-    app.use('/api/tickets', ticketRoutes);
-    app.use('/api/holidays', holidayRoutes);
-    app.use('/api/user-head-offices', userHeadOfficeRoutes);
-    app.use('/api/user-managers', userManagerRoutes);
-    app.use('/api/user-shifts', userShiftRoutes);
-
-    // Advance routes
-    const advanceRoutes = require('./src/advance/advanceRoutes');
-    app.use('/api/advances', advanceRoutes);
-    // Mount stockist and chemist routes
-    app.use('/api/stockists', stockistRoutes);
-    app.use('/api/chemists', chemistRoutes);
-    app.use('/api/pdfs', pdfRoutes);
-    // Mount product routes
-    app.use('/api/products', productRoutes);
-
-    // Mount version routes
-    app.use('/api/version', versionRoutes);
-
-    // User device routes (device binding management)
-    const userDeviceRoutes = require('./src/userDevice/userDeviceRoutes');
-    app.use('/api/user-devices', userDeviceRoutes);
-
-    // User activity log routes
-    const userActivityLogRoutes = require('./src/userActivityLog/userActivityLogRoutes');
-    app.use('/api/user-activity-logs', userActivityLogRoutes);
-
-    // Mob image upload routes
-    const mobImageRoutes = require('./src/mobimgupload/mobImageRoutes');
-    app.use('/api/mobimages', mobImageRoutes);
-
-    // Doctor coordinates & area routes
-    const doctorCoordinatesRoutes = require('./src/doctorCoordinates/doctorCoordinatesRoutes');
-    app.use('/api/doctor-coordinates', doctorCoordinatesRoutes);
-
-
-    app.use('/api/addresses', addressRoutes);
-    const courierCompanyRoutes = require('./src/courierCompany/courierCompanyRoutes');
-    app.use('/api/courier-companies', courierCompanyRoutes);
-    app.use('/api/forwarding-notes', forwardingNoteRoutes);
-    app.use('/api/party-expenses', partyExpenseRoutes);
-    app.use('/api/product-masters', productMasterRoutes);
-    app.use('/api/parties', partyRoutes);
-    app.use('/api/areas', areaRoutes);
-    app.use('/api/beats', beatRoutes);
-    app.use('/api/tour-plans', tourPlanRoutes);
-    app.use('/api/tour-plan', tourPlanRoutes);
-    const dcrRoutes = require('./src/dcr/dcrRoutes');
-    app.use('/api/dcr', dcrRoutes);
-    const dcrSettingsRoutes = require('./src/dcrSettings/dcrSettingsRoutes');
-    app.use('/api/dcr-settings', dcrSettingsRoutes);
-    app.use('/api/offline-bg-tracking', offlineBgTrackingRoutes);
-    const purchaseRoutes = require('./src/purchase/purchaseRoutes');
-    app.use('/api/purchases', purchaseRoutes);
-    const challanRoutes = require('./src/challan/challanRoutes');
-    app.use('/api/challans', challanRoutes);
-
-    // Investment request routes
-    const investmentRequestRoutes = require('./src/investmentRequest/investmentRequestRoutes');
-    app.use('/api/investment-requests', investmentRequestRoutes);
-
-    // Inventory routes
-    const inventoryRoutes = require('./src/inventory/inventoryRoutes');
-    app.use('/api/inventory', inventoryRoutes);
-
-    // Delhivery courier API proxy (server-side to avoid CORS)
-    const delhiveryRoutes = require('./src/delhivery/delhiveryRoutes');
-    app.use('/api/delhivery', delhiveryRoutes);
-
-    // Territory master API routes
-    const territoryRoutes = require('./src/territory/territoryRoutes');
-    app.use('/api/territory', territoryRoutes);
+    // Mount Central API Routes
+    app.use('/api', apiRoutes);
 
     // Root endpoint
     app.get('/', (req, res) => {
@@ -574,7 +115,6 @@ async function startServer() {
                 uptime: process.uptime(),
                 message: 'Server is running with automatic restart enabled!'
             });
-
         } catch (error) {
             res.status(500).json({
                 status: 'error',
@@ -609,48 +149,6 @@ async function startServer() {
             console.warn('⚠️ Could not initialize auto punch-out scheduler:', schedErr.message);
         }
     });
-
-    // Socket.IO connection handling
-    io.on('connection', (socket) => {
-        console.log('👤 Client connected:', socket.id);
-
-        // Join user-specific room for attendance updates
-        socket.on('join-user-room', (userId) => {
-            socket.join(`user-${userId}`);
-            console.log(`👤 User ${userId} joined their room`);
-        });
-
-        // GPS Tracking - Join location tracking room
-        socket.on('join-location-tracking', (data) => {
-            const { userId, userType } = data;
-
-            if (userType === 'admin') {
-                socket.join('admin-location-tracking');
-                console.log('👨‍💼 Admin client joined location tracking');
-            } else if (userId) {
-                socket.join(`user-location-${userId}`);
-                console.log(`📍 User ${userId} joined location tracking`);
-            }
-        });
-
-        // GPS Tracking - Handle real-time location updates
-        socket.on('location-update', (data) => {
-            const { userId } = data;
-            if (userId) {
-                // Broadcast to admin clients
-                io.to('admin-location-tracking').emit('user-location-update', {
-                    userId,
-                    ...data,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        });
-
-        socket.on('disconnect', () => {
-            console.log('👤 Client disconnected:', socket.id);
-        });
-    });
-
 }
 
 // Handle application termination
