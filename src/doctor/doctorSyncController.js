@@ -73,6 +73,7 @@ const formatDoctorForSync = (doctor) => {
     ucpmpAnnualCap: d.ucpmp_annual_cap ? Number(d.ucpmp_annual_cap) : 10000.00,
     createdByName: d.createdByName || d.created_by_name || null,
     clientGeneratedId: d.clientGeneratedId || d.client_generated_id || null,
+    client_generated_id: d.clientGeneratedId || d.client_generated_id || null,
     syncVersion: Number(d.syncVersion || d.sync_version || 1),
     createdAt: d.created_at || d.createdAt,
     updatedAt: d.updated_at || d.updatedAt

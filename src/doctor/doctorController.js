@@ -355,8 +355,15 @@ const createDoctor = async (req, res) => {
     // Process the incoming data
     const doctorData = { ...req.body };
 
-    // Support clientGeneratedId for offline idempotency
-    const clientGeneratedId = doctorData.clientGeneratedId || doctorData.client_generated_id || null;
+    // Support clientGeneratedId for offline idempotency (supports clientGeneratedId, client_generated_id, clientId, client_id, localId, local_id)
+    const clientGeneratedId = doctorData.clientGeneratedId ||
+      doctorData.client_generated_id ||
+      doctorData.clientId ||
+      doctorData.client_id ||
+      doctorData.localId ||
+      doctorData.local_id ||
+      null;
+
     if (clientGeneratedId) {
       const existingDoctor = await Doctor.findOne({
         where: { clientGeneratedId },
@@ -379,10 +386,13 @@ const createDoctor = async (req, res) => {
         const doctorObj = existingDoctor.toJSON();
         const transformedDoctor = {
           ...doctorObj,
+          id: doctorObj.id,
+          _id: doctorObj.id,
+          clientGeneratedId: doctorObj.clientGeneratedId || doctorObj.client_generated_id || clientGeneratedId,
+          client_generated_id: doctorObj.clientGeneratedId || doctorObj.client_generated_id || clientGeneratedId,
           headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
           area: doctorObj.Area || null,
           is_assigned_to_area: !!doctorObj.areaId,
-          _id: doctorObj.id,
           createdAt: doctorObj.created_at,
           updatedAt: doctorObj.updated_at,
           HeadOffice: undefined,
@@ -396,6 +406,10 @@ const createDoctor = async (req, res) => {
       }
       doctorData.clientGeneratedId = clientGeneratedId;
       delete doctorData.client_generated_id;
+      delete doctorData.clientId;
+      delete doctorData.client_id;
+      delete doctorData.localId;
+      delete doctorData.local_id;
     }
 
     // Handle head office ID field conversion
@@ -537,10 +551,13 @@ const createDoctor = async (req, res) => {
     const doctorObj = createdDoctor.toJSON();
     const transformedDoctor = {
       ...doctorObj,
+      id: doctorObj.id,
+      _id: doctorObj.id,
+      clientGeneratedId: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
+      client_generated_id: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
       area: doctorObj.Area || null,
       is_assigned_to_area: !!doctorObj.areaId,
-      _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       // Remove the nested objects
