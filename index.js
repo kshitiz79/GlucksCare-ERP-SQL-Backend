@@ -228,6 +228,10 @@ async function initializeDatabase() {
               );
             `);
             console.log('✅ Checked/Created device_assignment_histories table');
+        } catch (histErr) {
+            console.warn('⚠️ Warning: Failed to create device_assignment_histories table:', histErr.message);
+        }
+
         // Dynamically add doctor sync columns and change logs table if not exists
         try {
             await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS client_generated_id VARCHAR(100);');
