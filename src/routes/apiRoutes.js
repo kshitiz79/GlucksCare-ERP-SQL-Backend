@@ -96,6 +96,7 @@ const notificationRoutes = require('../notification/notificationRoutes');
 const notificationRecipientRoutes = require('../notificationRecipient/notificationRecipientRoutes');
 const ticketRoutes = require('../ticket/ticketRoutes');
 const smtpSettingRoutes = require('../smtpSetting/smtpSettingRoutes');
+const companySettingRoutes = require('../companySetting/companySettingRoutes');
 const pdfRoutes = require('../pdf/pdfRoutes');
 const mobImageRoutes = require('../mobimgupload/mobImageRoutes');
 
@@ -181,6 +182,7 @@ router.use('/notifications', notificationRoutes);
 router.use('/notification-recipients', notificationRecipientRoutes);
 router.use('/tickets', ticketRoutes);
 router.use('/smtp-settings', smtpSettingRoutes);
+router.use('/company-settings', companySettingRoutes);
 router.use('/pdfs', pdfRoutes);
 router.use('/mobimages', mobImageRoutes);
 

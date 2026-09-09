@@ -32,7 +32,9 @@ async function initializeDatabase(sequelize) {
             await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS doctor_frequency VARCHAR(20) DEFAULT 'daily';`);
             await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS chemist_frequency VARCHAR(20) DEFAULT 'daily';`);
             await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS stockist_frequency VARCHAR(20) DEFAULT 'daily';`);
-            console.log('✅ Checked/Created dcr_settings table with frequency columns');
+            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS max_visit_distance_meters INTEGER DEFAULT 200;`);
+            await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS enable_distance_verification BOOLEAN DEFAULT true;`);
+            console.log('✅ Checked/Created dcr_settings table with frequency and distance columns');
         } catch (tableErr) {
             console.warn('⚠️ Warning: Failed to create dcr_settings table:', tableErr.message);
         }
@@ -210,6 +212,31 @@ async function initializeDatabase(sequelize) {
             console.log('✅ Checked/Created smtp_settings table');
         } catch (smtpErr) {
             console.warn('⚠️ Warning: Failed to create smtp_settings table:', smtpErr.message);
+        }
+
+        // Dynamically create company_settings table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS company_settings (
+                id SERIAL PRIMARY KEY,
+                company_name VARCHAR(255) NOT NULL DEFAULT 'Gluckscare Pharmaceuticals',
+                logo_url TEXT NOT NULL DEFAULT '/login/logo.png',
+                favicon_url TEXT,
+                tagline VARCHAR(255) DEFAULT 'Healthcare & Pharmaceutical ERP',
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `);
+            // Insert default row if table is empty
+            await sequelize.query(`
+              INSERT INTO company_settings (company_name, logo_url, tagline)
+              SELECT 'Gluckscare Pharmaceuticals', '/login/logo.png', 'Healthcare & Pharmaceutical ERP'
+              WHERE NOT EXISTS (SELECT 1 FROM company_settings);
+            `);
+            console.log('✅ Checked/Created company_settings table and default branding');
+        } catch (companyErr) {
+            console.warn('⚠️ Warning: Failed to create company_settings table:', companyErr.message);
         }
 
         return true;

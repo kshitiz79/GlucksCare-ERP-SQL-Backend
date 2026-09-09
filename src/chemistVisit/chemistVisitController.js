@@ -1,5 +1,6 @@
 const Chemist = require('../chemist/Chemist');
 const User = require('../user/User');
+const { getActiveVisitDistanceConfig } = require('../dcrSettings/dcrSettingsHelper');
 
 // Haversine formula for distance calculation
 const getDistance = (lat1, lon1, lat2, lon2) => {
@@ -242,8 +243,12 @@ const confirmChemistVisit = async (req, res) => {
     }
 
 
-    // Check if chemist's location is available for distance calculation
-    if (chemist.latitude && chemist.longitude) {
+    // Read dynamic distance config from DCR Settings
+    const sequelize = req.app.get('sequelize');
+    const { enableDistanceVerification, maxDistanceMeters } = await getActiveVisitDistanceConfig(sequelize);
+
+    // Check if distance verification is enabled and chemist's location is available
+    if (enableDistanceVerification && chemist.latitude && chemist.longitude) {
       // Calculate distance
       const distance = getDistance(
         userLatitude,
@@ -252,15 +257,18 @@ const confirmChemistVisit = async (req, res) => {
         chemist.longitude
       );
 
-      // Check if distance is within 200 meters
-      if (distance > 200) {
+      // Check if distance is within configured meters
+      if (distance > maxDistanceMeters) {
         return res.status(200).json({
           status: false,
           success: false,
-          message: `You are ${Math.round(distance)} meters away from the chemist's location. Please be within 200 meters to confirm the visit.`,
-          distance: Math.round(distance)
+          message: `You are ${Math.round(distance)} meters away from the chemist's location. Please be within ${maxDistanceMeters} meters to confirm the visit.`,
+          distance: Math.round(distance),
+          allowedDistance: maxDistanceMeters
         });
       }
+    } else if (!enableDistanceVerification) {
+      console.log(`Distance verification is disabled by admin setting. Allowing chemist visit confirmation without geo-fencing.`);
     } else {
       // Log that chemist's location is not available, but proceed with confirmation
       console.log(`Chemist ${chemist.id} has no location data. Skipping distance check.`);
@@ -473,7 +481,8 @@ const bulkConfirmChemistVisits = async (req, res) => {
       }
 
       const chemist = visit.Chemist;
-      if (chemist && chemist.latitude && chemist.longitude && userLatitude && userLongitude) {
+      const { enableDistanceVerification, maxDistanceMeters } = await getActiveVisitDistanceConfig(sequelize);
+      if (enableDistanceVerification && chemist && chemist.latitude && chemist.longitude && userLatitude && userLongitude) {
         const distance = getDistance(
           userLatitude,
           userLongitude,
@@ -481,10 +490,10 @@ const bulkConfirmChemistVisits = async (req, res) => {
           chemist.longitude
         );
 
-        if (distance > 200) {
+        if (distance > maxDistanceMeters) {
           errors.push({
             id: visitId,
-            message: `You are ${Math.round(distance)} meters away from the chemist's location. Please be within 200 meters.`
+            message: `You are ${Math.round(distance)} meters away from the chemist's location. Please be within ${maxDistanceMeters} meters.`
           });
           continue;
         }

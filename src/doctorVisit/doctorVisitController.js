@@ -1,5 +1,6 @@
 const Doctor = require('../doctor/Doctor');
 const User = require('../user/User');
+const { getActiveVisitDistanceConfig } = require('../dcrSettings/dcrSettingsHelper');
 
 // Haversine formula for distance calculation
 const getDistance = (lat1, lon1, lat2, lon2) => {
@@ -426,8 +427,11 @@ const confirmDoctorVisit = async (req, res) => {
     }
 
 
-    // Check if doctor's location is available for distance calculation
-    if (doctor.latitude && doctor.longitude) {
+    // Read dynamic distance config from DCR Settings
+    const { enableDistanceVerification, maxDistanceMeters } = await getActiveVisitDistanceConfig(sequelize);
+
+    // Check if distance verification is enabled and doctor's location is available
+    if (enableDistanceVerification && doctor.latitude && doctor.longitude) {
       // Calculate distance
       const distance = getDistance(
         userLatitude,
@@ -436,15 +440,18 @@ const confirmDoctorVisit = async (req, res) => {
         doctor.longitude
       );
 
-      // Check if distance is within 200 meters
-      if (distance > 200) {
+      // Check if distance is within configured meters
+      if (distance > maxDistanceMeters) {
         return res.status(200).json({
           status: false,
           success: false,
-          message: `You are ${Math.round(distance)} meters away from the doctor's location. Please be within 200 meters to confirm the visit.`,
-          distance: Math.round(distance)
+          message: `You are ${Math.round(distance)} meters away from the doctor's location. Please be within ${maxDistanceMeters} meters to confirm the visit.`,
+          distance: Math.round(distance),
+          allowedDistance: maxDistanceMeters
         });
       }
+    } else if (!enableDistanceVerification) {
+      console.log(`Distance verification is disabled by admin setting. Allowing visit confirmation without geo-fencing.`);
     } else {
       // Log that doctor's location is not available, but proceed with confirmation
       console.log(`Doctor ${doctor.id} has no location data. Skipping distance check.`);

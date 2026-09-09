@@ -81,6 +81,7 @@ const Holiday = require('../holiday/Holiday');
 const Expense = require('../expencse/Expense');
 const ExpenseSetting = require('../expenseSetting/ExpenseSetting');
 const SmtpSetting = require('../smtpSetting/SmtpSetting');
+const CompanySetting = require('../companySetting/CompanySetting');
 const PayrollSetting = require('../payrollSetting/PayrollSetting');
 const Notification = require('../notification/Notification');
 const NotificationRecipient = require('../notificationRecipient/NotificationRecipient');
@@ -160,6 +161,7 @@ const models = {
     Expense: Expense(sequelize),
     ExpenseSetting: ExpenseSetting(sequelize),
     SmtpSetting: SmtpSetting(sequelize),
+    CompanySetting: CompanySetting(sequelize),
     PayrollSetting: PayrollSetting(sequelize),
     Notification: Notification(sequelize),
     NotificationRecipient: NotificationRecipient(sequelize),

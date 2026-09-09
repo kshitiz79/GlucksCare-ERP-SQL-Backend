@@ -25,6 +25,8 @@ const getDcrSettings = async (req, res) => {
           stockist_target: 2,
           stockist_frequency: 'daily',
           total_target: 17,
+          max_visit_distance_meters: 200,
+          enable_distance_verification: true,
           updated_by: null,
           created_at: null
         }
@@ -43,6 +45,8 @@ const getDcrSettings = async (req, res) => {
         stockist_target: parseInt(cfg.stockist_target, 10),
         stockist_frequency: cfg.stockist_frequency || 'daily',
         total_target: parseInt(cfg.doctor_target, 10) + parseInt(cfg.chemist_target, 10) + parseInt(cfg.stockist_target, 10),
+        max_visit_distance_meters: cfg.max_visit_distance_meters !== undefined && cfg.max_visit_distance_meters !== null ? parseInt(cfg.max_visit_distance_meters, 10) : 200,
+        enable_distance_verification: cfg.enable_distance_verification !== false,
         updated_by: cfg.updated_by,
         created_at: cfg.created_at
       }
@@ -90,7 +94,9 @@ const saveDcrSettings = async (req, res) => {
       chemist_target,
       chemist_frequency = 'daily',
       stockist_target,
-      stockist_frequency = 'daily'
+      stockist_frequency = 'daily',
+      max_visit_distance_meters = 200,
+      enable_distance_verification = true
     } = req.body;
 
     if (
@@ -111,6 +117,10 @@ const saveDcrSettings = async (req, res) => {
     const drT = Math.max(0, parseInt(doctor_target, 10));
     const chT = Math.max(0, parseInt(chemist_target, 10));
     const stT = Math.max(0, parseInt(stockist_target, 10));
+    const maxDist = max_visit_distance_meters !== undefined && !isNaN(parseInt(max_visit_distance_meters, 10))
+      ? Math.max(10, parseInt(max_visit_distance_meters, 10))
+      : 200;
+    const enableDist = enable_distance_verification !== false;
 
     // Ensure table exists with columns
     await sequelize.query(`
@@ -122,6 +132,8 @@ const saveDcrSettings = async (req, res) => {
         chemist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
         stockist_target INTEGER NOT NULL DEFAULT 2,
         stockist_frequency VARCHAR(20) NOT NULL DEFAULT 'daily',
+        max_visit_distance_meters INTEGER DEFAULT 200,
+        enable_distance_verification BOOLEAN DEFAULT true,
         updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
@@ -130,19 +142,25 @@ const saveDcrSettings = async (req, res) => {
     await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS doctor_frequency VARCHAR(20) DEFAULT 'daily';`);
     await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS chemist_frequency VARCHAR(20) DEFAULT 'daily';`);
     await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS stockist_frequency VARCHAR(20) DEFAULT 'daily';`);
+    await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS max_visit_distance_meters INTEGER DEFAULT 200;`);
+    await sequelize.query(`ALTER TABLE dcr_settings ADD COLUMN IF NOT EXISTS enable_distance_verification BOOLEAN DEFAULT true;`);
 
     await sequelize.query(
-      `INSERT INTO dcr_settings (doctor_target, doctor_frequency, chemist_target, chemist_frequency, stockist_target, stockist_frequency, updated_by, created_at)
-       VALUES (:drT, :drFreq, :chT, :chFreq, :stT, :stFreq, :userId, NOW())`,
+      `INSERT INTO dcr_settings (
+        doctor_target, doctor_frequency, chemist_target, chemist_frequency, 
+        stockist_target, stockist_frequency, max_visit_distance_meters, 
+        enable_distance_verification, updated_by, created_at
+       )
+       VALUES (:drT, :drFreq, :chT, :chFreq, :stT, :stFreq, :maxDist, :enableDist, :userId, NOW())`,
       {
-        replacements: { drT, drFreq, chT, chFreq, stT, stFreq, userId },
+        replacements: { drT, drFreq, chT, chFreq, stT, stFreq, maxDist, enableDist, userId },
         type: sequelize.QueryTypes.INSERT
       }
     );
 
     return res.json({
       success: true,
-      message: 'DCR targets saved successfully',
+      message: 'DCR targets and visit distance settings saved successfully',
       data: {
         doctor_target: drT,
         doctor_frequency: drFreq,
@@ -150,7 +168,9 @@ const saveDcrSettings = async (req, res) => {
         chemist_frequency: chFreq,
         stockist_target: stT,
         stockist_frequency: stFreq,
-        total_target: drT + chT + stT
+        total_target: drT + chT + stT,
+        max_visit_distance_meters: maxDist,
+        enable_distance_verification: enableDist
       }
     });
   } catch (error) {

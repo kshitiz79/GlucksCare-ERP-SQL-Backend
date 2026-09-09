@@ -86,7 +86,7 @@ const Holiday = (sequelize) => {
       foreignKey: 'created_by',
       as: 'Creator'
     });
-    
+
     model.belongsTo(models.User, {
       foreignKey: 'updated_by',
       as: 'Updater'
