@@ -1,3 +1,5 @@
+const { sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
+
 // Helper function to calculate MTD support value (business generated) for a list of doctors
 const getSupportValueMtdMap = async (models, doctorIds) => {
   if (!doctorIds || doctorIds.length === 0) return {};
@@ -361,16 +363,11 @@ const createDoctor = async (req, res) => {
         console.warn('Could not parse req.body string:', e.message);
       }
     }
-    const doctorData = { ...(rawBody?.data || rawBody) };
+    const sanitizedBody = sanitizePayload(rawBody?.data || rawBody) || {};
+    const doctorData = { ...sanitizedBody };
 
-    // Support clientGeneratedId for offline idempotency (supports clientGeneratedId, client_generated_id, clientId, client_id, localId, local_id)
-    const clientGeneratedId = doctorData.clientGeneratedId ||
-      doctorData.client_generated_id ||
-      doctorData.clientId ||
-      doctorData.client_id ||
-      doctorData.localId ||
-      doctorData.local_id ||
-      null;
+    // Support clientGeneratedId for offline idempotency
+    const clientGeneratedId = resolveClientGeneratedId(doctorData);
 
     if (clientGeneratedId) {
       const existingDoctor = await Doctor.findOne({
@@ -420,22 +417,15 @@ const createDoctor = async (req, res) => {
       delete doctorData.local_id;
     }
 
-    // Handle head office ID field conversion (supports headOfficeId, head_office_id, headOffice, head_office)
-    const resolvedHeadOfficeId = doctorData.headOfficeId || 
-                                doctorData.head_office_id || 
-                                doctorData.headOffice || 
-                                doctorData.head_office || 
-                                null;
+    // Handle head office ID field conversion (supports ligatures, headOfficeId, head_office_id, headOffice, head_office, user fallback)
+    const resolvedHeadOfficeId = resolveHeadOfficeId(doctorData, req.user);
     doctorData.headOfficeId = resolvedHeadOfficeId;
     delete doctorData.head_office_id;
     delete doctorData.headOffice;
     delete doctorData.head_office;
 
-    // Handle area ID field conversion (supports areaId, area_id, area)
-    const resolvedAreaId = doctorData.areaId || 
-                          doctorData.area_id || 
-                          doctorData.area || 
-                          null;
+    // Handle area ID field conversion (supports ligatures, areaId, area_id, area)
+    const resolvedAreaId = resolveAreaId(doctorData);
     doctorData.areaId = resolvedAreaId;
     delete doctorData.area_id;
     delete doctorData.area;
@@ -678,24 +668,24 @@ const updateDoctor = async (req, res) => {
     }
 
     // Map headOffice and area inputs to the camelCase attributes used in Doctor model definition
-    const doctorData = { ...req.body };
+    const sanitizedBody = sanitizePayload(req.body) || {};
+    const doctorData = { ...sanitizedBody };
     delete doctorData.baseServerVersion;
     delete doctorData.base_server_version;
 
-    if (doctorData.headOffice) {
-      doctorData.headOfficeId = doctorData.headOffice;
-      delete doctorData.headOffice;
-    } else if (doctorData.head_office_id) {
-      doctorData.headOfficeId = doctorData.head_office_id;
+    const resolvedHeadOfficeId = resolveHeadOfficeId(doctorData);
+    if (resolvedHeadOfficeId) {
+      doctorData.headOfficeId = resolvedHeadOfficeId;
       delete doctorData.head_office_id;
+      delete doctorData.headOffice;
+      delete doctorData.head_office;
     }
 
-    if (doctorData.area) {
-      doctorData.areaId = doctorData.area;
-      delete doctorData.area;
-    } else if (doctorData.area_id) {
-      doctorData.areaId = doctorData.area_id;
+    const resolvedAreaId = resolveAreaId(doctorData);
+    if (resolvedAreaId !== null && resolvedAreaId !== undefined) {
+      doctorData.areaId = resolvedAreaId;
       delete doctorData.area_id;
+      delete doctorData.area;
     }
 
     // Validate and set priority field if provided
@@ -1203,19 +1193,19 @@ const createBulkDoctors = async (req, res) => {
     const errors = [];
 
     for (let i = 0; i < doctorsData.length; i++) {
-      const doctorData = { ...doctorsData[i] };
+      const sanitizedDoc = sanitizePayload(doctorsData[i]) || {};
+      const doctorData = { ...sanitizedDoc };
 
       try {
         // Handle head office ID field conversion
-        if (doctorData.headOfficeId) {
-          // Keep as is
-        } else if (doctorData.head_office_id) {
-          doctorData.headOfficeId = doctorData.head_office_id;
-          delete doctorData.head_office_id;
-        } else if (doctorData.headOffice) {
-          doctorData.headOfficeId = doctorData.headOffice;
-          delete doctorData.headOffice;
-        }
+        doctorData.headOfficeId = resolveHeadOfficeId(doctorData, req.user);
+        delete doctorData.head_office_id;
+        delete doctorData.headOffice;
+        delete doctorData.head_office;
+
+        doctorData.areaId = resolveAreaId(doctorData);
+        delete doctorData.area_id;
+        delete doctorData.area;
 
         // Validate and set priority field
         if (doctorData.priority) {

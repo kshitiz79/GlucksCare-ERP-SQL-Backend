@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
 
 // GET all chemists
 const getAllChemists = async (req, res) => {
@@ -275,23 +276,22 @@ const createChemist = async (req, res) => {
     console.log('Incoming chemist data:', JSON.stringify(req.body, null, 2));
 
     // Process the incoming data
-    const chemistData = { ...req.body };
+    const sanitizedBody = sanitizePayload(req.body) || {};
+    const chemistData = { ...sanitizedBody };
 
-    // Handle head office ID field conversion
-    // The frontend might send headOfficeId, head_office_id, or headOffice
-    if (chemistData.headOfficeId) {
-      // Keep as is for Sequelize model - this is the correct field name
-      console.log('Using headOfficeId as is:', chemistData.headOfficeId);
-    } else if (chemistData.head_office_id) {
-      // Convert database column name to model field name
-      chemistData.headOfficeId = chemistData.head_office_id;
-      delete chemistData.head_office_id;
-      console.log('Converted head_office_id to headOfficeId:', chemistData.headOfficeId);
-    } else if (chemistData.headOffice) {
-      // Convert alternative field name to model field name
-      chemistData.headOfficeId = chemistData.headOffice;
-      delete chemistData.headOffice;
-      console.log('Converted headOffice to headOfficeId:', chemistData.headOfficeId);
+    // Resolve head office ID
+    const resolvedHeadOfficeId = resolveHeadOfficeId(chemistData, req.user);
+    chemistData.headOfficeId = resolvedHeadOfficeId;
+    delete chemistData.head_office_id;
+    delete chemistData.headOffice;
+    delete chemistData.head_office;
+
+    // Resolve area ID
+    const resolvedAreaId = resolveAreaId(chemistData);
+    if (resolvedAreaId !== null && resolvedAreaId !== undefined) {
+      chemistData.areaId = resolvedAreaId;
+      delete chemistData.area;
+      delete chemistData.area_id;
     }
 
     // Handle field name conversions from camelCase to snake_case
