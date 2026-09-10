@@ -142,7 +142,7 @@ async function initMasterDatabase() {
       await Tenant.create({
         name: 'GlucksCare Pharmaceuticals (Main)',
         slug: 'gluckscare',
-        db_name: masterDbName,
+        db_name: process.env.DB_NAME || 'gluckscare_erp_production',
         subdomain: 'gluckscare.gluckscare.com',
         admin_name: 'Main Administrator',
         admin_email: 'admin@gluckscare.com',
