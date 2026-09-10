@@ -115,7 +115,35 @@ async function initMasterDatabase() {
     await masterSequelize.authenticate();
     console.log('✅ Master Database connection established');
 
-    // Sync Tenant & PlatformAdmin tables in Master DB
+    // Bulletproof: Ensure tables exist via raw SQL
+    await masterSequelize.query(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        slug VARCHAR(100) NOT NULL UNIQUE,
+        db_name VARCHAR(100) NOT NULL UNIQUE,
+        subdomain VARCHAR(255) NOT NULL,
+        admin_name VARCHAR(255),
+        admin_email VARCHAR(255) NOT NULL,
+        status VARCHAR(50) DEFAULT 'ACTIVE',
+        active_users INTEGER DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS platform_admins (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL DEFAULT 'Super Admin',
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'SUPER_ADMIN',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Sync Tenant & PlatformAdmin models in Master DB
     await Tenant.sync();
     await PlatformAdmin.sync();
 
@@ -155,7 +183,7 @@ async function initMasterDatabase() {
     return true;
   } catch (error) {
     console.error('❌ Failed to initialize Master Database:', error.message);
-    return false;
+    throw error;
   }
 }
 
