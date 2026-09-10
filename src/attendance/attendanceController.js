@@ -157,6 +157,7 @@ const processAutoPunchOut = async (attendance, models, now = new Date()) => {
       || attendance.status === 'punched_in';
 
     const isSunday = new Date(attendance.date).getDay() === 0;
+    const isExcessiveDuration = (attendance.total_working_minutes || 0) > 960;
     const isMisclassifiedHalfDay = (attendance.total_working_minutes || 0) >= 300 && attendance.status === 'half_day';
 
     if (!isOpen && !isExcessiveDuration && !isSunday && !isMisclassifiedHalfDay) return attendance;

@@ -450,12 +450,12 @@ const getAllUsers = async (req, res) => {
           `
           SELECT DISTINCT ON (effective_user_id)
             effective_user_id AS user_id,
-            (obt.payload->>'latitude')::numeric AS latitude,
-            (obt.payload->>'longitude')::numeric AS longitude,
-            COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) AS timestamp,
-            (obt.payload->>'accuracy')::numeric AS accuracy,
-            (obt.payload->>'battery_level')::numeric AS battery_level,
-            (obt.payload->>'network_type')::text AS network_type
+            (sub.payload->>'latitude')::numeric AS latitude,
+            (sub.payload->>'longitude')::numeric AS longitude,
+            COALESCE((sub.payload->>'timestamp_utc')::timestamp with time zone, sub.created_at_utc) AS timestamp,
+            (sub.payload->>'accuracy')::numeric AS accuracy,
+            (sub.payload->>'battery_level')::numeric AS battery_level,
+            (sub.payload->>'network_type')::text AS network_type
           FROM (
             SELECT obt.*, COALESCE(obt.user_id::text, (obt.payload->>'user_id'), ud.user_id::text)::uuid as effective_user_id
             FROM offline_bg_tracking obt
