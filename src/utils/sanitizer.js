@@ -60,6 +60,13 @@ const sanitizePayload = (input) => {
   return input;
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isUUID = (val) => {
+  if (typeof val !== 'string') return false;
+  return UUID_REGEX.test(val.trim());
+};
+
 const isValidValue = (val) => {
   if (val === null || val === undefined) return false;
   if (typeof val === 'string') {
@@ -144,6 +151,7 @@ const resolveClientGeneratedId = (data) => {
 };
 
 module.exports = {
+  isUUID,
   normalizeText,
   sanitizePayload,
   resolveHeadOfficeId,

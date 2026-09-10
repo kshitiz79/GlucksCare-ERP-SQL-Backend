@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
+const { isUUID, sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
 
 // GET all chemists
 const getAllChemists = async (req, res) => {
@@ -329,6 +329,13 @@ const createChemist = async (req, res) => {
       });
     }
 
+    if (!isUUID(chemistRecordData.head_office_id)) {
+      return res.status(400).json({
+        success: false,
+        message: `Head Office ID '${chemistRecordData.head_office_id}' is not a valid UUID format`
+      });
+    }
+
     const hoRecord = await HeadOffice.findByPk(chemistRecordData.head_office_id);
     if (!hoRecord) {
       return res.status(400).json({
@@ -339,10 +346,15 @@ const createChemist = async (req, res) => {
 
     // Validate area existence if supplied, safely fallback to null if not found
     if (chemistRecordData.area_id) {
-      const areaRecord = await Area.findByPk(chemistRecordData.area_id);
-      if (!areaRecord) {
-        console.warn(`⚠️ Warning: Area '${chemistRecordData.area_id}' does not exist. Resetting area_id to null.`);
+      if (!isUUID(chemistRecordData.area_id)) {
+        console.warn(`⚠️ Warning: Area ID '${chemistRecordData.area_id}' is not a valid UUID. Resetting area_id to null.`);
         chemistRecordData.area_id = null;
+      } else {
+        const areaRecord = await Area.findByPk(chemistRecordData.area_id);
+        if (!areaRecord) {
+          console.warn(`⚠️ Warning: Area '${chemistRecordData.area_id}' does not exist. Resetting area_id to null.`);
+          chemistRecordData.area_id = null;
+        }
       }
     }
 

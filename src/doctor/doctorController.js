@@ -1,4 +1,4 @@
-const { sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
+const { isUUID, sanitizePayload, resolveHeadOfficeId, resolveAreaId, resolveClientGeneratedId } = require('../utils/sanitizer');
 
 // Helper function to calculate MTD support value (business generated) for a list of doctors
 const getSupportValueMtdMap = async (models, doctorIds) => {
@@ -498,6 +498,13 @@ const createDoctor = async (req, res) => {
     }
 
     // Validate that the headOffice actually exists in this database
+    if (!isUUID(doctorData.headOfficeId)) {
+      return res.status(400).json({
+        success: false,
+        message: `Head Office ID '${doctorData.headOfficeId}' is not a valid UUID format`
+      });
+    }
+
     const headOfficeRecord = await HeadOffice.findByPk(doctorData.headOfficeId);
     if (!headOfficeRecord) {
       return res.status(400).json({
@@ -508,10 +515,15 @@ const createDoctor = async (req, res) => {
 
     // Validate that the area exists if provided, otherwise gracefully fallback to null to avoid FK constraint error
     if (doctorData.areaId) {
-      const areaRecord = await Area.findByPk(doctorData.areaId);
-      if (!areaRecord) {
-        console.warn(`⚠️ Warning: Area '${doctorData.areaId}' does not exist. Gracefully resetting areaId to null.`);
+      if (!isUUID(doctorData.areaId)) {
+        console.warn(`⚠️ Warning: Area ID '${doctorData.areaId}' is not a valid UUID. Resetting areaId to null.`);
         doctorData.areaId = null;
+      } else {
+        const areaRecord = await Area.findByPk(doctorData.areaId);
+        if (!areaRecord) {
+          console.warn(`⚠️ Warning: Area '${doctorData.areaId}' does not exist in DB. Gracefully resetting areaId to null.`);
+          doctorData.areaId = null;
+        }
       }
     }
 
@@ -732,6 +744,12 @@ const updateDoctor = async (req, res) => {
 
     // Validate headOfficeId and areaId existence
     if (convertedData.headOfficeId) {
+      if (!isUUID(convertedData.headOfficeId)) {
+        return res.status(400).json({
+          success: false,
+          message: `Head Office ID '${convertedData.headOfficeId}' is not a valid UUID format`
+        });
+      }
       const hoExists = await HeadOffice.findByPk(convertedData.headOfficeId);
       if (!hoExists) {
         return res.status(400).json({
@@ -742,10 +760,15 @@ const updateDoctor = async (req, res) => {
     }
 
     if (convertedData.areaId) {
-      const areaExists = await Area.findByPk(convertedData.areaId);
-      if (!areaExists) {
-        console.warn(`⚠️ Warning: Area '${convertedData.areaId}' does not exist. Gracefully resetting areaId to null.`);
+      if (!isUUID(convertedData.areaId)) {
+        console.warn(`⚠️ Warning: Area ID '${convertedData.areaId}' is not a valid UUID. Resetting areaId to null.`);
         convertedData.areaId = null;
+      } else {
+        const areaExists = await Area.findByPk(convertedData.areaId);
+        if (!areaExists) {
+          console.warn(`⚠️ Warning: Area '${convertedData.areaId}' does not exist. Gracefully resetting areaId to null.`);
+          convertedData.areaId = null;
+        }
       }
     }
 
