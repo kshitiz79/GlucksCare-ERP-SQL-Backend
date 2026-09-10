@@ -329,6 +329,23 @@ const createChemist = async (req, res) => {
       });
     }
 
+    const hoRecord = await HeadOffice.findByPk(chemistRecordData.head_office_id);
+    if (!hoRecord) {
+      return res.status(400).json({
+        success: false,
+        message: `Head Office with ID '${chemistRecordData.head_office_id}' does not exist`
+      });
+    }
+
+    // Validate area existence if supplied, safely fallback to null if not found
+    if (chemistRecordData.area_id) {
+      const areaRecord = await Area.findByPk(chemistRecordData.area_id);
+      if (!areaRecord) {
+        console.warn(`⚠️ Warning: Area '${chemistRecordData.area_id}' does not exist. Resetting area_id to null.`);
+        chemistRecordData.area_id = null;
+      }
+    }
+
     // Validate that firmName is provided
     if (!chemistRecordData.firm_name) {
       return res.status(400).json({

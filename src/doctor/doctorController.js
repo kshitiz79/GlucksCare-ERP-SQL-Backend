@@ -497,6 +497,24 @@ const createDoctor = async (req, res) => {
       });
     }
 
+    // Validate that the headOffice actually exists in this database
+    const headOfficeRecord = await HeadOffice.findByPk(doctorData.headOfficeId);
+    if (!headOfficeRecord) {
+      return res.status(400).json({
+        success: false,
+        message: `Head Office with ID '${doctorData.headOfficeId}' does not exist`
+      });
+    }
+
+    // Validate that the area exists if provided, otherwise gracefully fallback to null to avoid FK constraint error
+    if (doctorData.areaId) {
+      const areaRecord = await Area.findByPk(doctorData.areaId);
+      if (!areaRecord) {
+        console.warn(`⚠️ Warning: Area '${doctorData.areaId}' does not exist. Gracefully resetting areaId to null.`);
+        doctorData.areaId = null;
+      }
+    }
+
     console.log('Creating doctor with data:', doctorData);
     const doctor = await Doctor.create(doctorData);
     console.log('Doctor created successfully:', doctor.id);
@@ -712,13 +730,23 @@ const updateDoctor = async (req, res) => {
       }
     });
 
-    // Increment syncVersion for change tracking
-    const nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
-    convertedData.sync_version = nextVersion;
+    // Validate headOfficeId and areaId existence
+    if (convertedData.headOfficeId) {
+      const hoExists = await HeadOffice.findByPk(convertedData.headOfficeId);
+      if (!hoExists) {
+        return res.status(400).json({
+          success: false,
+          message: `Head Office with ID '${convertedData.headOfficeId}' does not exist`
+        });
+      }
+    }
 
-    // Add uploaded image URL if available
-    if (uploadedImageUrl) {
-      convertedData.geo_image_url = uploadedImageUrl;
+    if (convertedData.areaId) {
+      const areaExists = await Area.findByPk(convertedData.areaId);
+      if (!areaExists) {
+        console.warn(`⚠️ Warning: Area '${convertedData.areaId}' does not exist. Gracefully resetting areaId to null.`);
+        convertedData.areaId = null;
+      }
     }
 
     await doctor.update(convertedData);

@@ -60,6 +60,17 @@ const sanitizePayload = (input) => {
   return input;
 };
 
+const isValidValue = (val) => {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed === '' || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+      return false;
+    }
+  }
+  return true;
+};
+
 /**
  * Resolves head office ID from various formats and keys
  */
@@ -67,21 +78,22 @@ const resolveHeadOfficeId = (data, user = null) => {
   if (!data || typeof data !== 'object') return null;
 
   let val = data.headOfficeId || data.head_office_id || data.headOffice || data.head_office;
-  if (val) return val;
+  if (isValidValue(val)) return typeof val === 'string' ? val.trim() : val;
 
   for (const [key, value] of Object.entries(data)) {
     const cleanKey = normalizeText(key).toLowerCase().replace(/[^a-z0-9]/g, '');
-    if ((cleanKey === 'headofficeid' || cleanKey === 'headoffice' || cleanKey === 'headoffice_id') && value) {
-      return value;
+    if ((cleanKey === 'headofficeid' || cleanKey === 'headoffice' || cleanKey === 'headoffice_id') && isValidValue(value)) {
+      return typeof value === 'string' ? value.trim() : value;
     }
   }
 
   // Fallback to user's assigned head office if available
   if (user) {
-    if (user.headOfficeId) return user.headOfficeId;
-    if (user.head_office_id) return user.head_office_id;
+    if (isValidValue(user.headOfficeId)) return user.headOfficeId;
+    if (isValidValue(user.head_office_id)) return user.head_office_id;
     if (Array.isArray(user.headOffices) && user.headOffices.length === 1) {
-      return user.headOffices[0].id || user.headOffices[0];
+      const ho = user.headOffices[0];
+      return ho.id || ho;
     }
   }
 
@@ -95,12 +107,12 @@ const resolveAreaId = (data) => {
   if (!data || typeof data !== 'object') return null;
 
   let val = data.areaId || data.area_id || data.area;
-  if (val) return val;
+  if (isValidValue(val)) return typeof val === 'string' ? val.trim() : val;
 
   for (const [key, value] of Object.entries(data)) {
     const cleanKey = normalizeText(key).toLowerCase().replace(/[^a-z0-9]/g, '');
-    if ((cleanKey === 'areaid' || cleanKey === 'area' || cleanKey === 'area_id') && value) {
-      return value;
+    if ((cleanKey === 'areaid' || cleanKey === 'area' || cleanKey === 'area_id') && isValidValue(value)) {
+      return typeof value === 'string' ? value.trim() : value;
     }
   }
 
@@ -119,12 +131,12 @@ const resolveClientGeneratedId = (data) => {
             data.client_id ||
             data.localId ||
             data.local_id;
-  if (val) return val;
+  if (isValidValue(val)) return typeof val === 'string' ? val.trim() : val;
 
   for (const [key, value] of Object.entries(data)) {
     const cleanKey = normalizeText(key).toLowerCase().replace(/[^a-z0-9]/g, '');
-    if ((cleanKey === 'clientgeneratedid' || cleanKey === 'clientid' || cleanKey === 'localid') && value) {
-      return value;
+    if ((cleanKey === 'clientgeneratedid' || cleanKey === 'clientid' || cleanKey === 'localid') && isValidValue(value)) {
+      return typeof value === 'string' ? value.trim() : value;
     }
   }
 
