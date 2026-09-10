@@ -183,7 +183,7 @@ async function initMasterDatabase() {
     return true;
   } catch (error) {
     console.error('❌ Failed to initialize Master Database:', error.message);
-    throw error;
+    return false;
   }
 }
 
