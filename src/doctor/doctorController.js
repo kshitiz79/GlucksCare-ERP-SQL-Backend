@@ -1279,6 +1279,27 @@ const createBulkDoctors = async (req, res) => {
         validate: true   // Validate each record
       });
 
+      // Track created doctors in DoctorChangeLog for delta sync
+      const { DoctorChangeLog } = models;
+      if (DoctorChangeLog && createdDoctors.length > 0) {
+        try {
+          const logs = createdDoctors.map(d => ({
+            doctorId: d.id,
+            operation: 'CREATE',
+            headOfficeId: d.headOfficeId,
+            areaId: d.areaId,
+            snapshot: {
+              name: d.name,
+              priority: d.priority,
+              clientGeneratedId: d.clientGeneratedId || d.client_generated_id || null
+            }
+          }));
+          await DoctorChangeLog.bulkCreate(logs, { transaction });
+        } catch (logErr) {
+          console.warn('⚠️ Warning: Failed to create DoctorChangeLog in bulkCreate:', logErr.message);
+        }
+      }
+
       await transaction.commit();
 
       console.log(`Successfully created ${createdDoctors.length} doctors`);

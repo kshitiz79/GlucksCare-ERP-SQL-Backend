@@ -1,12 +1,11 @@
-const db = require('../config/database');
-const PartyExpense = db.PartyExpense;
-const Doctor = db.Doctor;
-const Chemist = db.Chemist;
-const Stockist = db.Stockist;
+const defaultDb = require('../config/database');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 // Create and Save a new Expense
 exports.create = async (req, res) => {
     try {
+        const { PartyExpense, Doctor, Chemist, Stockist } = getModels(req);
         const { party_type, party_id, expense_type, amount, date, notes } = req.body;
 
         if (!party_type || !party_id || !expense_type || !amount) {
@@ -49,6 +48,7 @@ exports.create = async (req, res) => {
 // Retrieve all Party Expenses
 exports.findAll = async (req, res) => {
     try {
+        const { PartyExpense } = getModels(req);
         const expenses = await PartyExpense.findAll({
             order: [['created_at', 'DESC']]
         });

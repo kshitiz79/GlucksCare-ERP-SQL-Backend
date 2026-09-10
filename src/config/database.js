@@ -8,37 +8,37 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Create Sequelize instance
 const sequelize = new Sequelize({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'gluckscare_erp_production',
-    username: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-    dialect: 'postgres',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    pool: {
-        max: 10,
-        min: 0,
-        acquire: 30000,
-        idle: 10000
-    },
-    dialectOptions: {
-        // Enable SSL in production if needed
-        ...(process.env.NODE_ENV === 'production' && {
-            ssl: {
-                require: true,
-                rejectUnauthorized: false
-            }
-        })
-    },
-    define: {
-        // Use snake_case for database columns but camelCase in JavaScript
-        underscored: true,
-        // Add timestamps by default
-        timestamps: true,
-        // Use createdAt and updatedAt instead of created_at and updated_at in JS
-        createdAt: 'created_at',
-        updatedAt: 'updated_at'
-    }
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME,
+  username: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  dialect: 'postgres',
+  logging: process.env.NODE_ENV === 'development' ? console.log : false,
+  pool: {
+    max: 10,
+    min: 0,
+    acquire: 30000,
+    idle: 10000
+  },
+  dialectOptions: {
+    // Enable SSL in production if needed
+    ...(process.env.NODE_ENV === 'production' && {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false
+      }
+    })
+  },
+  define: {
+    // Use snake_case for database columns but camelCase in JavaScript
+    underscored: true,
+    // Add timestamps by default
+    timestamps: true,
+    // Use createdAt and updatedAt instead of created_at and updated_at in JS
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
+  }
 });
 
 // Import all model definitions
@@ -122,88 +122,88 @@ const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistor
 
 // Initialize models
 const models = {
-    User: User(sequelize),
-    State: State(sequelize),
-    HeadOffice: HeadOffice(sequelize),
-    Attendance: Attendance(sequelize),
-    Leave: Leave(sequelize),
-    LeaveType: LeaveType(sequelize),
-    Shift: Shift(sequelize),
-    Doctor: Doctor(sequelize),
-    DoctorChangeLog: DoctorChangeLog(sequelize),
-    InvestmentRequest: InvestmentRequest(sequelize),
-    Sale: Sale(sequelize),
+  User: User(sequelize),
+  State: State(sequelize),
+  HeadOffice: HeadOffice(sequelize),
+  Attendance: Attendance(sequelize),
+  Leave: Leave(sequelize),
+  LeaveType: LeaveType(sequelize),
+  Shift: Shift(sequelize),
+  Doctor: Doctor(sequelize),
+  DoctorChangeLog: DoctorChangeLog(sequelize),
+  InvestmentRequest: InvestmentRequest(sequelize),
+  Sale: Sale(sequelize),
 
 
-    Branch: Branch(sequelize),
-    Department: Department(sequelize),
-    Designation: Designation(sequelize),
-    EmploymentType: EmploymentType(sequelize),
-    DoctorVisitHistory: DoctorVisitHistory(sequelize),
-    Chemist: Chemist(sequelize),
-    ChemistAnnualTurnover: ChemistAnnualTurnover(sequelize),
-    Stockist: Stockist(sequelize),
-    StockistAnnualTurnover: StockistAnnualTurnover(sequelize),
-    Product: Product(sequelize),
-    SalesTarget: SalesTarget(sequelize),
+  Branch: Branch(sequelize),
+  Department: Department(sequelize),
+  Designation: Designation(sequelize),
+  EmploymentType: EmploymentType(sequelize),
+  DoctorVisitHistory: DoctorVisitHistory(sequelize),
+  Chemist: Chemist(sequelize),
+  ChemistAnnualTurnover: ChemistAnnualTurnover(sequelize),
+  Stockist: Stockist(sequelize),
+  StockistAnnualTurnover: StockistAnnualTurnover(sequelize),
+  Product: Product(sequelize),
+  SalesTarget: SalesTarget(sequelize),
 
-    StopEvents: StopEvents(sequelize),
-    DoctorVisit: DoctorVisit(sequelize),
-    ChemistVisit: ChemistVisit(sequelize),
-    StockistVisit: StockistVisit(sequelize),
-    Visit: Visit(sequelize),
-    VisitProductPromoted: VisitProductPromoted(sequelize),
-    VisitProductAgreed: VisitProductAgreed(sequelize),
-    VisitProductNotAgreed: VisitProductNotAgreed(sequelize),
+  StopEvents: StopEvents(sequelize),
+  DoctorVisit: DoctorVisit(sequelize),
+  ChemistVisit: ChemistVisit(sequelize),
+  StockistVisit: StockistVisit(sequelize),
+  Visit: Visit(sequelize),
+  VisitProductPromoted: VisitProductPromoted(sequelize),
+  VisitProductAgreed: VisitProductAgreed(sequelize),
+  VisitProductNotAgreed: VisitProductNotAgreed(sequelize),
 
-    UserShift: UserShift(sequelize),
-    Holiday: Holiday(sequelize),
-    Expense: Expense(sequelize),
-    ExpenseSetting: ExpenseSetting(sequelize),
-    SmtpSetting: SmtpSetting(sequelize),
-    CompanySetting: CompanySetting(sequelize),
-    PayrollSetting: PayrollSetting(sequelize),
-    Notification: Notification(sequelize),
-    NotificationRecipient: NotificationRecipient(sequelize),
-    Ticket: Ticket(sequelize),
-    UserHeadOffice: UserHeadOffice(sequelize),
-    UserManager: UserManager(sequelize),
-    Version: Version(sequelize),
-    AppVersionConfig: AppVersionConfig(sequelize),
-    PdfFile: PdfFile(sequelize),
-    UserDevice: UserDevice(sequelize),
-    InvoiceTracking: InvoiceTracking(sequelize),
-    ForwardingNote: ForwardingNote(sequelize),
-    Advance: Advance(sequelize),
-    AdvanceRepayment: AdvanceRepayment(sequelize),
-    MobImage: MobImage(sequelize),
+  UserShift: UserShift(sequelize),
+  Holiday: Holiday(sequelize),
+  Expense: Expense(sequelize),
+  ExpenseSetting: ExpenseSetting(sequelize),
+  SmtpSetting: SmtpSetting(sequelize),
+  CompanySetting: CompanySetting(sequelize),
+  PayrollSetting: PayrollSetting(sequelize),
+  Notification: Notification(sequelize),
+  NotificationRecipient: NotificationRecipient(sequelize),
+  Ticket: Ticket(sequelize),
+  UserHeadOffice: UserHeadOffice(sequelize),
+  UserManager: UserManager(sequelize),
+  Version: Version(sequelize),
+  AppVersionConfig: AppVersionConfig(sequelize),
+  PdfFile: PdfFile(sequelize),
+  UserDevice: UserDevice(sequelize),
+  InvoiceTracking: InvoiceTracking(sequelize),
+  ForwardingNote: ForwardingNote(sequelize),
+  Advance: Advance(sequelize),
+  AdvanceRepayment: AdvanceRepayment(sequelize),
+  MobImage: MobImage(sequelize),
 
-    Address: Address(sequelize),
-    CourierCompany: CourierCompany(sequelize),
-    PartyExpense: PartyExpense(sequelize),
-    Salt: Salt(sequelize),
-    Unit: Unit(sequelize),
-    StripSize: StripSize(sequelize),
-    Hsn: Hsn(sequelize),
-    Gst: Gst(sequelize),
-    PackSize: PackSize(sequelize),
-    InventoryItem: InventoryItem(sequelize),
-    UserInventory: UserInventory(sequelize),
-    Purchase: Purchase(sequelize),
-    PurchaseItem: PurchaseItem(sequelize),
-    Challan: Challan(sequelize),
-    ChallanItem: ChallanItem(sequelize),
-    Area: Area(sequelize),
-    Beat: Beat(sequelize),
-    BeatArea: BeatArea(sequelize),
-    TourPlan: TourPlan(sequelize),
-    TourPlanDay: TourPlanDay(sequelize),
-    FinancialYear: FinancialYear(sequelize),
-    OfflineBgTracking: OfflineBgTracking(sequelize),
-    LocationPing: LocationPing(sequelize),
-    UserActivityLog: UserActivityLog(sequelize),
-    CompanyDevice: CompanyDevice(sequelize),
-    DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize)
+  Address: Address(sequelize),
+  CourierCompany: CourierCompany(sequelize),
+  PartyExpense: PartyExpense(sequelize),
+  Salt: Salt(sequelize),
+  Unit: Unit(sequelize),
+  StripSize: StripSize(sequelize),
+  Hsn: Hsn(sequelize),
+  Gst: Gst(sequelize),
+  PackSize: PackSize(sequelize),
+  InventoryItem: InventoryItem(sequelize),
+  UserInventory: UserInventory(sequelize),
+  Purchase: Purchase(sequelize),
+  PurchaseItem: PurchaseItem(sequelize),
+  Challan: Challan(sequelize),
+  ChallanItem: ChallanItem(sequelize),
+  Area: Area(sequelize),
+  Beat: Beat(sequelize),
+  BeatArea: BeatArea(sequelize),
+  TourPlan: TourPlan(sequelize),
+  TourPlanDay: TourPlanDay(sequelize),
+  FinancialYear: FinancialYear(sequelize),
+  OfflineBgTracking: OfflineBgTracking(sequelize),
+  LocationPing: LocationPing(sequelize),
+  UserActivityLog: UserActivityLog(sequelize),
+  CompanyDevice: CompanyDevice(sequelize),
+  DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize)
 };
 
 // Set up hooks
@@ -211,9 +211,9 @@ setupHooks(models.User);
 
 // Call associate functions if they exist
 Object.values(models).forEach(model => {
-    if (model.associate) {
-        model.associate(models);
-    }
+  if (model.associate) {
+    model.associate(models);
+  }
 });
 
 // Import associations and apply them
@@ -226,15 +226,15 @@ async function ensurePerformanceIndexes() {
     // Ensure doctors table has offline sync columns
     try {
       await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS client_generated_id VARCHAR(100);');
-    } catch (e) {}
+    } catch (e) { }
     try {
       await sequelize.query('ALTER TABLE doctors ADD COLUMN IF NOT EXISTS sync_version BIGINT DEFAULT 1;');
-    } catch (e) {}
+    } catch (e) { }
 
     // Ensure sequence and doctor_change_logs table exist
     try {
       await sequelize.query('CREATE SEQUENCE IF NOT EXISTS doctor_change_version_seq;');
-    } catch (e) {}
+    } catch (e) { }
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS doctor_change_logs (
@@ -248,7 +248,7 @@ async function ensurePerformanceIndexes() {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
       `);
-    } catch (e) {}
+    } catch (e) { }
 
     // Ensure smtp_settings table exists
     try {
@@ -267,7 +267,7 @@ async function ensurePerformanceIndexes() {
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
       `);
-    } catch (e) {}
+    } catch (e) { }
 
     // Ensure performance indexes
     await sequelize.query(`
@@ -298,6 +298,6 @@ async function ensurePerformanceIndexes() {
 ensurePerformanceIndexes();
 
 module.exports = {
-    sequelize,
-    ...models
+  sequelize,
+  ...models
 };

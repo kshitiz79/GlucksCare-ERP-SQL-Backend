@@ -230,8 +230,8 @@ async function initializeDatabase(sequelize) {
             `);
             // Insert default row if table is empty
             await sequelize.query(`
-              INSERT INTO company_settings (company_name, logo_url, tagline)
-              SELECT 'Gluckscare Pharmaceuticals', '/login/logo.png', 'Healthcare & Pharmaceutical ERP'
+              INSERT INTO company_settings (company_name, logo_url, tagline, created_at, updated_at)
+              SELECT 'Gluckscare Pharmaceuticals', '/login/logo.png', 'Healthcare & Pharmaceutical ERP', NOW(), NOW()
               WHERE NOT EXISTS (SELECT 1 FROM company_settings);
             `);
             console.log('✅ Checked/Created company_settings table and default branding');

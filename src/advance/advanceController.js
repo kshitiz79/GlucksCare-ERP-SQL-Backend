@@ -1,10 +1,14 @@
 // Advance Controller
-const { Advance, AdvanceRepayment, User, sequelize } = require('../config/database');
+const defaultDb = require('../config/database');
 const { Op } = require('sequelize');
+
+const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
+const getSequelize = (req) => req?.tenantSequelize || (req?.app && req?.app.get('sequelize')) || defaultDb.sequelize;
 
 // Create new advance request (User)
 exports.createAdvance = async (req, res) => {
   try {
+    const { Advance } = getModels(req);
     const { requestedAmount, reason } = req.body;
     const userId = req.user.id;
 
@@ -40,6 +44,7 @@ exports.createAdvance = async (req, res) => {
 // Create advance by admin (for any user)
 exports.createAdvanceByAdmin = async (req, res) => {
   try {
+    const { Advance } = getModels(req);
     const {
       userId,
       requestedAmount,
@@ -105,6 +110,7 @@ exports.createAdvanceByAdmin = async (req, res) => {
 // Get all advances (Admin)
 exports.getAllAdvances = async (req, res) => {
   try {
+    const { Advance, User } = getModels(req);
     const { status, userId, startDate, endDate } = req.query;
 
     const whereClause = {};
@@ -166,6 +172,7 @@ exports.getAllAdvances = async (req, res) => {
 // Get advance by ID
 exports.getAdvanceById = async (req, res) => {
   try {
+    const { Advance, User, AdvanceRepayment } = getModels(req);
     const { id } = req.params;
 
     const advance = await Advance.findByPk(id, {
@@ -218,6 +225,7 @@ exports.getAdvanceById = async (req, res) => {
 // Get user's own advances
 exports.getMyAdvances = async (req, res) => {
   try {
+    const { Advance, User } = getModels(req);
     const userId = req.user.id;
 
     const advances = await Advance.findAll({
@@ -248,6 +256,8 @@ exports.getMyAdvances = async (req, res) => {
 
 // Update advance status (Approve/Reject) - Admin only
 exports.updateAdvanceStatus = async (req, res) => {
+  const { Advance, User } = getModels(req);
+  const sequelize = getSequelize(req);
   const transaction = await sequelize.transaction();
 
   try {
@@ -271,11 +281,6 @@ exports.updateAdvanceStatus = async (req, res) => {
         success: false,
         message: 'Advance not found'
       });
-    }
-
-    if (advance.status !== 'pending' && status !== 'rejected' && status !== 'approved') {
-      // Allow re-updating if needed, or keep the original check
-      // For now, let's keep it strict but allow processing if it's currently pending
     }
 
     if (advance.status !== 'pending') {
@@ -340,6 +345,8 @@ exports.updateAdvanceStatus = async (req, res) => {
 
 // Add repayment
 exports.addRepayment = async (req, res) => {
+  const { Advance, AdvanceRepayment } = getModels(req);
+  const sequelize = getSequelize(req);
   const transaction = await sequelize.transaction();
 
   try {
@@ -411,6 +418,7 @@ exports.addRepayment = async (req, res) => {
 // Get repayment history
 exports.getRepaymentHistory = async (req, res) => {
   try {
+    const { AdvanceRepayment, User } = getModels(req);
     const { advanceId } = req.params;
 
     const repayments = await AdvanceRepayment.findAll({
@@ -442,6 +450,8 @@ exports.getRepaymentHistory = async (req, res) => {
 // Get statistics
 exports.getStatistics = async (req, res) => {
   try {
+    const { Advance } = getModels(req);
+    const sequelize = getSequelize(req);
     const { userId } = req.query;
 
     const whereClause = userId ? { user_id: userId } : {};
@@ -477,6 +487,7 @@ exports.getStatistics = async (req, res) => {
 // Delete advance
 exports.deleteAdvance = async (req, res) => {
   try {
+    const { Advance } = getModels(req);
     const { id } = req.params;
 
     const advance = await Advance.findByPk(id);

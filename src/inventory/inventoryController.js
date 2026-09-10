@@ -1,8 +1,12 @@
-const { InventoryItem, UserInventory, User, DoctorVisit, Doctor, sequelize } = require('../config/database');
+const defaultDatabase = require('../config/database');
 const { Op } = require('sequelize');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDatabase;
+const getSequelize = (req) => req.tenantSequelize || (req.app && req.app.get('sequelize')) || defaultDatabase.sequelize;
 
 exports.createInventoryItem = async (req, res) => {
   try {
+    const { InventoryItem } = getModels(req);
     const { name, description, total_stock } = req.body;
     
     const item = await InventoryItem.create({
@@ -19,6 +23,7 @@ exports.createInventoryItem = async (req, res) => {
 
 exports.getInventoryItems = async (req, res) => {
   try {
+    const { InventoryItem } = getModels(req);
     const items = await InventoryItem.findAll({
       order: [['created_at', 'DESC']]
     });
@@ -30,7 +35,7 @@ exports.getInventoryItems = async (req, res) => {
 
 exports.getSaleStock = async (req, res) => {
   try {
-    const { Product, InventoryItem } = require('../config/database');
+    const { Product, InventoryItem } = getModels(req);
     
     // Fetch both to do a robust manual join (handling legacy name-based data)
     const allProducts = await Product.findAll();

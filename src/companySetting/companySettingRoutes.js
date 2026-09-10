@@ -6,7 +6,7 @@ const {
   updateCompanySettings,
   uploadCompanyLogo
 } = require('./companySettingController');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 
 // Configure multer for memory storage (buffer will be sent to Cloudinary)
 const upload = multer({
@@ -25,8 +25,8 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-// GET current company settings (Public / Authenticated)
-router.get('/', getCompanySettings);
+// GET current company settings (Public / Authenticated with tenant context)
+router.get('/', optionalAuth, getCompanySettings);
 
 // UPDATE company settings (Admin Only)
 router.put('/', authMiddleware, adminOnly, updateCompanySettings);

@@ -1,4 +1,5 @@
-const { OfflineBgTracking, LocationPing, UserDevice } = require('../config/database');
+const defaultDb = require('../config/database');
+const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
 const crypto = require('crypto');
 const axios = require('axios');
 
@@ -306,6 +307,7 @@ const processTelemetryBatch = async (req, res) => {
 
 const createOfflineBgTracking = async (req, res) => {
   try {
+    const { OfflineBgTracking, UserDevice } = getModels(req);
     const { user_id, device_id, records, data } = req.body;
 
     // Support receiving either an array directly, or a wrapped object
@@ -483,6 +485,7 @@ const createOfflineBgTracking = async (req, res) => {
 
 const getAllOfflineBgTracking = async (req, res) => {
   try {
+    const { OfflineBgTracking } = getModels(req);
     const records = await OfflineBgTracking.findAll({
       order: [['created_at_utc', 'DESC']]
     });
@@ -501,6 +504,7 @@ const getAllOfflineBgTracking = async (req, res) => {
 
 const getOfflineBgTrackingById = async (req, res) => {
   try {
+    const { OfflineBgTracking } = getModels(req);
     const record = await OfflineBgTracking.findByPk(req.params.id);
     if (!record) {
       return res.status(404).json({

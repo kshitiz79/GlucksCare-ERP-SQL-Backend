@@ -18,12 +18,17 @@ class UserActivityLogService {
             let ipAddress = null;
             let userAgent = null;
 
-            if (req) {
-                ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+            if (req && req.headers) {
+                ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress;
                 userAgent = req.headers['user-agent'];
             }
 
-            const logEntry = await UserActivityLog.create({
+            const TargetModel = req?.db?.UserActivityLog || 
+                                data?.db?.UserActivityLog || 
+                                (req?.app?.get && req.app.get('models')?.UserActivityLog) || 
+                                UserActivityLog;
+
+            const logEntry = await TargetModel.create({
                 user_id: data.userId || null,
                 email: data.email || null,
                 action: data.action,
@@ -36,7 +41,8 @@ class UserActivityLogService {
             console.log(`[Activity Log] ${data.action} logged for email: ${data.email || 'unknown'}`);
             return logEntry;
         } catch (err) {
-            console.error('Error creating user activity log:', err);
+            // Silently catch activity log errors so main auth never fails
+            console.warn('[Activity Log Warning]:', err.message);
         }
     }
 }

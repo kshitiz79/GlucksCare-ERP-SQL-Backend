@@ -14,22 +14,48 @@ dotenv.config({ path: path.resolve(__dirname, './.env') });
 const app = express();
 const server = http.createServer(app);
 
+// --- Dynamic CORS Whitelist ---
+const defaultOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'http://localhost:5051',
+    'https://gluckscare.com',
+    'https://sales-rep-visite.gluckscare.com',
+    'https://demo.gluckscare.com',
+    'https://gluckscare.rbshstudio.in'
+];
+
+const envOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+    : [];
+
+const allowedOrigins = [...defaultOrigins, ...envOrigins];
+
+function isOriginAllowed(origin) {
+    if (!origin) return true;
+    if (allowedOrigins.includes(origin)) return true;
+    // Allow any *.gluckscare.com, *.rbshstudio.in or localhost port
+    if (/^https?:\/\/([a-z0-9-]+\.)*gluckscare\.com(:\d+)?$/.test(origin)) return true;
+    if (/^https?:\/\/([a-z0-9-]+\.)*rbshstudio\.in(:\d+)?$/.test(origin)) return true;
+    if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
+    if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+    return false;
+}
+
 // Socket.IO setup
 const io = new Server(server, {
     cors: {
-        origin: [
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:3000',
-            'https://api.gluckscare.com',
-            'https://gluckscare.com',
-            'https://sales-rep-visite.gluckscare.com',
-            'https://demo.gluckscare.com',
-            'https://gluckscare.rbshstudio.in'
-        ],
+        origin: (origin, callback) => {
+            if (isOriginAllowed(origin)) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         methods: ['GET', 'POST'],
         credentials: true,
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-slug', 'x-tenant-id'],
         transports: ['websocket', 'polling']
     }
 });
@@ -42,35 +68,27 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true, parameterLimit: 50000 }));
 app.use(helmet());
 
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:3000',
-    'https://api.gluckscare.com',
-    'https://gluckscare.com',
-    'https://sales-rep-visite.gluckscare.com',
-    'https://demo.gluckscare.com',
-    'https://gluckscare.rbshstudio.in'
-];
-
 app.use(cors({
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (isOriginAllowed(origin)) {
             callback(null, true);
         } else {
+            console.warn(`[CORS Blocked Origin]: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-slug', 'x-tenant-id']
 }));
 
 // Initialize database connection & models
 const { sequelize, ...models } = require('./src/config/database');
 const { initializeDatabase } = require('./src/config/initDatabase');
 const { setupSocket } = require('./src/config/socketHandler');
+const { initMasterDatabase } = require('./src/platform/masterDb');
 const apiRoutes = require('./src/routes/apiRoutes');
+const platformRoutes = require('./src/platform/platformRoutes');
 
 // Initialize and start server
 async function startServer() {
@@ -81,12 +99,18 @@ async function startServer() {
         process.exit(1);
     }
 
+    // Initialize Multi-Tenant Master Database & Registry
+    await initMasterDatabase();
+
     // Set models and sequelize in app for access in controllers
     app.set('models', models);
     app.set('sequelize', sequelize);
 
     // Setup Socket.IO authentication and event routing
     setupSocket(io, models);
+
+    // Mount Platform Super Admin & Multi-Tenant Provisioning Routes
+    app.use('/api/platform', platformRoutes);
 
     // Mount Central API Routes
     app.use('/api', apiRoutes);

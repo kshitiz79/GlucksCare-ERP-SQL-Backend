@@ -1,9 +1,11 @@
 // src/userDevice/userDeviceRoutes.js
 
 const express = require('express');
-const { UserDevice, User } = require('../config/database');
+const defaultDb = require('../config/database');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { generateDeviceFingerprint, validateDeviceInfo, getDeviceName } = require('../utils/deviceFingerprint');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 const router = express.Router();
 
@@ -13,6 +15,7 @@ const router = express.Router();
  */
 router.get('/my-devices', authMiddleware, async (req, res) => {
     try {
+        const { UserDevice } = getModels(req);
         const devices = await UserDevice.findAll({
             where: { user_id: req.user.id },
             order: [['last_login', 'DESC']],
@@ -51,6 +54,7 @@ router.get('/user/:userId', authMiddleware, async (req, res) => {
         }
 
         const { userId } = req.params;
+        const { UserDevice, User } = getModels(req);
 
         const devices = await UserDevice.findAll({
             where: { user_id: userId },
@@ -95,6 +99,7 @@ router.post('/reset/:userId', authMiddleware, async (req, res) => {
 
         const { userId } = req.params;
         const { reason } = req.body;
+        const { UserDevice, User } = getModels(req);
 
         // Find the user to verify they exist
         const user = await User.findByPk(userId);
@@ -182,6 +187,7 @@ router.post('/revoke/:deviceId', authMiddleware, async (req, res) => {
 
         const { deviceId } = req.params;
         const { reason } = req.body;
+        const { UserDevice, User } = getModels(req);
 
         const device = await UserDevice.findByPk(deviceId, {
             include: [
@@ -264,6 +270,7 @@ router.get('/all', authMiddleware, async (req, res) => {
         }
 
         const { status, page = 1, limit = 50 } = req.query;
+        const { UserDevice, User } = getModels(req);
 
         const where = {};
         if (status) {

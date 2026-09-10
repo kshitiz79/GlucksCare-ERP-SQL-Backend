@@ -1,10 +1,16 @@
-const { sequelize } = require('../config/database');
+const defaultDb = require('../config/database');
 const { Op } = require('sequelize');
 
+const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
+const getSequelize = (req) => req?.tenantSequelize || (req?.app && req?.app.get('sequelize')) || defaultDb.sequelize;
+
 // Helper function to get subordinate user IDs based on hierarchy
-const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
+const getSubordinateUserIds = async (userId, role, targetMonth, targetYear, req = null) => {
   try {
-    const user = await sequelize.models.User.findByPk(userId, {
+    const models = getModels(req);
+    const sequelize = getSequelize(req);
+
+    const user = await models.User.findByPk(userId, {
       attributes: ['id', 'role', 'state_id']
     });
 
@@ -18,7 +24,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
     switch (role) {
       case 'National Head':
         // Gets all users below National Head (everyone except Super Admin, Admin, Opps Team, National Head)
-        const allUsers = await sequelize.models.User.findAll({
+        const allUsers = await models.User.findAll({
           where: {
             role: { [Op.in]: ['State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'] },
             id: { [Op.ne]: userId },
@@ -52,7 +58,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
         } else {
           console.log(`State Head ${userId} has no state_id assigned - will aggregate all users`);
           // If no state assigned, aggregate all lower-level users
-          const allLowerUsers = await sequelize.models.User.findAll({
+          const allLowerUsers = await models.User.findAll({
             where: {
               role: { [Op.in]: ['Zonal Manager', 'Area Manager', 'Manager', 'User'] },
               id: { [Op.ne]: userId },
@@ -66,7 +72,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
 
       case 'Zonal Manager':
         // Gets Area Managers assigned to this Zonal Manager
-        const zonalManagerAreas = await sequelize.models.ZonalManagerAreaManager.findAll({
+        const zonalManagerAreas = await models.ZonalManagerAreaManager.findAll({
           where: { zonal_manager_id: userId },
           attributes: ['area_manager_id']
         });
@@ -75,7 +81,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
 
         // Get Managers and Users under these Area Managers
         if (areaManagerIds.length > 0) {
-          const areaManagerSubordinates = await sequelize.models.AreaManagerManager.findAll({
+          const areaManagerSubordinates = await models.AreaManagerManager.findAll({
             where: { area_manager_id: { [Op.in]: areaManagerIds } },
             attributes: ['manager_id']
           });
@@ -98,8 +104,8 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
               type: sequelize.QueryTypes.SELECT
             });
 
-            subordinateIds = [...areaManagerIds, ...managerIds, ...(managerUsers || []).map(u => u.id)];
-            console.log(`Zonal Manager ${userId} total subordinates: ${subordinateIds.length}`);
+            const userIds = managerUsers.map(u => u.id);
+            subordinateIds = [...areaManagerIds, ...managerIds, ...userIds];
           } else {
             subordinateIds = areaManagerIds;
           }
@@ -108,15 +114,15 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
 
       case 'Area Manager':
         // Gets Managers assigned to this Area Manager
-        const areaManagerManagers = await sequelize.models.AreaManagerManager.findAll({
+        const areaManagerManagers = await models.AreaManagerManager.findAll({
           where: { area_manager_id: userId },
           attributes: ['manager_id']
         });
-        const managerIdsForArea = areaManagerManagers.map(am => am.manager_id);
-        console.log(`Area Manager ${userId} has ${managerIdsForArea.length} managers assigned`);
+        const directManagerIds = areaManagerManagers.map(amm => amm.manager_id);
+        console.log(`Area Manager ${userId} has ${directManagerIds.length} managers assigned`);
 
         // Get Users under these Managers using raw query
-        if (managerIdsForArea.length > 0) {
+        if (directManagerIds.length > 0) {
           const usersUnderManagers = await sequelize.query(`
             SELECT DISTINCT u.id
             FROM users u
@@ -125,20 +131,20 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
             AND uho.head_office_id IN (
               SELECT head_office_id 
               FROM user_head_offices 
-              WHERE user_id IN (:managerIds)
+              WHERE user_id IN (:directManagerIds)
             )
           `, {
-            replacements: { managerIds: managerIdsForArea },
+            replacements: { directManagerIds },
             type: sequelize.QueryTypes.SELECT
           });
 
-          subordinateIds = [...managerIdsForArea, ...(usersUnderManagers || []).map(u => u.id)];
-          console.log(`Area Manager ${userId} total subordinates: ${subordinateIds.length}`);
+          const directUserIds = usersUnderManagers.map(u => u.id);
+          subordinateIds = [...directManagerIds, ...directUserIds];
         }
         break;
 
       case 'Manager':
-        // Gets Users in the same head office using raw query
+        // Gets Users under this Manager's head offices
         const headOfficeUsers = await sequelize.query(`
           SELECT DISTINCT u.id
           FROM users u
@@ -153,8 +159,9 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
           replacements: { userId },
           type: sequelize.QueryTypes.SELECT
         });
-        subordinateIds = (headOfficeUsers || []).map(u => u.id);
-        console.log(`Manager ${userId} has ${subordinateIds.length} users in same head office`);
+
+        subordinateIds = headOfficeUsers.map(u => u.id);
+        console.log(`Manager ${userId} has ${subordinateIds.length} users in shared head offices`);
         break;
 
       default:
@@ -163,7 +170,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
 
     return subordinateIds;
   } catch (error) {
-    console.error('Error in getSubordinateUserIds:', error);
+    console.error('Error getting subordinate user IDs:', error);
     return [];
   }
 };
@@ -171,6 +178,7 @@ const getSubordinateUserIds = async (userId, role, targetMonth, targetYear) => {
 // GET all sales targets with filtering and pagination
 const getAllSalesTargets = async (req, res) => {
   try {
+    const models = getModels(req);
     const {
       userId,
       targetMonth,
@@ -192,22 +200,22 @@ const getAllSalesTargets = async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Get targets with user information
-    const { count, rows: targets } = await sequelize.models.SalesTarget.findAndCountAll({
+    const { count, rows: targets } = await models.SalesTarget.findAndCountAll({
       where: whereClause,
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           where: { is_active: true }, // Only include targets for active users
           attributes: ['id', 'name', 'email', 'employee_code', 'role', 'is_active']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -231,11 +239,12 @@ const getAllSalesTargets = async (req, res) => {
           plainTarget.user_id,
           userRole,
           plainTarget.target_month,
-          plainTarget.target_year
+          plainTarget.target_year,
+          req
         );
 
         if (subordinateIds.length > 0) {
-          const subordinateTargets = await sequelize.models.SalesTarget.findAll({
+          const subordinateTargets = await models.SalesTarget.findAll({
             where: {
               user_id: { [Op.in]: subordinateIds },
               target_month: plainTarget.target_month,
@@ -297,20 +306,21 @@ const getAllSalesTargets = async (req, res) => {
 // GET sales target by ID
 const getSalesTargetById = async (req, res) => {
   try {
-    const salesTarget = await sequelize.models.SalesTarget.findByPk(req.params.id, {
+    const models = getModels(req);
+    const salesTarget = await models.SalesTarget.findByPk(req.params.id, {
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['id', 'name', 'email', 'employee_code', 'role']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -358,10 +368,13 @@ const getSalesTargetById = async (req, res) => {
 
 // CREATE a new sales target
 const createSalesTarget = async (req, res) => {
+  const sequelize = getSequelize(req);
+  const models = getModels(req);
   const transaction = await sequelize.transaction();
   try {
     // Only Admin and Super Admin can create targets
     if (!['Admin', 'Super Admin'].includes(req.user.role)) {
+      await transaction.rollback();
       return res.status(403).json({
         success: false,
         message: 'Access denied. Only Admin can assign targets'
@@ -372,6 +385,7 @@ const createSalesTarget = async (req, res) => {
 
     // Validate required fields
     if (!userId || !targetAmount || !targetMonth || !targetYear || !completionDeadline) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'All required fields must be provided'
@@ -379,7 +393,7 @@ const createSalesTarget = async (req, res) => {
     }
 
     // Check if user exists
-    const user = await sequelize.models.User.findByPk(userId);
+    const user = await models.User.findByPk(userId);
     if (!user) {
       await transaction.rollback();
       return res.status(404).json({
@@ -389,7 +403,7 @@ const createSalesTarget = async (req, res) => {
     }
 
     // Check if target already exists for this user and period
-    const existingTarget = await sequelize.models.SalesTarget.findOne({
+    const existingTarget = await models.SalesTarget.findOne({
       where: {
         user_id: userId,
         target_month: parseInt(targetMonth),
@@ -407,7 +421,7 @@ const createSalesTarget = async (req, res) => {
     }
 
     // Create new target
-    const newTarget = await sequelize.models.SalesTarget.create({
+    const newTarget = await models.SalesTarget.create({
       user_id: userId,
       target_amount: parseFloat(targetAmount),
       target_month: parseInt(targetMonth),
@@ -422,15 +436,15 @@ const createSalesTarget = async (req, res) => {
     await transaction.commit();
 
     // Get the created target with user information
-    const populatedTarget = await sequelize.models.SalesTarget.findByPk(newTarget.id, {
+    const populatedTarget = await models.SalesTarget.findByPk(newTarget.id, {
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['id', 'name', 'email', 'employee_code', 'role']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         }
@@ -481,6 +495,8 @@ const createSalesTarget = async (req, res) => {
 
 // UPDATE a sales target
 const updateSalesTarget = async (req, res) => {
+  const sequelize = getSequelize(req);
+  const models = getModels(req);
   const transaction = await sequelize.transaction();
   try {
     // Only Admin and Super Admin can update targets
@@ -494,7 +510,7 @@ const updateSalesTarget = async (req, res) => {
 
     const { targetAmount, completionDeadline, notes, achievedAmount } = req.body;
 
-    const salesTarget = await sequelize.models.SalesTarget.findByPk(req.params.id, { transaction });
+    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
     if (!salesTarget) {
       await transaction.rollback();
       return res.status(404).json({
@@ -519,20 +535,20 @@ const updateSalesTarget = async (req, res) => {
     await transaction.commit();
 
     // Get the updated target with user information
-    const updatedTarget = await sequelize.models.SalesTarget.findByPk(salesTarget.id, {
+    const updatedTarget = await models.SalesTarget.findByPk(salesTarget.id, {
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['id', 'name', 'email', 'employee_code', 'role']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -574,10 +590,12 @@ const updateSalesTarget = async (req, res) => {
 };
 
 const deleteSalesTarget = async (req, res) => {
+  const sequelize = getSequelize(req);
+  const models = getModels(req);
   const transaction = await sequelize.transaction();
   try {
     // Find the sales target by ID
-    const salesTarget = await sequelize.models.SalesTarget.findByPk(req.params.id, { transaction });
+    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
     if (!salesTarget) {
       await transaction.rollback();
       return res.status(404).json({
@@ -585,7 +603,6 @@ const deleteSalesTarget = async (req, res) => {
         message: 'Sales target not found'
       });
     }
-
 
     // Delete the sales target
     await salesTarget.destroy({ transaction });
@@ -610,6 +627,7 @@ const deleteSalesTarget = async (req, res) => {
 // Get targets for a specific user
 const getTargetsByUser = async (req, res) => {
   try {
+    const models = getModels(req);
     const { userId } = req.params;
     const { year, status } = req.query;
 
@@ -618,21 +636,21 @@ const getTargetsByUser = async (req, res) => {
     if (year) whereClause.target_year = parseInt(year);
     if (status) whereClause.status = status;
 
-    const targets = await sequelize.models.SalesTarget.findAll({
+    const targets = await models.SalesTarget.findAll({
       where: whereClause,
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['id', 'name', 'email', 'employee_code', 'role']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -677,6 +695,7 @@ const getTargetsByUser = async (req, res) => {
 // Get current user's targets
 const getMyTargets = async (req, res) => {
   try {
+    const models = getModels(req);
     const { year, status } = req.query;
 
     let whereClause = { user_id: req.user.id };
@@ -684,16 +703,16 @@ const getMyTargets = async (req, res) => {
     if (year) whereClause.target_year = parseInt(year);
     if (status) whereClause.status = status;
 
-    const targets = await sequelize.models.SalesTarget.findAll({
+    const targets = await models.SalesTarget.findAll({
       where: whereClause,
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -731,6 +750,8 @@ const getMyTargets = async (req, res) => {
 
 // Update target achievement
 const updateTargetAchievement = async (req, res) => {
+  const sequelize = getSequelize(req);
+  const models = getModels(req);
   const transaction = await sequelize.transaction();
   try {
     const { achievedAmount } = req.body;
@@ -743,7 +764,7 @@ const updateTargetAchievement = async (req, res) => {
       });
     }
 
-    const salesTarget = await sequelize.models.SalesTarget.findByPk(req.params.id, { transaction });
+    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
     if (!salesTarget) {
       await transaction.rollback();
       return res.status(404).json({
@@ -790,20 +811,20 @@ const updateTargetAchievement = async (req, res) => {
     await transaction.commit();
 
     // Get the updated target with user information
-    const updatedTarget = await sequelize.models.SalesTarget.findByPk(salesTarget.id, {
+    const updatedTarget = await models.SalesTarget.findByPk(salesTarget.id, {
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['id', 'name', 'email', 'employee_code', 'role']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetCreator',
           attributes: ['id', 'name', 'email']
         },
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUpdater',
           attributes: ['id', 'name', 'email']
         }
@@ -847,19 +868,20 @@ const updateTargetAchievement = async (req, res) => {
 // Get sales targets dashboard data
 const getDashboardData = async (req, res) => {
   try {
+    const models = getModels(req);
     const currentDate = new Date();
     const currentMonth = currentDate.getMonth() + 1;
     const currentYear = currentDate.getFullYear();
 
     // Get current month targets with user information
-    const currentMonthTargets = await sequelize.models.SalesTarget.findAll({
+    const currentMonthTargets = await models.SalesTarget.findAll({
       where: {
         target_month: currentMonth,
         target_year: currentYear
       },
       include: [
         {
-          model: sequelize.models.User,
+          model: models.User,
           as: 'salesTargetUser',
           attributes: ['name', 'email', 'employee_code', 'role']
         }

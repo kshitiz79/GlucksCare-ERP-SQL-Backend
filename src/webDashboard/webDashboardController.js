@@ -1,10 +1,14 @@
 // src/webDashboard/webDashboardController.js
-const { sequelize } = require('../config/database');
 const { Op } = require('sequelize');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || require('../config/database');
+const getSequelize = (req) => req.tenantSequelize || (req.app && req.app.get('sequelize')) || require('../config/database').sequelize;
 
 // GET web dashboard data - optimized single API call
 const getWebDashboardData = async (req, res) => {
     try {
+        const models = getModels(req);
+        const sequelize = getSequelize(req);
 
         const [
             usersCount,
@@ -19,32 +23,31 @@ const getWebDashboardData = async (req, res) => {
             recentActivities,
             salesTargetsSummary
         ] = await Promise.all([
-
-            sequelize.models.User ? sequelize.models.User.count() : 0,
+            models.User ? models.User.count() : 0,
 
             // Doctors count
-            sequelize.models.Doctor ? sequelize.models.Doctor.count() : 0,
+            models.Doctor ? models.Doctor.count() : 0,
 
             // Chemists count
-            sequelize.models.Chemist ? sequelize.models.Chemist.count() : 0,
+            models.Chemist ? models.Chemist.count() : 0,
 
             // Stockists count
-            sequelize.models.Stockist ? sequelize.models.Stockist.count() : 0,
+            models.Stockist ? models.Stockist.count() : 0,
 
             // Total Visits count
-            sequelize.models.DoctorVisit ? sequelize.models.DoctorVisit.count() : 0,
+            models.DoctorVisit ? models.DoctorVisit.count() : 0,
 
             // Total Expenses sum
-            sequelize.models.Expense ? sequelize.models.Expense.sum('amount') : 0,
+            models.Expense ? models.Expense.sum('amount') : 0,
 
             // Tickets count
-            sequelize.models.Ticket ? sequelize.models.Ticket.count() : 0,
+            models.Ticket ? models.Ticket.count() : 0,
 
             // Invoices count
-            sequelize.models.InvoiceTracking ? sequelize.models.InvoiceTracking.count() : 0,
+            models.InvoiceTracking ? models.InvoiceTracking.count() : 0,
 
             // Users by role
-            sequelize.models.User ? sequelize.models.User.findAll({
+            models.User ? models.User.findAll({
                 where: {
                     is_active: true
                 },
@@ -57,14 +60,14 @@ const getWebDashboardData = async (req, res) => {
             }) : [],
 
             // Recent activities (last 10)
-            sequelize.models.DoctorVisit ? sequelize.models.DoctorVisit.findAll({
+            models.DoctorVisit ? models.DoctorVisit.findAll({
                 limit: 10,
                 order: [['created_at', 'DESC']],
                 attributes: ['id', 'created_at', 'user_id', 'doctor_id']
             }) : [],
 
             // Sales targets summary (current month)
-            getSalesTargetsSummary()
+            getSalesTargetsSummary(models)
         ]);
 
         // Transform users by role to object
@@ -119,15 +122,27 @@ const getWebDashboardData = async (req, res) => {
 };
 
 // Helper function to get sales targets summary
-const getSalesTargetsSummary = async () => {
+const getSalesTargetsSummary = async (models) => {
     try {
+        if (!models || !models.SalesTarget) {
+            return {
+                totalTargets: 0,
+                completedTargets: 0,
+                totalTargetAmount: 0,
+                totalAchievedAmount: 0,
+                achievementPercentage: 0,
+                month: new Date().getMonth() + 1,
+                year: new Date().getFullYear()
+            };
+        }
+
         const currentDate = new Date();
         const currentMonth = currentDate.getMonth() + 1;
         const currentYear = currentDate.getFullYear();
 
         const [totalTargets, completedTargets, totalTargetAmount, totalAchievedAmount] = await Promise.all([
             // Total targets this month
-            sequelize.models.SalesTarget.count({
+            models.SalesTarget.count({
                 where: {
                     target_month: currentMonth,
                     target_year: currentYear
@@ -135,7 +150,7 @@ const getSalesTargetsSummary = async () => {
             }),
 
             // Completed targets this month
-            sequelize.models.SalesTarget.count({
+            models.SalesTarget.count({
                 where: {
                     target_month: currentMonth,
                     target_year: currentYear,
@@ -144,7 +159,7 @@ const getSalesTargetsSummary = async () => {
             }),
 
             // Total target amount this month
-            sequelize.models.SalesTarget.sum('target_amount', {
+            models.SalesTarget.sum('target_amount', {
                 where: {
                     target_month: currentMonth,
                     target_year: currentYear
@@ -152,7 +167,7 @@ const getSalesTargetsSummary = async () => {
             }),
 
             // Total achieved amount this month
-            sequelize.models.SalesTarget.sum('achieved_amount', {
+            models.SalesTarget.sum('achieved_amount', {
                 where: {
                     target_month: currentMonth,
                     target_year: currentYear
@@ -190,11 +205,12 @@ const getSalesTargetsSummary = async () => {
 // GET quick stats only (for faster loading)
 const getQuickStats = async (req, res) => {
     try {
+        const models = getModels(req);
         const [usersCount, doctorsCount, chemistsCount, stockistsCount] = await Promise.all([
-            sequelize.models.User.count(),
-            sequelize.models.Doctor.count(),
-            sequelize.models.Chemist.count(),
-            sequelize.models.Stockist.count()
+            models.User ? models.User.count() : 0,
+            models.Doctor ? models.Doctor.count() : 0,
+            models.Chemist ? models.Chemist.count() : 0,
+            models.Stockist ? models.Stockist.count() : 0
         ]);
 
         res.json({

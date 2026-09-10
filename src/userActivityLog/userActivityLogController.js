@@ -1,10 +1,13 @@
 // src/userActivityLog/userActivityLogController.js
 
-const { UserActivityLog, User } = require('../config/database');
+const defaultDb = require('../config/database');
 const { Op } = require('sequelize');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 const getActivityLogs = async (req, res) => {
     try {
+        const { UserActivityLog, User } = getModels(req);
         const allowedRoles = ['Super Admin', 'Admin', 'Opps Team'];
         if (!allowedRoles.includes(req.user.role)) {
             return res.status(403).json({

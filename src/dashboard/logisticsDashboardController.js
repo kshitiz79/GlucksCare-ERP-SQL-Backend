@@ -1,6 +1,5 @@
 // src/dashboard/logisticsDashboardController.js
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/database');
 
 /**
  * Get Logistics dashboard data

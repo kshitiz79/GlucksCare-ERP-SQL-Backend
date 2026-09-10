@@ -283,7 +283,40 @@ class AuthService {
 
         console.log('Login attempt for email:', email);
 
-        const user = await AuthRepository.findUserByEmailActive(email, true);
+        const { resolveTenantByEmail, resolveTenantFromRequest } = require('../../platform/tenantConnectionManager');
+
+        let targetDbModels = null;
+        let tenantContext = null;
+
+        // 1. Try to resolve tenant from request header / subdomain
+        const reqTenantResult = await resolveTenantFromRequest(req);
+        if (reqTenantResult) {
+            tenantContext = reqTenantResult.tenant;
+            targetDbModels = reqTenantResult.db.models;
+        }
+
+        // 2. Fallback: Automatically resolve tenant by user's email
+        if (!targetDbModels) {
+            const emailTenantResult = await resolveTenantByEmail(email);
+            if (emailTenantResult) {
+                tenantContext = emailTenantResult.tenant;
+                targetDbModels = emailTenantResult.db.models;
+            }
+        }
+
+        let user;
+        if (targetDbModels) {
+            console.log(`🔌 [AuthService] Authenticating against isolated database: "${tenantContext.db_name}"`);
+            user = await targetDbModels.User.findOne({
+                where: { email: email.toLowerCase().trim(), is_active: true }
+            });
+        } else {
+            user = await AuthRepository.findUserByEmailActive(email, true);
+        }
+
+        if (targetDbModels && req) {
+            req.db = targetDbModels;
+        }
 
         if (!user || !user.password_hash) {
             console.log('User not found or inactive, or no password set for:', email);
@@ -291,12 +324,17 @@ class AuthService {
                 email,
                 action: 'FAILED_LOGIN',
                 deviceId: activeDeviceId,
-                details: { reason: 'User not found or inactive' }
+                details: { reason: 'User not found or inactive' },
+                db: targetDbModels
             });
             throw { statusCode: 400, message: 'Invalid credentials' };
         }
 
-        const isMatch = await user.comparePassword(password);
+        const bcrypt = require('bcryptjs');
+        const isMatch = user.comparePassword 
+            ? await user.comparePassword(password)
+            : await bcrypt.compare(password, user.password_hash);
+
         if (!isMatch) {
             console.log('Password mismatch for user:', email);
             await UserActivityLogService.logActivity(req, {
@@ -304,11 +342,12 @@ class AuthService {
                 email: user.email,
                 action: 'FAILED_LOGIN',
                 deviceId: activeDeviceId,
-                details: { reason: 'Password mismatch' }
+                details: { reason: 'Password mismatch' },
+                db: targetDbModels
             });
             throw { statusCode: 400, message: 'Invalid credentials' };
         }
-        console.log('✅ Password verified for user:', email, 'Role:', user.role);
+        console.log('✅ Password verified for user:', email, 'Role:', user.role, tenantContext ? `Tenant: ${tenantContext.slug}` : 'Main DB');
 
         // DEVICE FINGERPRINTING & BINDING LOGIC
         const { generateDeviceFingerprint, validateDeviceInfo, getDeviceName } = require('../../utils/deviceFingerprint');
@@ -452,7 +491,20 @@ class AuthService {
             }
         }
 
-        const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
+        const tokenPayload = {
+            id: user.id,
+            role: user.role,
+            ...(tenantContext && {
+                tenant: {
+                    id: tenantContext.id,
+                    name: tenantContext.name,
+                    slug: tenantContext.slug,
+                    db_name: tenantContext.db_name,
+                    subdomain: tenantContext.subdomain
+                }
+            })
+        };
+        const token = JwtService.generateToken(tokenPayload, '30d');
 
         let headOffices = [];
 
@@ -485,7 +537,15 @@ class AuthService {
             emailVerified: user.email_verified,
             phone: user.mobile_number,
             headOffices: headOffices,
-            meter_range: 200
+            meter_range: 200,
+            ...(tenantContext && {
+                tenant: {
+                    id: tenantContext.id,
+                    name: tenantContext.name,
+                    slug: tenantContext.slug,
+                    subdomain: tenantContext.subdomain
+                }
+            })
         };
 
         console.log('✅ Login successful - Sending response for user:', responseUser.id);
@@ -495,7 +555,8 @@ class AuthService {
             email: user.email,
             action: 'LOGIN',
             deviceId: activeDeviceId,
-            details: { role: user.role }
+            details: { role: user.role },
+            db: targetDbModels
         });
 
         return {

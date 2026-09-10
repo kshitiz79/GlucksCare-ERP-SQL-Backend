@@ -1,14 +1,15 @@
-// src/user/masterRoutes.js
-
 const express = require('express');
-const { State, HeadOffice, Branch, Department, Designation, EmploymentType } = require('../config/database');
+const defaultDb = require('../config/database');
 const { authMiddleware } = require('../middleware/authMiddleware');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 const router = express.Router();
 
 // GET all branches
 router.get('/branches', authMiddleware, async (req, res) => {
     try {
+        const { Branch } = getModels(req);
         const branches = await Branch.findAll({
             order: [['name', 'ASC']]
         });
@@ -30,7 +31,7 @@ router.get('/branches', authMiddleware, async (req, res) => {
 // CREATE a new branch
 router.post('/branches', authMiddleware, async (req, res) => {
     try {
-        // Only allow specific fields to be set
+        const { Branch } = getModels(req);
         const allowedFields = ['name', 'code', 'address', 'contact_number', 'email'];
         const branchData = {};
         
@@ -58,6 +59,7 @@ router.post('/branches', authMiddleware, async (req, res) => {
 // UPDATE a branch
 router.put('/branches/:id', authMiddleware, async (req, res) => {
     try {
+        const { Branch } = getModels(req);
         const branch = await Branch.findByPk(req.params.id);
         if (!branch) {
             return res.status(404).json({
@@ -66,7 +68,6 @@ router.put('/branches/:id', authMiddleware, async (req, res) => {
             });
         }
         
-        // Only allow specific fields to be updated
         const allowedFields = ['name', 'code', 'address', 'contact_number', 'email'];
         const updateData = {};
         
@@ -94,6 +95,7 @@ router.put('/branches/:id', authMiddleware, async (req, res) => {
 // DELETE a branch
 router.delete('/branches/:id', authMiddleware, async (req, res) => {
     try {
+        const { Branch } = getModels(req);
         const branch = await Branch.findByPk(req.params.id);
         if (!branch) {
             return res.status(404).json({
@@ -120,6 +122,7 @@ router.delete('/branches/:id', authMiddleware, async (req, res) => {
 // GET all departments
 router.get('/departments', authMiddleware, async (req, res) => {
     try {
+        const { Department } = getModels(req);
         const departments = await Department.findAll({
             order: [['name', 'ASC']]
         });
@@ -141,7 +144,7 @@ router.get('/departments', authMiddleware, async (req, res) => {
 // CREATE a new department
 router.post('/departments', authMiddleware, async (req, res) => {
     try {
-        // Only allow specific fields to be set
+        const { Department } = getModels(req);
         const allowedFields = ['name', 'code', 'description'];
         const departmentData = {};
         
@@ -169,6 +172,7 @@ router.post('/departments', authMiddleware, async (req, res) => {
 // UPDATE a department
 router.put('/departments/:id', authMiddleware, async (req, res) => {
     try {
+        const { Department } = getModels(req);
         const department = await Department.findByPk(req.params.id);
         if (!department) {
             return res.status(404).json({
@@ -177,7 +181,6 @@ router.put('/departments/:id', authMiddleware, async (req, res) => {
             });
         }
         
-        // Only allow specific fields to be updated
         const allowedFields = ['name', 'code', 'description'];
         const updateData = {};
         
@@ -205,6 +208,7 @@ router.put('/departments/:id', authMiddleware, async (req, res) => {
 // DELETE a department
 router.delete('/departments/:id', authMiddleware, async (req, res) => {
     try {
+        const { Department } = getModels(req);
         const department = await Department.findByPk(req.params.id);
         if (!department) {
             return res.status(404).json({
@@ -231,6 +235,7 @@ router.delete('/departments/:id', authMiddleware, async (req, res) => {
 // GET all designations
 router.get('/designations', authMiddleware, async (req, res) => {
     try {
+        const { Designation } = getModels(req);
         const designations = await Designation.findAll({
             order: [['name', 'ASC']]
         });
@@ -252,7 +257,7 @@ router.get('/designations', authMiddleware, async (req, res) => {
 // CREATE a new designation
 router.post('/designations', authMiddleware, async (req, res) => {
     try {
-        // Only allow specific fields to be set
+        const { Designation } = getModels(req);
         const allowedFields = ['name', 'description'];
         const designationData = {};
         
@@ -280,6 +285,7 @@ router.post('/designations', authMiddleware, async (req, res) => {
 // UPDATE a designation
 router.put('/designations/:id', authMiddleware, async (req, res) => {
     try {
+        const { Designation } = getModels(req);
         const designation = await Designation.findByPk(req.params.id);
         if (!designation) {
             return res.status(404).json({
@@ -288,7 +294,6 @@ router.put('/designations/:id', authMiddleware, async (req, res) => {
             });
         }
         
-        // Only allow specific fields to be updated
         const allowedFields = ['name', 'description'];
         const updateData = {};
         
@@ -316,6 +321,7 @@ router.put('/designations/:id', authMiddleware, async (req, res) => {
 // DELETE a designation
 router.delete('/designations/:id', authMiddleware, async (req, res) => {
     try {
+        const { Designation } = getModels(req);
         const designation = await Designation.findByPk(req.params.id);
         if (!designation) {
             return res.status(404).json({
@@ -342,6 +348,7 @@ router.delete('/designations/:id', authMiddleware, async (req, res) => {
 // GET all employment types
 router.get('/employment-types', authMiddleware, async (req, res) => {
     try {
+        const { EmploymentType } = getModels(req);
         const employmentTypes = await EmploymentType.findAll({
             order: [['name', 'ASC']]
         });
@@ -363,7 +370,7 @@ router.get('/employment-types', authMiddleware, async (req, res) => {
 // CREATE a new employment type
 router.post('/employment-types', authMiddleware, async (req, res) => {
     try {
-        // Only allow specific fields to be set
+        const { EmploymentType } = getModels(req);
         const allowedFields = ['name', 'code', 'description'];
         const employmentTypeData = {};
         
@@ -391,6 +398,7 @@ router.post('/employment-types', authMiddleware, async (req, res) => {
 // UPDATE an employment type
 router.put('/employment-types/:id', authMiddleware, async (req, res) => {
     try {
+        const { EmploymentType } = getModels(req);
         const employmentType = await EmploymentType.findByPk(req.params.id);
         if (!employmentType) {
             return res.status(404).json({
@@ -399,7 +407,6 @@ router.put('/employment-types/:id', authMiddleware, async (req, res) => {
             });
         }
         
-        // Only allow specific fields to be updated
         const allowedFields = ['name', 'code', 'description'];
         const updateData = {};
         
@@ -427,6 +434,7 @@ router.put('/employment-types/:id', authMiddleware, async (req, res) => {
 // DELETE an employment type
 router.delete('/employment-types/:id', authMiddleware, async (req, res) => {
     try {
+        const { EmploymentType } = getModels(req);
         const employmentType = await EmploymentType.findByPk(req.params.id);
         if (!employmentType) {
             return res.status(404).json({
@@ -453,6 +461,7 @@ router.delete('/employment-types/:id', authMiddleware, async (req, res) => {
 // GET all states
 router.get('/states', authMiddleware, async (req, res) => {
     try {
+        const { State } = getModels(req);
         const states = await State.findAll({
             order: [['name', 'ASC']]
         });
@@ -474,6 +483,7 @@ router.get('/states', authMiddleware, async (req, res) => {
 // GET all head offices
 router.get('/head-offices', authMiddleware, async (req, res) => {
     try {
+        const { State, HeadOffice } = getModels(req);
         const { stateId } = req.query;
         const whereClause = {};
         
@@ -539,7 +549,7 @@ router.get('/roles', authMiddleware, async (req, res) => {
 // GET all model enums
 router.get('/enums', authMiddleware, async (req, res) => {
     try {
-        const sequelize = req.app.get('sequelize');
+        const sequelize = req.tenantSequelize || req.app?.get('sequelize') || defaultDb.sequelize;
         const enums = {};
         
         Object.keys(sequelize.models).forEach(modelName => {

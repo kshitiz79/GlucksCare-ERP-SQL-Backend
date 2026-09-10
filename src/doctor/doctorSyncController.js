@@ -82,17 +82,38 @@ const formatDoctorForSync = (doctor) => {
 
 /**
  * GET /api/doctors/sync/bootstrap
- * Initial full download / master sync in batches
- * Query params: page (1-based, default 1), limit (default 500, max 1000), headOfficeId
+ * Cursor / Keyset-based doctor bootstrap sync for fast and reliable master download (80k+ records)
+ *
+ * Query params:
+ * - limit: Number of records per batch (default 500, max 1000)
+ * - cursor: Opaque base64 token representing the last record & snapshot version
+ * - headOfficeId: Optional head office filter (if user is authorized)
+ * - page: (Legacy fallback) 1-based page number if cursor is not provided
  */
 const getDoctorBootstrapSync = async (req, res) => {
   try {
     const models = req.app.get('models');
     const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
 
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 500));
-    const offset = (page - 1) * limit;
+
+    // Decode cursor if provided
+    let cursorData = null;
+    if (req.query.cursor) {
+      try {
+        const raw = Buffer.from(req.query.cursor, 'base64').toString('utf-8');
+        cursorData = JSON.parse(raw);
+      } catch (e1) {
+        try {
+          const raw = Buffer.from(req.query.cursor, 'base64url').toString('utf-8');
+          cursorData = JSON.parse(raw);
+        } catch (e2) {
+          if (typeof req.query.cursor === 'string' && req.query.cursor.trim().length > 0) {
+            cursorData = { lastId: req.query.cursor.trim() };
+          }
+        }
+      }
+    }
 
     const authorizedHeadOfficeIds = await getAuthorizedHeadOfficeIds(
       req.user,
@@ -105,56 +126,126 @@ const getDoctorBootstrapSync = async (req, res) => {
       if (authorizedHeadOfficeIds.length === 0) {
         return res.json({
           success: true,
+          snapshotVersion: 0,
           currentServerVersion: 0,
-          page,
-          limit,
-          totalDoctors: 0,
+          nextCursor: null,
           hasMore: false,
+          totalDoctors: 0,
           doctors: []
         });
       }
       whereClause.headOfficeId = { [Op.in]: authorizedHeadOfficeIds };
     }
 
-    const [totalDoctors, doctors, maxChangeLog, maxDocVersion] = await Promise.all([
-      Doctor.count({ where: whereClause }),
-      Doctor.findAll({
-        where: whereClause,
-        include: [
-          {
-            model: HeadOffice,
-            as: 'HeadOffice',
-            attributes: ['id', 'name']
-          },
-          {
-            model: Area,
-            as: 'Area',
-            attributes: ['id', 'name']
-          }
-        ],
-        order: [['created_at', 'ASC'], ['id', 'ASC']],
+    // Determine snapshot version (retain from cursor during paging session, or compute current)
+    let snapshotVersion = 0;
+    if (cursorData && cursorData.snapshotVersion) {
+      snapshotVersion = Number(cursorData.snapshotVersion);
+    } else {
+      const [maxChangeLog, maxDocVersion] = await Promise.all([
+        DoctorChangeLog ? DoctorChangeLog.max('changeVersion').catch(() => 0) : 0,
+        Doctor.max('syncVersion').catch(() => 1)
+      ]);
+      snapshotVersion = Math.max(
+        Number(maxChangeLog || 0),
+        Number(maxDocVersion || 1),
+        1
+      );
+    }
+
+    // Legacy offset pagination check (only when page > 1 and cursor is not provided)
+    const page = parseInt(req.query.page, 10);
+    if (page && page > 1 && !cursorData) {
+      const offset = (page - 1) * limit;
+      const [totalDoctors, doctors] = await Promise.all([
+        Doctor.count({ where: whereClause }),
+        Doctor.findAll({
+          where: whereClause,
+          include: [
+            {
+              model: HeadOffice,
+              as: 'HeadOffice',
+              attributes: ['id', 'name']
+            },
+            {
+              model: Area,
+              as: 'Area',
+              attributes: ['id', 'name']
+            }
+          ],
+          order: [['id', 'ASC']],
+          limit: limit + 1,
+          offset,
+          distinct: true
+        })
+      ]);
+
+      const hasMore = doctors.length > limit;
+      const results = hasMore ? doctors.slice(0, limit) : doctors;
+      const lastDoc = results.length > 0 ? results[results.length - 1] : null;
+      const nextCursor = hasMore && lastDoc
+        ? Buffer.from(JSON.stringify({ lastId: lastDoc.id, snapshotVersion })).toString('base64')
+        : null;
+
+      return res.json({
+        success: true,
+        snapshotVersion,
+        currentServerVersion: snapshotVersion,
+        nextCursor,
+        hasMore,
+        totalDoctors,
+        page,
         limit,
-        offset,
-        distinct: true
-      }),
-      DoctorChangeLog ? DoctorChangeLog.max('changeVersion').catch(() => 0) : 0,
-      Doctor.max('syncVersion').catch(() => 1)
-    ]);
+        doctors: results.map(formatDoctorForSync)
+      });
+    }
 
-    const currentServerVersion = Math.max(
-      Number(maxChangeLog || 0),
-      Number(maxDocVersion || 1)
-    );
+    // Keyset / Cursor Pagination
+    const lastId = cursorData?.lastId || cursorData?.id;
+    if (lastId) {
+      whereClause.id = { [Op.gt]: lastId };
+    }
 
-    const hasMore = offset + doctors.length < totalDoctors;
-    const formattedDoctors = doctors.map(formatDoctorForSync);
+    // Fetch limit + 1 records to accurately check hasMore without full COUNT(*)
+    const doctors = await Doctor.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      order: [['id', 'ASC']],
+      limit: limit + 1,
+      distinct: true
+    });
+
+    const hasMore = doctors.length > limit;
+    const results = hasMore ? doctors.slice(0, limit) : doctors;
+
+    let nextCursor = null;
+    if (hasMore && results.length > 0) {
+      const lastDoc = results[results.length - 1];
+      const cursorPayload = {
+        lastId: lastDoc.id,
+        snapshotVersion
+      };
+      nextCursor = Buffer.from(JSON.stringify(cursorPayload)).toString('base64');
+    }
+
+    const formattedDoctors = results.map(formatDoctorForSync);
 
     return res.json({
       success: true,
-      currentServerVersion,
-      page,
-      limit,
-      totalDoctors,
+      snapshotVersion,
+      currentServerVersion: snapshotVersion,
+      nextCursor,
       hasMore,
       doctors: formattedDoctors
     });
@@ -177,7 +268,7 @@ const getDoctorDeltaSync = async (req, res) => {
     const models = req.app.get('models');
     const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
 
-    const afterVersion = parseInt(req.query.afterVersion, 10) || 0;
+    const afterVersion = parseInt(req.query.afterVersion || req.query.sinceVersion, 10) || 0;
     const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 500));
 
     const authorizedHeadOfficeIds = await getAuthorizedHeadOfficeIds(
@@ -201,6 +292,7 @@ const getDoctorDeltaSync = async (req, res) => {
     if (afterVersion >= currentServerVersion && currentServerVersion > 0) {
       return res.json({
         success: true,
+        snapshotVersion: currentServerVersion,
         currentServerVersion,
         afterVersion,
         hasMore: false,
@@ -314,6 +406,7 @@ const getDoctorDeltaSync = async (req, res) => {
 
     return res.json({
       success: true,
+      snapshotVersion: currentServerVersion,
       currentServerVersion,
       afterVersion,
       hasMore,

@@ -1,7 +1,12 @@
-const { Purchase, PurchaseItem, Product, InventoryItem, sequelize } = require('../config/database');
+const defaultDatabase = require('../config/database');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDatabase;
+const getSequelize = (req) => req.tenantSequelize || (req.app && req.app.get('sequelize')) || defaultDatabase.sequelize;
 
 // Create a new purchase
 exports.createPurchase = async (req, res) => {
+    const { Purchase, PurchaseItem, Product, InventoryItem } = getModels(req);
+    const sequelize = getSequelize(req);
     const t = await sequelize.transaction();
     try {
         const { party_id, party_name, party_type, purchase_date, bill_number, total_amount, remarks, items } = req.body;
@@ -65,6 +70,7 @@ exports.createPurchase = async (req, res) => {
 // Get all purchases
 exports.getAllPurchases = async (req, res) => {
     try {
+        const { Purchase, PurchaseItem } = getModels(req);
         const purchases = await Purchase.findAll({
             include: [{
                 model: PurchaseItem,
@@ -82,6 +88,7 @@ exports.getAllPurchases = async (req, res) => {
 // Get purchase by ID
 exports.getPurchaseById = async (req, res) => {
     try {
+        const { Purchase, PurchaseItem } = getModels(req);
         const purchase = await Purchase.findByPk(req.params.id, {
             include: [{
                 model: PurchaseItem,

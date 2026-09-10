@@ -1,7 +1,12 @@
-const { Challan, ChallanItem, Product, InventoryItem, sequelize } = require('../config/database');
+const defaultDatabase = require('../config/database');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDatabase;
+const getSequelize = (req) => req.tenantSequelize || (req.app && req.app.get('sequelize')) || defaultDatabase.sequelize;
 
 // Create a new challan (Sale)
 exports.createChallan = async (req, res) => {
+    const { Challan, ChallanItem, Product, InventoryItem } = getModels(req);
+    const sequelize = getSequelize(req);
     const t = await sequelize.transaction();
     try {
         const { party_id, party_name, party_type, challan_date, challan_number, total_amount, items } = req.body;

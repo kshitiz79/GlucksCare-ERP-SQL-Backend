@@ -1,7 +1,10 @@
-const { Doctor, Stockist, Chemist, User, Address } = require('../config/database');
+const defaultModels = require('../config/database');
+
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultModels;
 
 exports.getAllParties = async (req, res) => {
     try {
+        const { Doctor, Stockist, Chemist, User, Address } = getModels(req);
         console.log('--- Party Search API Called ---');
 
         // 1. Doctors
