@@ -85,7 +85,7 @@ async function getTenants(req, res) {
     return res.json({ success: true, data: formatted });
   } catch (err) {
     console.error('❌ Get tenants error:', err);
-    return res.status(500).json({ success: false, message: 'Failed to fetch tenants' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch tenants', error: err.message });
   }
 }
 
