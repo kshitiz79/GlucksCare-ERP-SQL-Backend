@@ -99,6 +99,21 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
     console.warn('⚠️ Warning: CompanySetting seeding skipped:', csErr.message);
   }
 
+  // 6. Seed Indian States into new tenant database
+  try {
+    const defaultDb = require('../config/database');
+    const existingStates = await defaultDb.sequelize.query(
+      `SELECT name, code, country, is_active FROM states;`,
+      { type: Sequelize.QueryTypes.SELECT }
+    );
+    if (existingStates && existingStates.length > 0) {
+      await tenantModels.State.bulkCreate(existingStates, { ignoreDuplicates: true });
+      console.log(`✅ Seeded ${existingStates.length} states in "${dbName}"`);
+    }
+  } catch (stateErr) {
+    console.warn('⚠️ Warning: State seeding skipped:', stateErr.message);
+  }
+
   console.log(`🚀 [Provisioner] Step 4: Registering tenant in Master Database...`);
   // 6. Record in Master DB
   const newTenant = await Tenant.create({
