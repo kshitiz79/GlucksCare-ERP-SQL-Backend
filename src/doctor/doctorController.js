@@ -353,7 +353,15 @@ const createDoctor = async (req, res) => {
     console.log('File uploaded:', req.file ? 'Yes' : 'No');
 
     // Process the incoming data
-    const doctorData = { ...req.body };
+    let rawBody = req.body;
+    if (typeof rawBody === 'string') {
+      try {
+        rawBody = JSON.parse(rawBody);
+      } catch (e) {
+        console.warn('Could not parse req.body string:', e.message);
+      }
+    }
+    const doctorData = { ...(rawBody?.data || rawBody) };
 
     // Support clientGeneratedId for offline idempotency (supports clientGeneratedId, client_generated_id, clientId, client_id, localId, local_id)
     const clientGeneratedId = doctorData.clientGeneratedId ||
@@ -412,33 +420,25 @@ const createDoctor = async (req, res) => {
       delete doctorData.local_id;
     }
 
-    // Handle head office ID field conversion
-    // The frontend might send headOfficeId, head_office_id, or headOffice
-    if (doctorData.headOfficeId) {
-      // Keep as is for Sequelize model - this is the correct field name
-      console.log('Using headOfficeId as is:', doctorData.headOfficeId);
-    } else if (doctorData.head_office_id) {
-      // Convert database column name to model field name
-      doctorData.headOfficeId = doctorData.head_office_id;
-      delete doctorData.head_office_id;
-      console.log('Converted head_office_id to headOfficeId:', doctorData.headOfficeId);
-    } else if (doctorData.headOffice) {
-      // Convert alternative field name to model field name
-      doctorData.headOfficeId = doctorData.headOffice;
-      delete doctorData.headOffice;
-      console.log('Converted headOffice to headOfficeId:', doctorData.headOfficeId);
-    }
+    // Handle head office ID field conversion (supports headOfficeId, head_office_id, headOffice, head_office)
+    const resolvedHeadOfficeId = doctorData.headOfficeId || 
+                                doctorData.head_office_id || 
+                                doctorData.headOffice || 
+                                doctorData.head_office || 
+                                null;
+    doctorData.headOfficeId = resolvedHeadOfficeId;
+    delete doctorData.head_office_id;
+    delete doctorData.headOffice;
+    delete doctorData.head_office;
 
-    // Handle area ID field conversion
-    if (doctorData.areaId) {
-      // Keep as is
-    } else if (doctorData.area_id) {
-      doctorData.areaId = doctorData.area_id;
-      delete doctorData.area_id;
-    } else if (doctorData.area) {
-      doctorData.areaId = doctorData.area;
-      delete doctorData.area;
-    }
+    // Handle area ID field conversion (supports areaId, area_id, area)
+    const resolvedAreaId = doctorData.areaId || 
+                          doctorData.area_id || 
+                          doctorData.area || 
+                          null;
+    doctorData.areaId = resolvedAreaId;
+    delete doctorData.area_id;
+    delete doctorData.area;
 
     // Map created_by_name (frontend snake_case) → createdByName (model camelCase)
     if (doctorData.created_by_name) {

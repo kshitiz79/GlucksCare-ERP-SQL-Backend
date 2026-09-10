@@ -14,7 +14,9 @@ const getAllHolidays = async (req, res) => {
       type, 
       startDate, 
       endDate, 
-      isActive 
+      isActive,
+      religion,
+      all
     } = req.query;
     
     let whereClause = {};
