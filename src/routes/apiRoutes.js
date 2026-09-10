@@ -100,6 +100,12 @@ const companySettingRoutes = require('../companySetting/companySettingRoutes');
 const pdfRoutes = require('../pdf/pdfRoutes');
 const mobImageRoutes = require('../mobimgupload/mobImageRoutes');
 
+// Import global tenant-aware optionalAuth middleware
+const { optionalAuth } = require('../middleware/authMiddleware');
+
+// Automatically bind tenant database context to all requests having a token, header, or subdomain
+router.use(optionalAuth);
+
 // --- Mount Routes onto router ---
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
