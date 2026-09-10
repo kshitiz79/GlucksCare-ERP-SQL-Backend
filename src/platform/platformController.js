@@ -12,6 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'gluckscare_platform_master_secret_
 // 1. Super Admin Login
 async function login(req, res) {
   try {
+    await initMasterDatabase();
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
@@ -53,6 +54,8 @@ async function login(req, res) {
 // 2. Get All Tenants
 async function getTenants(req, res) {
   try {
+    await initMasterDatabase();
+
     const tenants = await Tenant.findAll({
       order: [['created_at', 'DESC']]
     });
