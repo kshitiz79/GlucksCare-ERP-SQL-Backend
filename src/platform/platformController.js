@@ -3,7 +3,7 @@
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { Tenant, PlatformAdmin } = require('./masterDb');
+const { Tenant, PlatformAdmin, initMasterDatabase } = require('./masterDb');
 const { provisionTenantDatabase, dropTenantDatabase } = require('./tenantProvisioner');
 const { getTenantDb } = require('./tenantConnectionManager');
 
