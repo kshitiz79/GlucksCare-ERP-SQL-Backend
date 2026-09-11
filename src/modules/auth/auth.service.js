@@ -22,6 +22,9 @@ const parseJSON = (data) => {
             return null;
         }
     }
+    return data;
+};
+
 const getUserAssignedHeadOffices = async (user, targetModels = null) => {
     if (!user) return [];
     const models = targetModels || require('../../config/database');
