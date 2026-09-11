@@ -82,13 +82,13 @@ const formatDoctorForSync = (doctor) => {
 
 /**
  * GET /api/doctors/sync/bootstrap
- * Cursor / Keyset-based doctor bootstrap sync for fast and reliable master download (80k+ records)
+ * Cursor / Keyset-based and Page-based doctor bootstrap sync for fast and reliable master download
  *
  * Query params:
  * - limit: Number of records per batch (default 500, max 1000)
  * - cursor: Opaque base64 token representing the last record & snapshot version
  * - headOfficeId: Optional head office filter (if user is authorized)
- * - page: (Legacy fallback) 1-based page number if cursor is not provided
+ * - page: 1-based page number for offset pagination
  */
 const getDoctorBootstrapSync = async (req, res) => {
   try {
@@ -131,13 +131,15 @@ const getDoctorBootstrapSync = async (req, res) => {
           nextCursor: null,
           hasMore: false,
           totalDoctors: 0,
+          page: 1,
+          limit,
           doctors: []
         });
       }
       whereClause.headOfficeId = { [Op.in]: authorizedHeadOfficeIds };
     }
 
-    // Determine snapshot version (retain from cursor during paging session, or compute current)
+    // Determine snapshot version
     let snapshotVersion = 0;
     if (cursorData && cursorData.snapshotVersion) {
       snapshotVersion = Number(cursorData.snapshotVersion);
@@ -153,9 +155,10 @@ const getDoctorBootstrapSync = async (req, res) => {
       );
     }
 
-    // Legacy offset pagination check (only when page > 1 and cursor is not provided)
-    const page = parseInt(req.query.page, 10);
-    if (page && page > 1 && !cursorData) {
+    // Page-based offset pagination (when page parameter is provided and no cursor)
+    const pageParam = req.query.page ? parseInt(req.query.page, 10) : null;
+    if (pageParam && pageParam >= 1 && !req.query.cursor) {
+      const page = pageParam;
       const offset = (page - 1) * limit;
       const [totalDoctors, doctors] = await Promise.all([
         Doctor.count({ where: whereClause }),
@@ -173,16 +176,15 @@ const getDoctorBootstrapSync = async (req, res) => {
               attributes: ['id', 'name']
             }
           ],
-          order: [['id', 'ASC']],
-          limit: limit + 1,
+          order: [['created_at', 'DESC'], ['id', 'DESC']],
+          limit: limit,
           offset,
           distinct: true
         })
       ]);
 
-      const hasMore = doctors.length > limit;
-      const results = hasMore ? doctors.slice(0, limit) : doctors;
-      const lastDoc = results.length > 0 ? results[results.length - 1] : null;
+      const hasMore = (offset + doctors.length) < totalDoctors;
+      const lastDoc = doctors.length > 0 ? doctors[doctors.length - 1] : null;
       const nextCursor = hasMore && lastDoc
         ? Buffer.from(JSON.stringify({ lastId: lastDoc.id, snapshotVersion })).toString('base64')
         : null;
@@ -194,9 +196,10 @@ const getDoctorBootstrapSync = async (req, res) => {
         nextCursor,
         hasMore,
         totalDoctors,
+        totalPages: Math.ceil(totalDoctors / limit),
         page,
         limit,
-        doctors: results.map(formatDoctorForSync)
+        doctors: doctors.map(formatDoctorForSync)
       });
     }
 
@@ -206,25 +209,27 @@ const getDoctorBootstrapSync = async (req, res) => {
       whereClause.id = { [Op.gt]: lastId };
     }
 
-    // Fetch limit + 1 records to accurately check hasMore without full COUNT(*)
-    const doctors = await Doctor.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: HeadOffice,
-          as: 'HeadOffice',
-          attributes: ['id', 'name']
-        },
-        {
-          model: Area,
-          as: 'Area',
-          attributes: ['id', 'name']
-        }
-      ],
-      order: [['id', 'ASC']],
-      limit: limit + 1,
-      distinct: true
-    });
+    const [totalDoctors, doctors] = await Promise.all([
+      Doctor.count({ where: whereClause }),
+      Doctor.findAll({
+        where: whereClause,
+        include: [
+          {
+            model: HeadOffice,
+            as: 'HeadOffice',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Area,
+            as: 'Area',
+            attributes: ['id', 'name']
+          }
+        ],
+        order: [['id', 'ASC']],
+        limit: limit + 1,
+        distinct: true
+      })
+    ]);
 
     const hasMore = doctors.length > limit;
     const results = hasMore ? doctors.slice(0, limit) : doctors;
@@ -247,6 +252,9 @@ const getDoctorBootstrapSync = async (req, res) => {
       currentServerVersion: snapshotVersion,
       nextCursor,
       hasMore,
+      totalDoctors,
+      page: 1,
+      limit,
       doctors: formattedDoctors
     });
   } catch (error) {
@@ -285,21 +293,9 @@ const getDoctorDeltaSync = async (req, res) => {
 
     const currentServerVersion = Math.max(
       Number(maxChangeLog || 0),
-      Number(maxDocVersion || 1)
+      Number(maxDocVersion || 1),
+      1
     );
-
-    // If client is already up-to-date, fast return
-    if (afterVersion >= currentServerVersion && currentServerVersion > 0) {
-      return res.json({
-        success: true,
-        snapshotVersion: currentServerVersion,
-        currentServerVersion,
-        afterVersion,
-        hasMore: false,
-        upserts: [],
-        deletes: []
-      });
-    }
 
     // 1. Check DoctorChangeLog for changes after afterVersion
     let logWhere = {
@@ -325,11 +321,11 @@ const getDoctorDeltaSync = async (req, res) => {
     const changeLogs = DoctorChangeLog ? await DoctorChangeLog.findAll({
       where: logWhere,
       order: [['changeVersion', 'ASC']],
-      limit: limit * 2, // Fetch buffer to group upserts/deletes
+      limit: limit * 2,
       raw: true
-    }) : [];
+    }).catch(() => []) : [];
 
-    // Group logs by doctorId to get latest state per doctor
+    // Group logs by doctorId
     const latestDoctorOps = new Map();
     const deletedDoctorIds = new Set();
     const activeDoctorIds = new Set();
@@ -359,37 +355,38 @@ const getDoctorDeltaSync = async (req, res) => {
       }
     }
 
-    // If change_logs are empty or not populated yet (e.g. before logging was installed),
-    // fallback to checking Doctor table where sync_version > afterVersion
+    // 2. Fetch live doctors from active change logs OR doctors whose syncVersion > afterVersion
     let liveDoctorWhere = {};
     if (activeDoctorIds.size > 0) {
-      liveDoctorWhere.id = { [Op.in]: Array.from(activeDoctorIds) };
-    } else if (changeLogs.length === 0) {
+      liveDoctorWhere[Op.or] = [
+        { id: { [Op.in]: Array.from(activeDoctorIds) } },
+        { syncVersion: { [Op.gt]: afterVersion } }
+      ];
+    } else {
       liveDoctorWhere.syncVersion = { [Op.gt]: afterVersion };
-      if (authorizedHeadOfficeIds !== null) {
-        liveDoctorWhere.headOfficeId = { [Op.in]: authorizedHeadOfficeIds };
-      }
     }
 
-    let liveDoctors = [];
-    if (Object.keys(liveDoctorWhere).length > 0) {
-      liveDoctors = await Doctor.findAll({
-        where: liveDoctorWhere,
-        include: [
-          {
-            model: HeadOffice,
-            as: 'HeadOffice',
-            attributes: ['id', 'name']
-          },
-          {
-            model: Area,
-            as: 'Area',
-            attributes: ['id', 'name']
-          }
-        ],
-        limit
-      });
+    if (authorizedHeadOfficeIds !== null) {
+      liveDoctorWhere.headOfficeId = { [Op.in]: authorizedHeadOfficeIds };
     }
+
+    const liveDoctors = await Doctor.findAll({
+      where: liveDoctorWhere,
+      include: [
+        {
+          model: HeadOffice,
+          as: 'HeadOffice',
+          attributes: ['id', 'name']
+        },
+        {
+          model: Area,
+          as: 'Area',
+          attributes: ['id', 'name']
+        }
+      ],
+      order: [['sync_version', 'ASC'], ['updated_at', 'ASC']],
+      limit
+    });
 
     const formattedUpserts = liveDoctors.map(formatDoctorForSync);
 

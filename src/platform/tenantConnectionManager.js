@@ -4,6 +4,7 @@
 const { Sequelize } = require('sequelize');
 const { Tenant, masterSequelize } = require('./masterDb');
 const { initTenantModels } = require('../config/modelFactory');
+const { ensureTenantSyncSchema } = require('../config/ensureSyncSchema');
 
 // In-memory cache of active Sequelize instances and models per database
 const tenantConnections = new Map();
@@ -46,6 +47,11 @@ function getTenantDb(dbName) {
   });
 
   const models = initTenantModels(sequelizeInstance);
+
+  // Asynchronously ensure sync schema without blocking connection creation
+  ensureTenantSyncSchema(sequelizeInstance).catch(err => {
+    console.warn(`⚠️ [TenantConnectionManager] ensureTenantSyncSchema error for ${dbName}:`, err.message);
+  });
 
   const connectionBundle = {
     sequelize: sequelizeInstance,

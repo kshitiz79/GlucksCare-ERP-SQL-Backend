@@ -527,15 +527,29 @@ const createDoctor = async (req, res) => {
       }
     }
 
+    // Compute monotonically increasing syncVersion
+    let nextVersion = Date.now();
+    try {
+      const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+      if (seqRes && seqRes[0] && seqRes[0].ver) {
+        nextVersion = Number(seqRes[0].ver);
+      }
+    } catch (e) {
+      const maxV = await Doctor.max('syncVersion').catch(() => 1) || 1;
+      nextVersion = Number(maxV) + 1;
+    }
+    doctorData.syncVersion = nextVersion;
+
     console.log('Creating doctor with data:', doctorData);
     const doctor = await Doctor.create(doctorData);
-    console.log('Doctor created successfully:', doctor.id);
+    console.log('Doctor created successfully:', doctor.id, 'syncVersion:', nextVersion);
 
     // Record change log for sync
     try {
       if (DoctorChangeLog) {
         await DoctorChangeLog.create({
           doctorId: doctor.id,
+          changeVersion: nextVersion,
           operation: 'CREATE',
           headOfficeId: doctor.headOfficeId,
           areaId: doctor.areaId || null,
@@ -543,7 +557,8 @@ const createDoctor = async (req, res) => {
             id: doctor.id,
             name: doctor.name,
             headOfficeId: doctor.headOfficeId,
-            areaId: doctor.areaId
+            areaId: doctor.areaId,
+            syncVersion: nextVersion
           }
         });
       }
@@ -772,6 +787,18 @@ const updateDoctor = async (req, res) => {
       }
     }
 
+    // Compute next monotonic version
+    let nextVersion = Date.now();
+    try {
+      const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+      if (seqRes && seqRes[0] && seqRes[0].ver) {
+        nextVersion = Number(seqRes[0].ver);
+      }
+    } catch (e) {
+      nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
+    }
+    convertedData.sync_version = nextVersion;
+
     await doctor.update(convertedData);
 
     // Record change log for sync
@@ -779,6 +806,7 @@ const updateDoctor = async (req, res) => {
       if (DoctorChangeLog) {
         await DoctorChangeLog.create({
           doctorId: doctor.id,
+          changeVersion: nextVersion,
           operation: 'UPDATE',
           headOfficeId: doctor.headOfficeId,
           areaId: doctor.areaId || null,
@@ -815,10 +843,13 @@ const updateDoctor = async (req, res) => {
     const doctorObj = updatedDoctor.toJSON();
     const transformedDoctor = {
       ...doctorObj,
+      id: doctorObj.id,
+      _id: doctorObj.id,
+      clientGeneratedId: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
+      client_generated_id: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
       headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
       area: doctorObj.Area || null,
       is_assigned_to_area: !!doctorObj.areaId,
-      _id: doctorObj.id,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
       // Remove the nested objects
@@ -831,8 +862,8 @@ const updateDoctor = async (req, res) => {
       data: transformedDoctor
     });
   } catch (error) {
-    console.error('Update doctor error:', error);
-    res.status(400).json({
+    console.error('Error in updateDoctor:', error);
+    res.status(500).json({
       success: false,
       message: error.message
     });
@@ -852,11 +883,21 @@ const deleteDoctor = async (req, res) => {
       });
     }
 
+    // Compute next version for tombstone
+    let nextVersion = Date.now();
+    try {
+      const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+      if (seqRes && seqRes[0] && seqRes[0].ver) {
+        nextVersion = Number(seqRes[0].ver);
+      }
+    } catch (e) {}
+
     // Record tombstone change log before deleting
     try {
       if (DoctorChangeLog) {
         await DoctorChangeLog.create({
           doctorId: doctor.id,
+          changeVersion: nextVersion,
           operation: 'DELETE',
           headOfficeId: doctor.headOfficeId,
           areaId: doctor.areaId || null,
