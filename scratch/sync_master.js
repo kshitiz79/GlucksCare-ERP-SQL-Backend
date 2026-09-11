@@ -1,8 +1,19 @@
 const { Sequelize, DataTypes } = require('sequelize');
+const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 async function syncAllToMaster() {
-  const masterSeq = new Sequelize('gluckscare_master_db', 'postgres', '123456', {
-    host: 'localhost',
+  const masterDbName = process.env.MASTER_DB_NAME || 'gluckscare_master_db';
+  const dbHost = process.env.DB_HOST || 'localhost';
+  const dbUser = process.env.DB_USER || 'postgres';
+  const dbPassword = process.env.DB_PASSWORD || '';
+  const dbPort = process.env.DB_PORT || 5432;
+
+  const masterSeq = new Sequelize(masterDbName, dbUser, dbPassword, {
+    host: dbHost,
+    port: dbPort,
     dialect: 'postgres',
     logging: false,
     define: {
@@ -12,8 +23,6 @@ async function syncAllToMaster() {
       updatedAt: 'updated_at'
     }
   });
-
-  const fanboySeq = new Sequelize('gluckscare_fanboy_db', 'postgres', '123456', { host: 'localhost', dialect: 'postgres', logging: false });
 
   await masterSeq.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
   await masterSeq.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
@@ -39,22 +48,15 @@ async function syncAllToMaster() {
     is_active: { type: DataTypes.BOOLEAN, defaultValue: true }
   }, { tableName: 'platform_admins', underscored: true, timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
-  await Tenant.sync({ force: true });
-  await PlatformAdmin.sync({ force: true });
-
-  const [tenants] = await fanboySeq.query('SELECT * FROM tenants;');
-  const [admins] = await fanboySeq.query('SELECT * FROM platform_admins;');
-
-  for (const t of tenants) {
-    await Tenant.create(t);
-  }
-  for (const a of admins) {
-    await PlatformAdmin.create(a);
-  }
+  await Tenant.sync({ alter: true });
+  await PlatformAdmin.sync({ alter: true });
 
   const [verifiedTenants] = await masterSeq.query('SELECT name, slug, db_name, admin_email, created_at FROM tenants;');
-  console.log('✅ Synchronized ' + verifiedTenants.length + ' tenants into gluckscare_master_db:', verifiedTenants);
+  console.log(`✅ Verified ${verifiedTenants.length} tenants in ${masterDbName}:`, verifiedTenants);
   process.exit(0);
 }
 
-syncAllToMaster();
+syncAllToMaster().catch(err => {
+  console.error('❌ Error syncing master:', err);
+  process.exit(1);
+});
