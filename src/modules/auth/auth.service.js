@@ -22,7 +22,52 @@ const parseJSON = (data) => {
             return null;
         }
     }
-    return data;
+const getUserAssignedHeadOffices = async (user, targetModels = null) => {
+    if (!user) return [];
+    const models = targetModels || require('../../config/database');
+    const { HeadOffice, UserHeadOffice } = models;
+    const officeIds = new Set();
+
+    if (user.head_office_id) {
+        officeIds.add(user.head_office_id);
+    }
+
+    if (UserHeadOffice) {
+        const userOffices = await UserHeadOffice.findAll({
+            where: { user_id: user.id },
+            attributes: ['head_office_id'],
+            raw: true
+        }).catch(() => []);
+        userOffices.forEach(uo => {
+            if (uo.head_office_id) officeIds.add(uo.head_office_id);
+        });
+    }
+
+    if (user.headOffices && Array.isArray(user.headOffices)) {
+        user.headOffices.forEach(ho => {
+            if (ho.id) officeIds.add(ho.id);
+        });
+    }
+
+    if (officeIds.size === 0) return [];
+
+    const { Op } = require('sequelize');
+    const offices = await HeadOffice.findAll({
+        where: {
+            id: { [Op.in]: Array.from(officeIds) }
+        },
+        attributes: ['id', 'name', 'latitude', 'longitude', 'pincode', 'state_id'],
+        raw: true
+    }).catch(() => []);
+
+    return offices.map(ho => ({
+        id: ho.id,
+        name: ho.name,
+        latitude: ho.latitude ? Number(ho.latitude) : 0,
+        longitude: ho.longitude ? Number(ho.longitude) : 0,
+        pincode: ho.pincode || null,
+        state_id: ho.state_id || null
+    }));
 };
 
 class AuthService {
@@ -506,28 +551,7 @@ class AuthService {
         };
         const token = JwtService.generateToken(tokenPayload, '30d');
 
-        let headOffices = [];
-
-        if (user.headOffices && user.headOffices.length > 0) {
-            headOffices = user.headOffices.map(ho => ({
-                id: ho.id,
-                name: ho.name,
-                latitude: ho.latitude,
-                longitude: ho.longitude
-            }));
-        } else if (user.head_office_id) {
-            const singleHeadOffice = await AuthRepository.findHeadOfficeById(user.head_office_id, {
-                attributes: ['id', 'name', 'latitude', 'longitude']
-            });
-            if (singleHeadOffice) {
-                headOffices = [{
-                    id: singleHeadOffice.id,
-                    name: singleHeadOffice.name,
-                    latitude: singleHeadOffice.latitude,
-                    longitude: singleHeadOffice.longitude
-                }];
-            }
-        }
+        const headOffices = await getUserAssignedHeadOffices(user, targetDbModels);
 
         const responseUser = {
             id: user.id.toString(),
@@ -777,16 +801,11 @@ class AuthService {
     }
 
     static async me(userId) {
-        const user = await AuthRepository.findUserById(userId, {
-            include: [
-                {
-                    model: HeadOffice,
-                    attributes: ['id', 'name', 'latitude', 'longitude']
-                }
-            ]
-        });
+        const user = await AuthRepository.findUserById(userId);
 
         if (!user) throw { statusCode: 404, message: 'User not found' };
+
+        const headOffices = await getUserAssignedHeadOffices(user);
 
         return {
             user: {
@@ -796,12 +815,7 @@ class AuthService {
                 role: user.role,
                 employeeCode: user.employee_code,
                 emailVerified: user.email_verified,
-                headOffices: user.HeadOffice ? [{
-                    id: user.HeadOffice.id,
-                    name: user.HeadOffice.name,
-                    latitude: user.HeadOffice.latitude,
-                    longitude: user.HeadOffice.longitude
-                }] : [],
+                headOffices: headOffices,
                 meter_range: 200
             }
         };

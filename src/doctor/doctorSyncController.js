@@ -2,7 +2,7 @@ const { Op } = require('sequelize');
 
 // Helper to determine authorized headOfficeIds for the current user
 const getAuthorizedHeadOfficeIds = async (user, models, requestedHeadOfficeId = null) => {
-  const { User, HeadOffice } = models;
+  const { User, HeadOffice, UserHeadOffice } = models;
 
   // If Super Admin or Admin, they can access everything or filter if requested
   const isAdmin = ['Super Admin', 'Admin'].includes(user.role);
@@ -13,23 +13,41 @@ const getAuthorizedHeadOfficeIds = async (user, models, requestedHeadOfficeId = 
     return null; // null means no head office restriction (all)
   }
 
-  // Otherwise fetch user's assigned head offices
-  const userWithOffices = await User.findByPk(user.id, {
-    include: [
-      {
-        model: HeadOffice,
-        as: 'headOffices',
-        through: { attributes: [] }
-      }
-    ]
-  });
+  // Combine user.head_office_id AND all user_head_offices
+  const officeIds = new Set();
 
-  let headOfficeIds = [];
-  if (userWithOffices?.headOffices && userWithOffices.headOffices.length > 0) {
-    headOfficeIds = userWithOffices.headOffices.map(o => o.id);
-  } else if (userWithOffices?.head_office_id) {
-    headOfficeIds = [userWithOffices.head_office_id];
+  if (user.head_office_id) {
+    officeIds.add(user.head_office_id);
   }
+
+  if (user.headOffices && Array.isArray(user.headOffices)) {
+    user.headOffices.forEach(ho => {
+      if (ho.id) officeIds.add(ho.id);
+      else if (typeof ho === 'string') officeIds.add(ho);
+    });
+  }
+
+  // Query UserHeadOffice table directly
+  if (UserHeadOffice) {
+    const userOffices = await UserHeadOffice.findAll({
+      where: { user_id: user.id },
+      attributes: ['head_office_id'],
+      raw: true
+    }).catch(() => []);
+    userOffices.forEach(uo => {
+      if (uo.head_office_id) officeIds.add(uo.head_office_id);
+    });
+  }
+
+  // Query user record from DB for direct head_office_id if not loaded
+  const userRec = await User.findByPk(user.id, {
+    attributes: ['id', 'head_office_id']
+  }).catch(() => null);
+  if (userRec?.head_office_id) {
+    officeIds.add(userRec.head_office_id);
+  }
+
+  const headOfficeIds = Array.from(officeIds);
 
   if (requestedHeadOfficeId) {
     // Ensure the user has permission for the requested head office

@@ -1091,13 +1091,26 @@ const getMyDoctors = async (req, res) => {
     }
 
     // Get all user's head office IDs
-    let headOfficeIds = [];
-
-    if (user.headOffices && user.headOffices.length > 0) {
-      headOfficeIds = user.headOffices.map(office => office.id);
-    } else if (user.head_office_id) {
-      headOfficeIds = [user.head_office_id];
+    const officeIds = new Set();
+    if (user.head_office_id) {
+      officeIds.add(user.head_office_id);
     }
+    if (user.headOffices && user.headOffices.length > 0) {
+      user.headOffices.forEach(office => officeIds.add(office.id));
+    }
+    const { UserHeadOffice } = req.app.get('models');
+    if (UserHeadOffice) {
+      const uhoList = await UserHeadOffice.findAll({
+        where: { user_id: user.id },
+        attributes: ['head_office_id'],
+        raw: true
+      }).catch(() => []);
+      uhoList.forEach(u => {
+        if (u.head_office_id) officeIds.add(u.head_office_id);
+      });
+    }
+
+    const headOfficeIds = Array.from(officeIds);
 
     if (headOfficeIds.length === 0) {
       return res.status(400).json({
