@@ -5,17 +5,23 @@ const cloudinary = require('../config/cloudinary');
 // Get current Company Settings (Public / Authenticated)
 const getCompanySettings = async (req, res) => {
   try {
-    const { CompanySetting } = req.app.get('models');
+    const models = req.db || (req.app && req.app.get('models')) || require('../config/database');
+    const { CompanySetting } = models;
     
     let settings = await CompanySetting.findOne({
       order: [['id', 'ASC']]
     });
 
     if (!settings) {
+      const isMainGlucksCare = !req.tenant || req.tenant.slug === 'gluckscare';
+      const defaultName = isMainGlucksCare ? 'Gluckscare Pharmaceuticals' : (req.tenant?.name || '');
+      const defaultLogo = isMainGlucksCare ? '/login/logo.png' : '';
+      const defaultTagline = isMainGlucksCare ? 'Healthcare & Pharmaceutical ERP' : '';
+
       settings = await CompanySetting.create({
-        companyName: 'Gluckscare Pharmaceuticals',
-        logoUrl: '/login/logo.png',
-        tagline: 'Healthcare & Pharmaceutical ERP'
+        companyName: defaultName,
+        logoUrl: defaultLogo,
+        tagline: defaultTagline
       });
     }
 
@@ -24,9 +30,9 @@ const getCompanySettings = async (req, res) => {
       data: {
         id: settings.id,
         companyName: settings.companyName,
-        logoUrl: settings.logoUrl,
-        faviconUrl: settings.faviconUrl,
-        tagline: settings.tagline,
+        logoUrl: settings.logoUrl || '',
+        faviconUrl: settings.faviconUrl || '',
+        tagline: settings.tagline || '',
         updatedAt: settings.updatedAt
       }
     });
@@ -43,17 +49,21 @@ const getCompanySettings = async (req, res) => {
 // Update Company Settings (Admin only)
 const updateCompanySettings = async (req, res) => {
   try {
-    const { CompanySetting } = req.app.get('models');
+    const models = req.db || (req.app && req.app.get('models')) || require('../config/database');
+    const { CompanySetting } = models;
     const { companyName, logoUrl, faviconUrl, tagline } = req.body;
 
     let settings = await CompanySetting.findOne({
       order: [['id', 'ASC']]
     });
 
+    const isMainGlucksCare = !req.tenant || req.tenant.slug === 'gluckscare';
+    const fallbackName = isMainGlucksCare ? 'Gluckscare Pharmaceuticals' : (req.tenant?.name || '');
+
     if (!settings) {
       settings = await CompanySetting.create({
-        companyName: companyName?.trim() || 'Gluckscare Pharmaceuticals',
-        logoUrl: logoUrl || '/login/logo.png',
+        companyName: companyName !== undefined ? companyName.trim() : fallbackName,
+        logoUrl: logoUrl !== undefined ? logoUrl : (isMainGlucksCare ? '/login/logo.png' : ''),
         faviconUrl: faviconUrl || null,
         tagline: tagline || null,
         updatedBy: req.user?.id || null
@@ -74,9 +84,9 @@ const updateCompanySettings = async (req, res) => {
       data: {
         id: settings.id,
         companyName: settings.companyName,
-        logoUrl: settings.logoUrl,
-        faviconUrl: settings.faviconUrl,
-        tagline: settings.tagline,
+        logoUrl: settings.logoUrl || '',
+        faviconUrl: settings.faviconUrl || '',
+        tagline: settings.tagline || '',
         updatedAt: settings.updatedAt
       }
     });

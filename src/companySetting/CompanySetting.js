@@ -9,14 +9,12 @@ const CompanySetting = (sequelize) => {
     },
     companyName: {
       type: DataTypes.STRING(255),
-      allowNull: false,
-      defaultValue: 'Gluckscare Pharmaceuticals',
+      allowNull: true,
       field: 'company_name'
     },
     logoUrl: {
       type: DataTypes.TEXT,
-      allowNull: false,
-      defaultValue: '/login/logo.png',
+      allowNull: true,
       field: 'logo_url'
     },
     faviconUrl: {

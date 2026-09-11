@@ -88,12 +88,12 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
     email_verified: true
   });
 
-  // 5. Seed default Company Settings
+  // 5. Seed default Company Settings with company's own name and blank logo
   try {
     await tenantModels.CompanySetting.create({
-      company_name: name,
-      currency: 'INR',
-      timezone: 'Asia/Kolkata'
+      companyName: name,
+      logoUrl: null,
+      tagline: null
     });
   } catch (csErr) {
     console.warn('⚠️ Warning: CompanySetting seeding skipped:', csErr.message);

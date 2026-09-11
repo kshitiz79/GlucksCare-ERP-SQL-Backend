@@ -219,22 +219,16 @@ async function initializeDatabase(sequelize) {
             await sequelize.query(`
               CREATE TABLE IF NOT EXISTS company_settings (
                 id SERIAL PRIMARY KEY,
-                company_name VARCHAR(255) NOT NULL DEFAULT 'Gluckscare Pharmaceuticals',
-                logo_url TEXT NOT NULL DEFAULT '/login/logo.png',
+                company_name VARCHAR(255),
+                logo_url TEXT,
                 favicon_url TEXT,
-                tagline VARCHAR(255) DEFAULT 'Healthcare & Pharmaceutical ERP',
+                tagline VARCHAR(255),
                 updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
               );
             `);
-            // Insert default row if table is empty
-            await sequelize.query(`
-              INSERT INTO company_settings (company_name, logo_url, tagline, created_at, updated_at)
-              SELECT 'Gluckscare Pharmaceuticals', '/login/logo.png', 'Healthcare & Pharmaceutical ERP', NOW(), NOW()
-              WHERE NOT EXISTS (SELECT 1 FROM company_settings);
-            `);
-            console.log('✅ Checked/Created company_settings table and default branding');
+            console.log('✅ Checked/Created company_settings table');
         } catch (companyErr) {
             console.warn('⚠️ Warning: Failed to create company_settings table:', companyErr.message);
         }
