@@ -3,6 +3,7 @@
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
 const { Tenant, PlatformAdmin, initMasterDatabase } = require('./masterDb');
 const { provisionTenantDatabase, dropTenantDatabase } = require('./tenantProvisioner');
 const { getTenantDb } = require('./tenantConnectionManager');
@@ -29,24 +30,29 @@ async function login(req, res) {
     }
 
     const token = jwt.sign(
-      { id: admin.id, email: admin.email, role: admin.role },
+      {
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+        role: admin.role,
+        isPlatformAdmin: true
+      },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     return res.json({
       success: true,
-      message: 'Login successful',
       token,
-      admin: {
+      user: {
         id: admin.id,
-        name: admin.name,
         email: admin.email,
+        name: admin.name,
         role: admin.role
       }
     });
   } catch (err) {
-    console.error('❌ Super Admin login error:', err);
+    console.error('❌ Platform Login error:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
@@ -62,13 +68,30 @@ async function getTenants(req, res) {
 
     const formatted = await Promise.all(tenants.map(async (t) => {
       let realCount = t.active_users || 1;
+      let realAdminName = t.admin_name || 'Admin';
+      let realAdminEmail = t.admin_email || '';
+
       try {
         const tenantDb = getTenantDb(t.db_name);
         if (tenantDb && tenantDb.models && tenantDb.models.User) {
-          realCount = await tenantDb.models.User.count({ where: { is_active: true } });
+          realCount = await tenantDb.models.User.count({ where: { is_active: true } }).catch(() => realCount);
+
+          // Dynamically fetch the real primary Company Admin from the tenant's PostgreSQL database
+          const adminUser = await tenantDb.models.User.findOne({
+            where: {
+              role: { [Op.iLike]: '%admin%' }
+            },
+            order: [['created_at', 'ASC']],
+            attributes: ['name', 'email']
+          }).catch(() => null);
+
+          if (adminUser) {
+            realAdminName = adminUser.name || realAdminName;
+            realAdminEmail = adminUser.email || realAdminEmail;
+          }
         }
       } catch (e) {
-        // Fallback to recorded count
+        // Fallback to recorded count & admin info
       }
 
       return {
@@ -77,8 +100,8 @@ async function getTenants(req, res) {
         slug: t.slug,
         db_name: t.db_name,
         subdomain: t.subdomain,
-        adminName: t.admin_name,
-        adminEmail: t.admin_email,
+        adminName: realAdminName,
+        adminEmail: realAdminEmail,
         status: t.status,
         activeUsers: realCount,
         createdAt: t.created_at
