@@ -12,7 +12,7 @@ const {
 
   getUserRouteData,           // Returns route/path data for one user
   getAllUsersRouteData,       // Returns route/path data for all users
-
+  getUserDailyDistances,      // Returns daily GPS-tracked distance in KM for a user
   getDevicesList,             // Returns all devices and their latest coordinates
   bindDeviceToUser             // Assigns a device to a particular user
 } = require('./offlinebgController');
@@ -34,6 +34,7 @@ router.get('/admin/user-history/:userId', getUserLocationHistory);
 router.get('/route/all', getAllUsersRouteData);
 router.get('/route/:userId', getUserRouteData);
 router.get('/day/:userId', getUserRouteData);
+router.get('/user-daily-distance/:userId', getUserDailyDistances);
 
 router.get('/:id', getOfflineBgTrackingById);
 

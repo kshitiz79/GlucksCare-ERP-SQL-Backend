@@ -1476,6 +1476,214 @@ const bindDeviceToUser = async (req, res) => {
   }
 };
 
+const getUserDailyDistances = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+    const sequelize = req.app.get('sequelize');
+
+    // 1. Fetch from location_pings
+    let pingQuery = `
+      SELECT 
+        lp.latitude,
+        lp.longitude,
+        lp.device_time_utc as timestamp,
+        lp.accuracy_m as accuracy
+      FROM location_pings lp
+      WHERE lp.user_id::text = :userId
+        AND lp.latitude IS NOT NULL AND lp.longitude IS NOT NULL
+        AND lp.latitude != 0 AND lp.longitude != 0
+    `;
+    const pingReplacements = { userId };
+    if (startDate) {
+      pingQuery += ` AND lp.device_time_utc >= :startDate`;
+      pingReplacements.startDate = new Date(startDate);
+    }
+    if (endDate) {
+      pingQuery += ` AND lp.device_time_utc <= :endDate`;
+      pingReplacements.endDate = new Date(endDate);
+    }
+
+    let pingPoints = [];
+    try {
+      pingPoints = await sequelize.query(pingQuery, {
+        replacements: pingReplacements,
+        type: sequelize.QueryTypes.SELECT
+      });
+    } catch (e) {
+      console.warn('[getUserDailyDistances] location_pings query note:', e.message);
+    }
+
+    // 2. Fetch from offline_bg_tracking
+    let obtQuery = `
+      SELECT 
+        (obt.payload->>'latitude')::numeric as latitude,
+        (obt.payload->>'longitude')::numeric as longitude,
+        COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
+        (obt.payload->>'accuracy')::numeric as accuracy
+      FROM offline_bg_tracking obt
+      LEFT JOIN user_devices ud ON (
+           (obt.device_id IS NOT NULL AND obt.device_id != '' AND (ud.device_id = obt.device_id OR ud.android_id = obt.device_id))
+        OR (obt.payload->>'device_id' IS NOT NULL AND (ud.device_id = (obt.payload->>'device_id') OR ud.android_id = (obt.payload->>'device_id')))
+      ) AND ud.status = 'ACTIVE'
+      WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId)
+        AND obt.payload->>'latitude' IS NOT NULL 
+        AND obt.payload->>'longitude' IS NOT NULL
+        AND (obt.payload->>'latitude')::numeric != 0
+        AND (obt.payload->>'longitude')::numeric != 0
+    `;
+    const obtReplacements = { userId };
+    if (startDate) {
+      obtQuery += ` AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startDate`;
+      obtReplacements.startDate = new Date(startDate);
+    }
+    if (endDate) {
+      obtQuery += ` AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endDate`;
+      obtReplacements.endDate = new Date(endDate);
+    }
+
+    let obtPoints = [];
+    try {
+      obtPoints = await sequelize.query(obtQuery, {
+        replacements: obtReplacements,
+        type: sequelize.QueryTypes.SELECT
+      });
+    } catch (e) {
+      console.warn('[getUserDailyDistances] offline_bg_tracking query note:', e.message);
+    }
+
+    // 3. Fetch handshake points from tour_plan_days
+    let handshakePoints = [];
+    try {
+      let handshakeQuery = `
+        SELECT 
+          handshake_user_lat as latitude,
+          handshake_user_lng as longitude,
+          handshake_time as timestamp,
+          50 as accuracy
+        FROM tour_plan_days
+        WHERE handshake_verified_by_user_id::text = :userId
+          AND handshake_user_lat IS NOT NULL 
+          AND handshake_user_lng IS NOT NULL
+      `;
+      const handshakeReplacements = { userId };
+      if (startDate) {
+        handshakeQuery += ` AND handshake_time >= :startDate`;
+        handshakeReplacements.startDate = new Date(startDate);
+      }
+      if (endDate) {
+        handshakeQuery += ` AND handshake_time <= :endDate`;
+        handshakeReplacements.endDate = new Date(endDate);
+      }
+      handshakePoints = await sequelize.query(handshakeQuery, {
+        replacements: handshakeReplacements,
+        type: sequelize.QueryTypes.SELECT
+      });
+    } catch (e) {
+      // ignore if tour_plan_days is not present or populated
+    }
+
+    // 4. Fetch visit check-in points as fallback
+    let visitPoints = [];
+    try {
+      const visitQuery = `
+        SELECT 
+          latitude,
+          longitude,
+          created_at as timestamp,
+          30 as accuracy
+        FROM (
+          SELECT user_id, latitude, longitude, created_at FROM doctor_visits WHERE user_id::text = :userId AND latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, latitude, longitude, created_at FROM chemist_visits WHERE user_id::text = :userId AND latitude IS NOT NULL
+          UNION ALL
+          SELECT user_id, latitude, longitude, created_at FROM stockist_visits WHERE user_id::text = :userId AND latitude IS NOT NULL
+        ) visits
+      `;
+      visitPoints = await sequelize.query(visitQuery, {
+        replacements: { userId },
+        type: sequelize.QueryTypes.SELECT
+      });
+    } catch (e) {
+      // ignore if visits tables query fails
+    }
+
+    // Group points by local calendar date (Asia/Kolkata)
+    const pointsByDate = {};
+
+    const addPoint = (pt, isVisit = false) => {
+      if (!pt || !pt.latitude || !pt.longitude || !pt.timestamp) return;
+      const lat = parseFloat(pt.latitude);
+      const lng = parseFloat(pt.longitude);
+      if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return;
+
+      const d = new Date(pt.timestamp);
+      if (isNaN(d.getTime())) return;
+
+      let dateStr;
+      try {
+        dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      } catch (err) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        dateStr = `${y}-${m}-${day}`;
+      }
+
+      if (!pointsByDate[dateStr]) {
+        pointsByDate[dateStr] = { raw: [], visits: [] };
+      }
+
+      if (isVisit) {
+        pointsByDate[dateStr].visits.push({ lat, lng, timestamp: d });
+      } else {
+        pointsByDate[dateStr].raw.push({ lat, lng, timestamp: d });
+      }
+    };
+
+    pingPoints.forEach(p => addPoint(p, false));
+    obtPoints.forEach(p => addPoint(p, false));
+    handshakePoints.forEach(p => addPoint(p, false));
+    visitPoints.forEach(p => addPoint(p, true));
+
+    // Calculate distance for each day
+    const result = {};
+    Object.keys(pointsByDate).forEach(dateStr => {
+      const dayData = pointsByDate[dateStr];
+      let pointsToUse = dayData.raw && dayData.raw.length > 0 ? dayData.raw : dayData.visits;
+
+      pointsToUse.sort((a, b) => a.timestamp - b.timestamp);
+
+      // Clean jitter
+      const cleaned = filterGPSJitter(pointsToUse, 15);
+
+      let distMeters = 0;
+      for (let i = 0; i < cleaned.length - 1; i++) {
+        const p1 = cleaned[i];
+        const p2 = cleaned[i + 1];
+        distMeters += getDistanceMeters(p1.lat, p1.lng, p2.lat, p2.lng);
+      }
+
+      const distKm = parseFloat((distMeters / 1000).toFixed(2));
+      result[dateStr] = {
+        distance_km: distKm,
+        points_count: cleaned.length
+      };
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Error in getUserDailyDistances:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to calculate user daily distances'
+    });
+  }
+};
+
 module.exports = {
   processTelemetryBatch,
   createOfflineBgTracking,
@@ -1485,6 +1693,7 @@ module.exports = {
   getUserLocationHistory,
   getUserRouteData,
   getAllUsersRouteData,
+  getUserDailyDistances,
   getDevicesList,
   bindDeviceToUser
 };
