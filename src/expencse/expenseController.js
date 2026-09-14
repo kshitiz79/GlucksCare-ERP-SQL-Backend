@@ -354,7 +354,7 @@ const updateExpense = async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         if (decoded && decoded.id) {
           const reqUser = await User.findByPk(decoded.id);
-          if (reqUser && ['Admin', 'Super Admin'].includes(reqUser.role)) {
+          if (reqUser && (['Admin', 'Super Admin', 'admin', 'super admin', 'superadmin', 'Opps Team', 'Accounts'].includes(reqUser.role) || (typeof reqUser.role === 'string' && reqUser.role.toLowerCase().includes('admin')))) {
             isAdmin = true;
           }
         }
@@ -363,7 +363,7 @@ const updateExpense = async (req, res) => {
       }
     }
 
-    if (req.user && ['Admin', 'Super Admin'].includes(req.user.role)) {
+    if (req.user && (['Admin', 'Super Admin', 'admin', 'super admin', 'superadmin', 'Opps Team', 'Accounts'].includes(req.user.role) || (typeof req.user.role === 'string' && req.user.role.toLowerCase().includes('admin')))) {
       isAdmin = true;
     }
 
