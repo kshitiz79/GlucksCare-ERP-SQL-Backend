@@ -648,7 +648,7 @@ const updateStockist = async (req, res) => {
     if (!models || !models.Stockist || !models.HeadOffice || !models.StockistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area } = models;
+    const { Stockist, HeadOffice, StockistAnnualTurnover, Address, Area, DoctorEditRequest, Notification, NotificationRecipient, User } = models;
 
     const stockist = await Stockist.findByPk(req.params.id);
     if (!stockist) {
@@ -694,96 +694,213 @@ const updateStockist = async (req, res) => {
       }
     }
 
-    // Start a transaction
+    // Map headOffice to head_office_id if needed
+    const stockistData = { ...req.body };
+    if (stockistData.headOffice && !stockistData.head_office_id) {
+      stockistData.head_office_id = stockistData.headOffice;
+      delete stockistData.headOffice;
+    }
+
+    // Handle head office ID field conversion (similar to create)
+    if (stockistData.headOfficeId) {
+      // Keep as is
+    } else if (stockistData.head_office_id) {
+      stockistData.headOfficeId = stockistData.head_office_id;
+      delete stockistData.head_office_id;
+    }
+
+    // Convert field names and collect data for the main stockist record
+    const stockistUpdateData = {};
+    Object.keys(stockistData).forEach(key => {
+      // Skip annualTurnover and primary keys (id/_id)
+      if (key === 'annualTurnover' || key === 'id' || key === '_id') return;
+
+      const dbFieldName = STOCKIST_FIELD_MAPPINGS[key] || key;
+      stockistUpdateData[dbFieldName] = stockistData[key];
+    });
+
+    // --- Robust Type Conversion for stockistUpdateData ---
+    console.log('Performing type conversions on stockistUpdateData...');
+
+    // 1. Handle Array fields
+    ['areas_of_operation', 'current_pharma_distributorships'].forEach(field => {
+      if (typeof stockistUpdateData[field] === 'string') {
+        if (stockistUpdateData[field].trim() === '') {
+          stockistUpdateData[field] = [];
+        } else {
+          stockistUpdateData[field] = stockistUpdateData[field].split(',').map(s => s.trim()).filter(Boolean);
+        }
+        console.log(`Converted ${field} to array (update):`, stockistUpdateData[field]);
+      } else if (stockistUpdateData[field] !== undefined && !Array.isArray(stockistUpdateData[field])) {
+        stockistUpdateData[field] = [stockistUpdateData[field]];
+      }
+    });
+
+    // 2. Handle JSON fields
+    if (typeof stockistUpdateData.bank_details === 'string' && stockistUpdateData.bank_details.trim() !== '') {
+      try {
+        stockistUpdateData.bank_details = JSON.parse(stockistUpdateData.bank_details);
+        console.log('Parsed bank_details from JSON string (update)');
+      } catch (e) {
+        console.error('Error parsing bank_details JSON (update):', e.message);
+      }
+    }
+
+    // 3. Handle Boolean fields
+    ['warehouse_facility', 'cold_storage_available'].forEach(field => {
+      if (stockistUpdateData[field] === 'true') stockistUpdateData[field] = true;
+      else if (stockistUpdateData[field] === 'false') stockistUpdateData[field] = false;
+      else if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
+        stockistUpdateData[field] = stockistUpdateData[field].trim().toLowerCase() === 'true';
+      }
+    });
+
+    // 4. Handle Numeric fields
+    ['years_in_business', 'storage_facility_size', 'number_of_sales_representatives', 'latitude', 'longitude'].forEach(field => {
+      if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
+        const val = parseFloat(stockistUpdateData[field]);
+        if (!isNaN(val)) stockistUpdateData[field] = val;
+      }
+    });
+
+    // 4.1 Handle Geo-image update or removal
+    if (uploadedImageUrl) {
+      stockistUpdateData.geo_image_url = uploadedImageUrl;
+    } else if (stockistData.remove_geo_image === 'true' || stockistData.remove_geo_image === true) {
+      stockistUpdateData.geo_image_url = null;
+      console.log('User requested removal of geo_image');
+    }
+
+    // 5. Ensure annualTurnover is also parsed if present
+    if (typeof stockistData.annualTurnover === 'string' && stockistData.annualTurnover.trim() !== '') {
+      try {
+        stockistData.annualTurnover = JSON.parse(stockistData.annualTurnover);
+        console.log('Parsed annualTurnover from JSON string (update)');
+      } catch (e) {
+        console.error('Error parsing annualTurnover JSON (update):', e.message);
+      }
+    }
+
+    // =========================================================================
+    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest (category: stockist) instead of direct DB update
+    // =========================================================================
+    const userRole = (req.user && req.user.role) ? req.user.role.toLowerCase() : '';
+    const isAdmin = ['admin', 'super admin', 'superadmin'].includes(userRole) || (req.user && req.user.role_name && req.user.role_name.toLowerCase().includes('admin'));
+
+    if (!isAdmin) {
+      console.log(`[Stockist Edit Request] User ${req.user?.name} (${req.user?.role}) requested edit for Stockist ${stockist.firm_name} (${stockist.id})`);
+
+      const existingTurnovers = await StockistAnnualTurnover.findAll({
+        where: { stockist_id: stockist.id },
+        attributes: ['year', 'amount']
+      });
+
+      const currentStockistJson = stockist.toJSON();
+      const currentSnapshot = {
+        firm_name: currentStockistJson.firm_name,
+        registered_business_name: currentStockistJson.registered_business_name,
+        nature_of_business: currentStockistJson.nature_of_business,
+        dl_number: currentStockistJson.dl_number,
+        gstin_number: currentStockistJson.gstin_number,
+        pan_number: currentStockistJson.pan_number,
+        registered_office_address: currentStockistJson.registered_office_address,
+        latitude: currentStockistJson.latitude,
+        longitude: currentStockistJson.longitude,
+        contact_person_name: currentStockistJson.contact_person_name,
+        designation: currentStockistJson.designation,
+        mobile_no: currentStockistJson.mobile_no,
+        email_id: currentStockistJson.email_id,
+        website: currentStockistJson.website,
+        years_in_business: currentStockistJson.years_in_business,
+        areas_of_operation: currentStockistJson.areas_of_operation,
+        current_pharma_distributorships: currentStockistJson.current_pharma_distributorships,
+        warehouse_facility: currentStockistJson.warehouse_facility,
+        cold_storage_available: currentStockistJson.cold_storage_available,
+        storage_facility_size: currentStockistJson.storage_facility_size,
+        number_of_sales_representatives: currentStockistJson.number_of_sales_representatives,
+        bank_details: currentStockistJson.bank_details,
+        head_office_id: currentStockistJson.head_office_id,
+        area_id: currentStockistJson.area_id,
+        geo_image_url: currentStockistJson.geo_image_url,
+        annualTurnover: existingTurnovers ? existingTurnovers.map(t => ({ year: t.year, amount: t.amount })) : []
+      };
+
+      const proposedChanges = {
+        ...stockistUpdateData,
+        annualTurnover: stockistData.annualTurnover || undefined
+      };
+
+      let editRequest = null;
+      if (DoctorEditRequest) {
+        const existingPending = await DoctorEditRequest.findOne({
+          where: {
+            category: 'stockist',
+            stockist_id: stockist.id,
+            user_id: req.user.id,
+            status: 'Pending'
+          }
+        });
+
+        if (existingPending) {
+          await existingPending.update({
+            proposed_changes: proposedChanges,
+            current_data: currentSnapshot,
+            head_office_id: stockistUpdateData.head_office_id || stockist.head_office_id,
+            entity_id: stockist.id
+          });
+          editRequest = existingPending;
+        } else {
+          editRequest = await DoctorEditRequest.create({
+            category: 'stockist',
+            entity_id: stockist.id,
+            stockist_id: stockist.id,
+            user_id: req.user.id,
+            head_office_id: stockistUpdateData.head_office_id || stockist.head_office_id,
+            current_data: currentSnapshot,
+            proposed_changes: proposedChanges,
+            status: 'Pending'
+          });
+        }
+      }
+
+      // Send notification to Admin users
+      try {
+        if (Notification && NotificationRecipient && User) {
+          const adminUsers = await User.findAll({
+            where: { role: ['Super Admin', 'Admin'], is_active: true },
+            attributes: ['id']
+          });
+          if (adminUsers && adminUsers.length > 0) {
+            const notif = await Notification.create({
+              title: 'Stockist Edit Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Stockist "${stockist.firm_name}". Please review and approve.`,
+              sender_id: req.user.id,
+              is_broadcast: false
+            });
+            const recipients = adminUsers.map(u => ({
+              notification_id: notif.id,
+              user_id: u.id,
+              is_read: false
+            }));
+            await NotificationRecipient.bulkCreate(recipients);
+          }
+        }
+      } catch (notifErr) {
+        console.warn('⚠️ Notification error on stockist edit request:', notifErr.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        approvalRequired: true,
+        message: 'Stockist edit request submitted for Admin approval. Changes will take effect once reviewed.',
+        data: editRequest
+      });
+    }
+
+    // Start a transaction for Admin direct update
     const transaction = await sequelize.transaction();
 
     try {
-      // Map headOffice to head_office_id if needed
-      const stockistData = { ...req.body };
-      if (stockistData.headOffice && !stockistData.head_office_id) {
-        stockistData.head_office_id = stockistData.headOffice;
-        delete stockistData.headOffice;
-      }
-
-      // Handle head office ID field conversion (similar to create)
-      if (stockistData.headOfficeId) {
-        // Keep as is
-      } else if (stockistData.head_office_id) {
-        stockistData.headOfficeId = stockistData.head_office_id;
-        delete stockistData.head_office_id;
-      }
-
-      // Convert field names and collect data for the main stockist record
-      const stockistUpdateData = {};
-      Object.keys(stockistData).forEach(key => {
-        // Skip annualTurnover and primary keys (id/_id)
-        if (key === 'annualTurnover' || key === 'id' || key === '_id') return;
-
-        const dbFieldName = STOCKIST_FIELD_MAPPINGS[key] || key;
-        stockistUpdateData[dbFieldName] = stockistData[key];
-      });
-
-      // --- Robust Type Conversion for stockistUpdateData ---
-      console.log('Performing type conversions on stockistUpdateData...');
-
-      // 1. Handle Array fields
-      ['areas_of_operation', 'current_pharma_distributorships'].forEach(field => {
-        if (typeof stockistUpdateData[field] === 'string') {
-          if (stockistUpdateData[field].trim() === '') {
-            stockistUpdateData[field] = [];
-          } else {
-            stockistUpdateData[field] = stockistUpdateData[field].split(',').map(s => s.trim()).filter(Boolean);
-          }
-          console.log(`Converted ${field} to array (update):`, stockistUpdateData[field]);
-        } else if (stockistUpdateData[field] !== undefined && !Array.isArray(stockistUpdateData[field])) {
-          stockistUpdateData[field] = [stockistUpdateData[field]];
-        }
-      });
-
-      // 2. Handle JSON fields
-      if (typeof stockistUpdateData.bank_details === 'string' && stockistUpdateData.bank_details.trim() !== '') {
-        try {
-          stockistUpdateData.bank_details = JSON.parse(stockistUpdateData.bank_details);
-          console.log('Parsed bank_details from JSON string (update)');
-        } catch (e) {
-          console.error('Error parsing bank_details JSON (update):', e.message);
-        }
-      }
-
-      // 3. Handle Boolean fields
-      ['warehouse_facility', 'cold_storage_available'].forEach(field => {
-        if (stockistUpdateData[field] === 'true') stockistUpdateData[field] = true;
-        else if (stockistUpdateData[field] === 'false') stockistUpdateData[field] = false;
-        else if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
-          stockistUpdateData[field] = stockistUpdateData[field].trim().toLowerCase() === 'true';
-        }
-      });
-
-      // 4. Handle Numeric fields
-      ['years_in_business', 'storage_facility_size', 'number_of_sales_representatives', 'latitude', 'longitude'].forEach(field => {
-        if (typeof stockistUpdateData[field] === 'string' && stockistUpdateData[field].trim() !== '') {
-          const val = parseFloat(stockistUpdateData[field]);
-          if (!isNaN(val)) stockistUpdateData[field] = val;
-        }
-      });
-
-      // 4.1 Handle Geo-image update or removal
-      if (uploadedImageUrl) {
-        stockistUpdateData.geo_image_url = uploadedImageUrl;
-      } else if (stockistData.remove_geo_image === 'true' || stockistData.remove_geo_image === true) {
-        stockistUpdateData.geo_image_url = null;
-        console.log('User requested removal of geo_image');
-      }
-
-      // 5. Ensure annualTurnover is also parsed if present
-      if (typeof stockistData.annualTurnover === 'string' && stockistData.annualTurnover.trim() !== '') {
-        try {
-          stockistData.annualTurnover = JSON.parse(stockistData.annualTurnover);
-          console.log('Parsed annualTurnover from JSON string (update)');
-        } catch (e) {
-          console.error('Error parsing annualTurnover JSON (update):', e.message);
-        }
-      }
 
       // Update or Create Address
       if (stockistData.pincode && stockistData.addressLine1) {

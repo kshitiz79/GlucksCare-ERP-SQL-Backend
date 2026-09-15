@@ -87,6 +87,30 @@ module.exports = (db) => {
   db.Doctor.hasMany(db.DoctorVisit, { foreignKey: 'doctor_id' });
   db.Area.hasMany(db.Doctor, { foreignKey: 'areaId', as: 'Doctors' });
 
+  const EditReq = db.MasterEditRequest || db.DoctorEditRequest;
+  if (EditReq) {
+    if (db.Doctor) {
+      EditReq.belongsTo(db.Doctor, { foreignKey: 'doctor_id', as: 'doctor' });
+      db.Doctor.hasMany(EditReq, { foreignKey: 'doctor_id', as: 'editRequests' });
+    }
+    if (db.Chemist) {
+      EditReq.belongsTo(db.Chemist, { foreignKey: 'chemist_id', as: 'chemist' });
+      db.Chemist.hasMany(EditReq, { foreignKey: 'chemist_id', as: 'editRequests' });
+    }
+    if (db.Stockist) {
+      EditReq.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'stockist' });
+      db.Stockist.hasMany(EditReq, { foreignKey: 'stockist_id', as: 'editRequests' });
+    }
+    if (db.User) {
+      EditReq.belongsTo(db.User, { foreignKey: 'user_id', as: 'requester' });
+      EditReq.belongsTo(db.User, { foreignKey: 'reviewed_by', as: 'reviewer' });
+      db.User.hasMany(EditReq, { foreignKey: 'user_id', as: 'editRequests' });
+    }
+    if (db.HeadOffice) {
+      EditReq.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'headOffice' });
+    }
+  }
+
   if (db.DoctorChangeLog) {
     db.DoctorChangeLog.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
     db.DoctorChangeLog.belongsTo(db.Area, { foreignKey: 'area_id', as: 'Area' });

@@ -13,7 +13,10 @@ const {
   getVisitedDoctorsInRange,
   getUnvisitedDoctorsInRange,
   setGlobalUcpmpCap,
-  setDoctorUcpmpCap
+  setDoctorUcpmpCap,
+  getDoctorEditRequests,
+  approveDoctorEditRequest,
+  rejectDoctorEditRequest
 } = require('./doctorController');
 
 const {
@@ -60,6 +63,15 @@ router.get('/my-doctors', authMiddleware, getMyDoctors);
 // POST filters for visited/unvisited in date range
 router.post('/visited-in-range', authMiddleware, getVisitedDoctorsInRange);
 router.post('/unvisited-in-range', authMiddleware, getUnvisitedDoctorsInRange);
+
+// GET all doctor edit requests (Admin / Requester)
+router.get('/edit-requests', authMiddleware, getDoctorEditRequests);
+
+// APPROVE doctor edit request (Admin)
+router.put('/edit-requests/:id/approve', authMiddleware, approveDoctorEditRequest);
+
+// REJECT doctor edit request (Admin)
+router.put('/edit-requests/:id/reject', authMiddleware, rejectDoctorEditRequest);
 
 // GET doctor by ID
 router.get('/:id', authMiddleware, getDoctorById);

@@ -527,7 +527,7 @@ const updateChemist = async (req, res) => {
     if (!models || !models.Chemist || !models.HeadOffice || !models.ChemistAnnualTurnover || !models.Area || !sequelize) {
       throw new Error('Required models or Sequelize instance are not available');
     }
-    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area } = models;
+    const { Chemist, HeadOffice, ChemistAnnualTurnover, Area, DoctorEditRequest, Notification, NotificationRecipient, User } = models;
 
     const chemist = await Chemist.findByPk(req.params.id);
     if (!chemist) {
@@ -573,48 +573,151 @@ const updateChemist = async (req, res) => {
       }
     }
 
-    // Start a transaction
+    // Map headOffice to head_office_id if needed
+    const chemistData = { ...req.body };
+    if (chemistData.headOffice && !chemistData.head_office_id) {
+      chemistData.head_office_id = chemistData.headOffice;
+      delete chemistData.headOffice;
+    }
+
+    // Handle field name conversions from camelCase to snake_case
+    const fieldMappings = {
+      firmName: 'firm_name',
+      contactPersonName: 'contact_person_name',
+      mobileNo: 'mobile_no',
+      emailId: 'email_id',
+      drugLicenseNumber: 'drug_license_number',
+      gstNo: 'gst_no',
+      yearsInBusiness: 'years_in_business',
+      headOfficeId: 'head_office_id',
+      areaId: 'area_id',
+      area: 'area_id'
+    };
+
+    // Convert field names and collect data for the main chemist record
+    const chemistUpdateData = {};
+    Object.keys(chemistData).forEach(key => {
+      // Skip annualTurnover as it will be handled separately
+      if (key === 'annualTurnover') return;
+
+      const dbFieldName = fieldMappings[key] || key;
+      // Convert empty strings to null for optional fields
+      const value = chemistData[key];
+      chemistUpdateData[dbFieldName] = (value === '' || value === undefined) ? null : value;
+    });
+
+    // Add uploaded image URL if available
+    if (uploadedImageUrl) {
+      chemistUpdateData.geo_image_url = uploadedImageUrl;
+    }
+
+    // =========================================================================
+    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest (category: chemist) instead of direct DB update
+    // =========================================================================
+    const userRole = (req.user && req.user.role) ? req.user.role.toLowerCase() : '';
+    const isAdmin = ['admin', 'super admin', 'superadmin'].includes(userRole) || (req.user && req.user.role_name && req.user.role_name.toLowerCase().includes('admin'));
+
+    if (!isAdmin) {
+      console.log(`[Chemist Edit Request] User ${req.user?.name} (${req.user?.role}) requested edit for Chemist ${chemist.firm_name} (${chemist.id})`);
+
+      const existingTurnovers = await ChemistAnnualTurnover.findAll({
+        where: { chemist_id: chemist.id },
+        attributes: ['year', 'amount']
+      });
+
+      const currentChemistJson = chemist.toJSON();
+      const currentSnapshot = {
+        firm_name: currentChemistJson.firm_name,
+        contact_person_name: currentChemistJson.contact_person_name,
+        mobile_no: currentChemistJson.mobile_no,
+        email_id: currentChemistJson.email_id,
+        drug_license_number: currentChemistJson.drug_license_number,
+        gst_no: currentChemistJson.gst_no,
+        years_in_business: currentChemistJson.years_in_business,
+        head_office_id: currentChemistJson.head_office_id,
+        area_id: currentChemistJson.area_id,
+        latitude: currentChemistJson.latitude,
+        longitude: currentChemistJson.longitude,
+        geo_image_url: currentChemistJson.geo_image_url,
+        annualTurnover: existingTurnovers ? existingTurnovers.map(t => ({ year: t.year, amount: t.amount })) : []
+      };
+
+      const proposedChanges = {
+        ...chemistUpdateData,
+        annualTurnover: chemistData.annualTurnover || undefined
+      };
+
+      let editRequest = null;
+      if (DoctorEditRequest) {
+        const existingPending = await DoctorEditRequest.findOne({
+          where: {
+            category: 'chemist',
+            chemist_id: chemist.id,
+            user_id: req.user.id,
+            status: 'Pending'
+          }
+        });
+
+        if (existingPending) {
+          await existingPending.update({
+            proposed_changes: proposedChanges,
+            current_data: currentSnapshot,
+            head_office_id: chemistUpdateData.head_office_id || chemist.head_office_id,
+            entity_id: chemist.id
+          });
+          editRequest = existingPending;
+        } else {
+          editRequest = await DoctorEditRequest.create({
+            category: 'chemist',
+            entity_id: chemist.id,
+            chemist_id: chemist.id,
+            user_id: req.user.id,
+            head_office_id: chemistUpdateData.head_office_id || chemist.head_office_id,
+            current_data: currentSnapshot,
+            proposed_changes: proposedChanges,
+            status: 'Pending'
+          });
+        }
+      }
+
+      // Send notification to Admin users
+      try {
+        if (Notification && NotificationRecipient && User) {
+          const adminUsers = await User.findAll({
+            where: { role: ['Super Admin', 'Admin'], is_active: true },
+            attributes: ['id']
+          });
+          if (adminUsers && adminUsers.length > 0) {
+            const notif = await Notification.create({
+              title: 'Chemist Edit Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Chemist "${chemist.firm_name}". Please review and approve.`,
+              sender_id: req.user.id,
+              is_broadcast: false
+            });
+            const recipients = adminUsers.map(u => ({
+              notification_id: notif.id,
+              user_id: u.id,
+              is_read: false
+            }));
+            await NotificationRecipient.bulkCreate(recipients);
+          }
+        }
+      } catch (notifErr) {
+        console.warn('⚠️ Notification error on chemist edit request:', notifErr.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        approvalRequired: true,
+        message: 'Chemist edit request submitted for Admin approval. Changes will take effect once reviewed.',
+        data: editRequest
+      });
+    }
+
+    // Start a transaction for Admin direct update
     const transaction = await sequelize.transaction();
 
     try {
-      // Map headOffice to head_office_id if needed
-      const chemistData = { ...req.body };
-      if (chemistData.headOffice && !chemistData.head_office_id) {
-        chemistData.head_office_id = chemistData.headOffice;
-        delete chemistData.headOffice;
-      }
-
-      // Handle field name conversions from camelCase to snake_case
-      const fieldMappings = {
-        firmName: 'firm_name',
-        contactPersonName: 'contact_person_name',
-        mobileNo: 'mobile_no',
-        emailId: 'email_id',
-        drugLicenseNumber: 'drug_license_number',
-        gstNo: 'gst_no',
-        yearsInBusiness: 'years_in_business',
-        headOfficeId: 'head_office_id',
-        areaId: 'area_id',
-        area: 'area_id'
-      };
-
-      // Convert field names and collect data for the main chemist record
-      const chemistUpdateData = {};
-      Object.keys(chemistData).forEach(key => {
-        // Skip annualTurnover as it will be handled separately
-        if (key === 'annualTurnover') return;
-
-        const dbFieldName = fieldMappings[key] || key;
-        // Convert empty strings to null for optional fields
-        const value = chemistData[key];
-        chemistUpdateData[dbFieldName] = (value === '' || value === undefined) ? null : value;
-      });
-
-      // Add uploaded image URL if available
-      if (uploadedImageUrl) {
-        chemistUpdateData.geo_image_url = uploadedImageUrl;
-      }
-
       await chemist.update(chemistUpdateData, { transaction });
 
       // Handle annual turnover data if provided

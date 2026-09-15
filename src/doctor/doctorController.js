@@ -647,9 +647,14 @@ const updateDoctor = async (req, res) => {
     if (!models || !models.Doctor || !models.HeadOffice || !models.Area) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
+    const { Doctor, HeadOffice, Area, DoctorChangeLog, DoctorEditRequest, Notification, NotificationRecipient, User } = models;
 
-    const doctor = await Doctor.findByPk(req.params.id);
+    const doctor = await Doctor.findByPk(req.params.id, {
+      include: [
+        { model: HeadOffice, as: 'HeadOffice', attributes: ['id', 'name'] },
+        { model: Area, as: 'Area', attributes: ['id', 'name'] }
+      ]
+    });
     if (!doctor) {
       return res.status(404).json({
         success: false,
@@ -657,24 +662,9 @@ const updateDoctor = async (req, res) => {
       });
     }
 
-    // Optimistic Concurrency Check (baseServerVersion)
-    const baseServerVersion = req.body.baseServerVersion !== undefined
-      ? req.body.baseServerVersion
-      : (req.body.base_server_version !== undefined ? req.body.base_server_version : req.headers['x-base-server-version']);
-
-    if (baseServerVersion !== undefined && baseServerVersion !== null && baseServerVersion !== '') {
-      const currentVersion = Number(doctor.syncVersion || doctor.sync_version || 1);
-      if (currentVersion > Number(baseServerVersion)) {
-        console.warn(`[Sync Conflict] Doctor ${doctor.id} server version ${currentVersion} > client base ${baseServerVersion}`);
-        return res.status(409).json({
-          success: false,
-          conflict: true,
-          message: 'Conflict detected: Doctor record has been modified by another client or server update.',
-          serverVersion: currentVersion,
-          data: doctor
-        });
-      }
-    }
+    // Determine if requester is an Admin or Super Admin
+    const userRole = req.user?.role || '';
+    const isAdmin = ['Admin', 'Super Admin'].includes(userRole) || (typeof userRole === 'string' && userRole.toLowerCase().includes('admin'));
 
     // Handle geo_image upload if file is provided
     let uploadedImageUrl = null;
@@ -708,7 +698,6 @@ const updateDoctor = async (req, res) => {
         console.log('Geo-image uploaded to Cloudinary:', result.secure_url);
       } catch (uploadError) {
         console.error('Cloudinary upload error:', uploadError);
-        // Continue with doctor update even if image upload fails
       }
     }
 
@@ -717,6 +706,10 @@ const updateDoctor = async (req, res) => {
     const doctorData = { ...sanitizedBody };
     delete doctorData.baseServerVersion;
     delete doctorData.base_server_version;
+
+    if (uploadedImageUrl) {
+      doctorData.geo_image_url = uploadedImageUrl;
+    }
 
     const resolvedHeadOfficeId = resolveHeadOfficeId(doctorData);
     if (resolvedHeadOfficeId) {
@@ -745,8 +738,7 @@ const updateDoctor = async (req, res) => {
       doctorData.priority = priority;
     }
 
-    // Handle camelCase to snake_case conversion for other database columns,
-    // while keeping headOfficeId and areaId in camelCase to match Doctor model attributes.
+    // Handle camelCase to snake_case conversion for database columns
     const convertedData = {};
     Object.keys(doctorData).forEach(key => {
       if (key === 'headOfficeId' || key === 'areaId' || key === 'clientGeneratedId') {
@@ -784,6 +776,129 @@ const updateDoctor = async (req, res) => {
           console.warn(`⚠️ Warning: Area '${convertedData.areaId}' does not exist. Gracefully resetting areaId to null.`);
           convertedData.areaId = null;
         }
+      }
+    }
+
+    // =========================================================================
+    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest instead of direct DB update
+    // =========================================================================
+    if (!isAdmin) {
+      console.log(`[Doctor Edit Request] User ${req.user.name} (${req.user.role}) requested edit for Doctor ${doctor.name} (${doctor.id})`);
+
+      const currentDoctorJson = doctor.toJSON();
+      const currentSnapshot = {
+        name: currentDoctorJson.name,
+        specialization: currentDoctorJson.specialization,
+        clinic_name: currentDoctorJson.clinic_name,
+        clinic_address: currentDoctorJson.clinic_address,
+        location: currentDoctorJson.location,
+        latitude: currentDoctorJson.latitude,
+        longitude: currentDoctorJson.longitude,
+        email: currentDoctorJson.email,
+        phone: currentDoctorJson.phone,
+        registration_number: currentDoctorJson.registration_number,
+        years_of_experience: currentDoctorJson.years_of_experience,
+        date_of_birth: currentDoctorJson.date_of_birth,
+        gender: currentDoctorJson.gender,
+        anniversary: currentDoctorJson.anniversary,
+        priority: currentDoctorJson.priority,
+        qualification: currentDoctorJson.qualification,
+        consultation_fee: currentDoctorJson.consultation_fee,
+        available_timings: currentDoctorJson.available_timings,
+        head_office_id: currentDoctorJson.headOfficeId || currentDoctorJson.head_office_id,
+        headOfficeName: currentDoctorJson.HeadOffice ? currentDoctorJson.HeadOffice.name : null,
+        area_id: currentDoctorJson.areaId || currentDoctorJson.area_id,
+        areaName: currentDoctorJson.Area ? currentDoctorJson.Area.name : null,
+        geo_image_url: currentDoctorJson.geo_image_url
+      };
+
+      // Check for existing pending request by this user for this doctor
+      let editRequest = null;
+      if (DoctorEditRequest) {
+        const existingPending = await DoctorEditRequest.findOne({
+          where: {
+            doctor_id: doctor.id,
+            user_id: req.user.id,
+            status: 'Pending'
+          }
+        });
+
+        if (existingPending) {
+          await existingPending.update({
+            proposed_changes: convertedData,
+            current_data: currentSnapshot,
+            head_office_id: convertedData.headOfficeId || doctor.headOfficeId,
+            category: 'doctor',
+            entity_id: doctor.id
+          });
+          editRequest = existingPending;
+        } else {
+          editRequest = await DoctorEditRequest.create({
+            category: 'doctor',
+            entity_id: doctor.id,
+            doctor_id: doctor.id,
+            user_id: req.user.id,
+            head_office_id: convertedData.headOfficeId || doctor.headOfficeId,
+            current_data: currentSnapshot,
+            proposed_changes: convertedData,
+            status: 'Pending'
+          });
+        }
+      }
+
+      // Send notification to Admin users
+      try {
+        if (Notification && NotificationRecipient && User) {
+          const adminUsers = await User.findAll({
+            where: { role: ['Super Admin', 'Admin'], is_active: true },
+            attributes: ['id']
+          });
+          if (adminUsers && adminUsers.length > 0) {
+            const notif = await Notification.create({
+              title: 'Doctor Edit Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Doctor "${doctor.name}". Please review and approve.`,
+              sender_id: req.user.id,
+              is_broadcast: false
+            });
+            const recipients = adminUsers.map(u => ({
+              notification_id: notif.id,
+              user_id: u.id,
+              is_read: false
+            }));
+            await NotificationRecipient.bulkCreate(recipients);
+          }
+        }
+      } catch (notifErr) {
+        console.warn('⚠️ Notification error on doctor edit request:', notifErr.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        approvalRequired: true,
+        message: 'Doctor edit request submitted to Admin for approval. Changes will be applied once approved.',
+        data: editRequest || { doctor_id: doctor.id, status: 'Pending' }
+      });
+    }
+
+    // =========================================================================
+    // ADMIN / SUPER ADMIN: Direct update into database
+    // =========================================================================
+    // Optimistic Concurrency Check (baseServerVersion)
+    const baseServerVersion = req.body.baseServerVersion !== undefined
+      ? req.body.baseServerVersion
+      : (req.body.base_server_version !== undefined ? req.body.base_server_version : req.headers['x-base-server-version']);
+
+    if (baseServerVersion !== undefined && baseServerVersion !== null && baseServerVersion !== '') {
+      const currentVersion = Number(doctor.syncVersion || doctor.sync_version || 1);
+      if (currentVersion > Number(baseServerVersion)) {
+        console.warn(`[Sync Conflict] Doctor ${doctor.id} server version ${currentVersion} > client base ${baseServerVersion}`);
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          message: 'Conflict detected: Doctor record has been modified by another client or server update.',
+          serverVersion: currentVersion,
+          data: doctor
+        });
       }
     }
 
@@ -852,17 +967,395 @@ const updateDoctor = async (req, res) => {
       is_assigned_to_area: !!doctorObj.areaId,
       createdAt: doctorObj.created_at,
       updatedAt: doctorObj.updated_at,
-      // Remove the nested objects
       HeadOffice: undefined,
       Area: undefined
     };
 
     res.json({
       success: true,
+      direct: true,
+      message: 'Doctor updated successfully',
       data: transformedDoctor
     });
   } catch (error) {
     console.error('Error in updateDoctor:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// GET all edit requests (Universal: Doctor / Chemist / Stockist) (Admin / Requester)
+const getDoctorEditRequests = async (req, res) => {
+  try {
+    const { DoctorEditRequest, Doctor, Chemist, Stockist, User, HeadOffice, Area } = req.app.get('models');
+    if (!DoctorEditRequest) {
+      return res.json({ success: true, count: 0, data: [] });
+    }
+
+    const userRole = req.user?.role || '';
+    const isAdmin = ['Admin', 'Super Admin'].includes(userRole) || (typeof userRole === 'string' && userRole.toLowerCase().includes('admin'));
+
+    const { status, doctorId, chemistId, stockistId, category } = req.query;
+    const whereClause = {};
+
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+    if (category && category !== 'all') {
+      whereClause.category = category;
+    }
+    if (doctorId) {
+      whereClause.doctor_id = doctorId;
+    }
+    if (chemistId) {
+      whereClause.chemist_id = chemistId;
+    }
+    if (stockistId) {
+      whereClause.stockist_id = stockistId;
+    }
+    if (!isAdmin) {
+      whereClause.user_id = req.user.id;
+    }
+
+    const includeModels = [];
+    if (Doctor) {
+      includeModels.push({
+        model: Doctor,
+        as: 'doctor',
+        required: false,
+        include: [
+          ...(HeadOffice ? [{ model: HeadOffice, as: 'HeadOffice', attributes: ['id', 'name'] }] : []),
+          ...(Area ? [{ model: Area, as: 'Area', attributes: ['id', 'name'] }] : [])
+        ]
+      });
+    }
+    if (Chemist) {
+      includeModels.push({
+        model: Chemist,
+        as: 'chemist',
+        required: false,
+        include: [
+          ...(HeadOffice ? [{ model: HeadOffice, as: 'HeadOffice', attributes: ['id', 'name'] }] : []),
+          ...(Area ? [{ model: Area, as: 'Area', attributes: ['id', 'name'] }] : [])
+        ]
+      });
+    }
+    if (Stockist) {
+      includeModels.push({
+        model: Stockist,
+        as: 'stockist',
+        required: false,
+        include: [
+          ...(HeadOffice ? [{ model: HeadOffice, as: 'HeadOffice', attributes: ['id', 'name'] }] : []),
+          ...(Area ? [{ model: Area, as: 'Area', attributes: ['id', 'name'] }] : [])
+        ]
+      });
+    }
+    if (User) {
+      includeModels.push(
+        {
+          model: User,
+          as: 'requester',
+          attributes: ['id', 'name', 'email', 'role', 'phone', 'employee_code']
+        },
+        {
+          model: User,
+          as: 'reviewer',
+          attributes: ['id', 'name', 'email', 'role']
+        }
+      );
+    }
+    if (HeadOffice) {
+      includeModels.push({
+        model: HeadOffice,
+        as: 'headOffice',
+        attributes: ['id', 'name']
+      });
+    }
+
+    const requests = await DoctorEditRequest.findAll({
+      where: whereClause,
+      include: includeModels,
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      count: requests.length,
+      data: requests
+    });
+  } catch (error) {
+    console.error('Error in getDoctorEditRequests:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// APPROVE an edit request (Doctor / Chemist / Stockist) (Admin Only)
+const approveDoctorEditRequest = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const { DoctorEditRequest, Doctor, Chemist, ChemistAnnualTurnover, Stockist, StockistAnnualTurnover, HeadOffice, Area, DoctorChangeLog, Notification, NotificationRecipient } = models;
+
+    const userRole = req.user?.role || '';
+    const isAdmin = ['Admin', 'Super Admin'].includes(userRole) || (typeof userRole === 'string' && userRole.toLowerCase().includes('admin'));
+
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only Admins can approve edit requests'
+      });
+    }
+
+    const includeModels = [];
+    if (Doctor) includeModels.push({ model: Doctor, as: 'doctor', required: false });
+    if (Chemist) includeModels.push({ model: Chemist, as: 'chemist', required: false });
+    if (Stockist) includeModels.push({ model: Stockist, as: 'stockist', required: false });
+
+    const editRequest = await DoctorEditRequest.findByPk(req.params.id, {
+      include: includeModels
+    });
+
+    if (!editRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Edit request not found'
+      });
+    }
+
+    if (editRequest.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: `This edit request is already ${editRequest.status.toLowerCase()}`
+      });
+    }
+
+    const category = editRequest.category || 'doctor';
+    let entityName = '';
+    const proposedChanges = editRequest.proposed_changes || {};
+
+    if (category === 'doctor') {
+      const doctor = await Doctor.findByPk(editRequest.doctor_id || editRequest.entity_id);
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message: 'Associated doctor not found'
+        });
+      }
+      entityName = doctor.name;
+      const updatePayload = { ...proposedChanges };
+
+      let nextVersion = Date.now();
+      try {
+        const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+        if (seqRes && seqRes[0] && seqRes[0].ver) {
+          nextVersion = Number(seqRes[0].ver);
+        }
+      } catch (e) {
+        nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
+      }
+      updatePayload.sync_version = nextVersion;
+      await doctor.update(updatePayload);
+
+      try {
+        if (DoctorChangeLog) {
+          await DoctorChangeLog.create({
+            doctorId: doctor.id,
+            changeVersion: nextVersion,
+            operation: 'UPDATE',
+            headOfficeId: doctor.headOfficeId,
+            areaId: doctor.areaId || null,
+            snapshot: {
+              id: doctor.id,
+              name: doctor.name,
+              headOfficeId: doctor.headOfficeId,
+              areaId: doctor.areaId,
+              syncVersion: nextVersion
+            }
+          });
+        }
+      } catch (logErr) {
+        console.warn('⚠️ Warning: Failed to create DoctorChangeLog on approval:', logErr.message);
+      }
+    } else if (category === 'chemist') {
+      const chemist = await Chemist.findByPk(editRequest.chemist_id || editRequest.entity_id);
+      if (!chemist) {
+        return res.status(404).json({
+          success: false,
+          message: 'Associated chemist not found'
+        });
+      }
+      entityName = chemist.firm_name;
+      const { annualTurnover, ...chemistFields } = proposedChanges;
+      await chemist.update(chemistFields);
+
+      if (annualTurnover && Array.isArray(annualTurnover) && ChemistAnnualTurnover) {
+        await ChemistAnnualTurnover.destroy({ where: { chemist_id: chemist.id } });
+        const turnoverRecords = annualTurnover.map(t => ({
+          chemist_id: chemist.id,
+          year: parseInt(t.year, 10),
+          amount: parseFloat(t.amount)
+        })).filter(t => !isNaN(t.year) && !isNaN(t.amount));
+        if (turnoverRecords.length > 0) {
+          await ChemistAnnualTurnover.bulkCreate(turnoverRecords);
+        }
+      }
+    } else if (category === 'stockist') {
+      const stockist = await Stockist.findByPk(editRequest.stockist_id || editRequest.entity_id);
+      if (!stockist) {
+        return res.status(404).json({
+          success: false,
+          message: 'Associated stockist not found'
+        });
+      }
+      entityName = stockist.firm_name;
+      const { annualTurnover, ...stockistFields } = proposedChanges;
+      await stockist.update(stockistFields);
+
+      if (annualTurnover && Array.isArray(annualTurnover) && StockistAnnualTurnover) {
+        await StockistAnnualTurnover.destroy({ where: { stockist_id: stockist.id } });
+        const turnoverRecords = annualTurnover.map(t => ({
+          stockist_id: stockist.id,
+          year: parseInt(t.year, 10),
+          amount: parseFloat(t.amount)
+        })).filter(t => !isNaN(t.year) && !isNaN(t.amount));
+        if (turnoverRecords.length > 0) {
+          await StockistAnnualTurnover.bulkCreate(turnoverRecords);
+        }
+      }
+    }
+
+    // Mark edit request as Approved
+    const adminNotes = req.body.comments || req.body.admin_notes || null;
+    await editRequest.update({
+      status: 'Approved',
+      reviewed_by: req.user.id,
+      reviewed_at: new Date(),
+      admin_notes: adminNotes
+    });
+
+    // Notify the user who requested the edit
+    try {
+      if (Notification && NotificationRecipient && editRequest.user_id) {
+        const typeLabel = category.charAt(0).toUpperCase() + category.slice(1);
+        const notif = await Notification.create({
+          title: `${typeLabel} Edit Request Approved`,
+          body: `Your edit request for ${typeLabel} "${entityName}" has been approved by ${req.user.name || 'Admin'}. Changes are now live.${adminNotes ? ` Note: ${adminNotes}` : ''}`,
+          sender_id: req.user.id,
+          is_broadcast: false
+        });
+        await NotificationRecipient.create({
+          notification_id: notif.id,
+          user_id: editRequest.user_id,
+          is_read: false
+        });
+      }
+    } catch (notifErr) {
+      console.warn('⚠️ Notification error on request approval:', notifErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `${category.charAt(0).toUpperCase() + category.slice(1)} edit request for "${entityName}" approved successfully`,
+      editRequest
+    });
+  } catch (error) {
+    console.error('Error in approveDoctorEditRequest:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// REJECT an edit request (Doctor / Chemist / Stockist) (Admin Only)
+const rejectDoctorEditRequest = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    const { DoctorEditRequest, Doctor, Chemist, Stockist, Notification, NotificationRecipient } = models;
+
+    const userRole = req.user?.role || '';
+    const isAdmin = ['Admin', 'Super Admin'].includes(userRole) || (typeof userRole === 'string' && userRole.toLowerCase().includes('admin'));
+
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only Admins can reject edit requests'
+      });
+    }
+
+    const includeModels = [];
+    if (Doctor) includeModels.push({ model: Doctor, as: 'doctor', required: false });
+    if (Chemist) includeModels.push({ model: Chemist, as: 'chemist', required: false });
+    if (Stockist) includeModels.push({ model: Stockist, as: 'stockist', required: false });
+
+    const editRequest = await DoctorEditRequest.findByPk(req.params.id, {
+      include: includeModels
+    });
+
+    if (!editRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Edit request not found'
+      });
+    }
+
+    if (editRequest.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: `This edit request is already ${editRequest.status.toLowerCase()}`
+      });
+    }
+
+    const category = editRequest.category || 'doctor';
+    let entityName = '';
+    if (category === 'doctor') {
+      entityName = editRequest.doctor?.name || editRequest.current_data?.name || 'Doctor';
+    } else if (category === 'chemist') {
+      entityName = editRequest.chemist?.firm_name || editRequest.current_data?.firm_name || 'Chemist';
+    } else if (category === 'stockist') {
+      entityName = editRequest.stockist?.firm_name || editRequest.current_data?.firm_name || 'Stockist';
+    }
+
+    const adminNotes = req.body.comments || req.body.admin_notes || req.body.reason || 'Rejected by Admin';
+    await editRequest.update({
+      status: 'Rejected',
+      reviewed_by: req.user.id,
+      reviewed_at: new Date(),
+      admin_notes: adminNotes
+    });
+
+    // Notify requester
+    try {
+      if (Notification && NotificationRecipient && editRequest.user_id) {
+        const typeLabel = category.charAt(0).toUpperCase() + category.slice(1);
+        const notif = await Notification.create({
+          title: `${typeLabel} Edit Request Rejected`,
+          body: `Your edit request for ${typeLabel} "${entityName}" was rejected by ${req.user.name || 'Admin'}.${adminNotes ? ` Reason: ${adminNotes}` : ''}`,
+          sender_id: req.user.id,
+          is_broadcast: false
+        });
+        await NotificationRecipient.create({
+          notification_id: notif.id,
+          user_id: editRequest.user_id,
+          is_read: false
+        });
+      }
+    } catch (notifErr) {
+      console.warn('⚠️ Notification error on request rejection:', notifErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `${category.charAt(0).toUpperCase() + category.slice(1)} edit request rejected successfully`,
+      data: editRequest
+    });
+  } catch (error) {
+    console.error('Error in rejectDoctorEditRequest:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -1902,6 +2395,9 @@ module.exports = {
   getUnvisitedDoctorsInRange,
   setGlobalUcpmpCap,
   setDoctorUcpmpCap,
+  getDoctorEditRequests,
+  approveDoctorEditRequest,
+  rejectDoctorEditRequest,
   getSupportValueMtdMap,
   getSupportValueFyMap
 };

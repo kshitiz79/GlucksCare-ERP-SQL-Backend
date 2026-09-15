@@ -51,6 +51,7 @@ const LeaveType = require('../leaveType/LeaveType');
 const Shift = require('../shift/Shift');
 const Doctor = require('../doctor/Doctor');
 const DoctorChangeLog = require('../doctor/DoctorChangeLog');
+const MasterEditRequest = require('../masterEditRequest/MasterEditRequest');
 const InvestmentRequest = require('../investmentRequest/InvestmentRequest');
 const Sale = require('../sale/Sale');
 
@@ -131,6 +132,8 @@ const models = {
   Shift: Shift(sequelize),
   Doctor: Doctor(sequelize),
   DoctorChangeLog: DoctorChangeLog(sequelize),
+  MasterEditRequest: MasterEditRequest(sequelize),
+  DoctorEditRequest: MasterEditRequest(sequelize),
   InvestmentRequest: InvestmentRequest(sequelize),
   Sale: Sale(sequelize),
 
@@ -250,6 +253,39 @@ async function ensurePerformanceIndexes() {
       `);
     } catch (e) { }
 
+    // Ensure doctor_edit_requests table exists and has universal columns (doctor, chemist, stockist)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS doctor_edit_requests (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          category VARCHAR(50) NOT NULL DEFAULT 'doctor',
+          entity_id UUID,
+          doctor_id UUID REFERENCES doctors(id) ON DELETE SET NULL,
+          chemist_id UUID REFERENCES chemists(id) ON DELETE SET NULL,
+          stockist_id UUID REFERENCES stockists(id) ON DELETE SET NULL,
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL,
+          current_data JSONB NOT NULL DEFAULT '{}',
+          proposed_changes JSONB NOT NULL DEFAULT '{}',
+          status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+          admin_notes TEXT,
+          reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          reviewed_at TIMESTAMP WITH TIME ZONE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+
+      // Safe column alterations for existing tables
+      await sequelize.query(`
+        ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'doctor';
+        ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS entity_id UUID;
+        ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS chemist_id UUID REFERENCES chemists(id) ON DELETE SET NULL;
+        ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS stockist_id UUID REFERENCES stockists(id) ON DELETE SET NULL;
+        ALTER TABLE doctor_edit_requests ALTER COLUMN doctor_id DROP NOT NULL;
+      `);
+    } catch (e) { }
+
     // Ensure smtp_settings table exists
     try {
       await sequelize.query(`
@@ -273,6 +309,14 @@ async function ensurePerformanceIndexes() {
     await sequelize.query(`
       CREATE INDEX IF NOT EXISTS idx_doctors_client_gen_id ON doctors (client_generated_id);
       CREATE INDEX IF NOT EXISTS idx_doctors_sync_version ON doctors (sync_version);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_category ON doctor_edit_requests (category);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_doctor ON doctor_edit_requests (doctor_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_chemist ON doctor_edit_requests (chemist_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_stockist ON doctor_edit_requests (stockist_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_user ON doctor_edit_requests (user_id);
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_status ON doctor_edit_requests (status);
+
+      CREATE INDEX IF NOT EXISTS idx_doctor_edit_requests_created ON doctor_edit_requests (created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_version ON doctor_change_logs (change_version);
       CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_doctor ON doctor_change_logs (doctor_id);
       CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
