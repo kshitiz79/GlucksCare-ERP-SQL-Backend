@@ -160,9 +160,11 @@ const getAllSalesTargets = async (req, res) => {
         };
       });
 
-      // Filter by status if provided
+      // Filter by status if provided, else default to only assigned targets
       if (status) {
         transformedData = transformedData.filter(item => item.status === status);
+      } else if (req.query.includeUnassigned !== 'true') {
+        transformedData = transformedData.filter(item => item.hasTarget);
       }
 
       // Calculate summary
@@ -403,6 +405,8 @@ const getAllSalesTargets = async (req, res) => {
     let filteredUsers = transformedUserTargets;
     if (status) {
       filteredUsers = filteredUsers.filter(u => u.status === status);
+    } else if (req.query.includeUnassigned !== 'true') {
+      filteredUsers = filteredUsers.filter(u => u.hasTarget && (u.targetAmount > 0 || u.aggregatedTargetAmount > 0));
     }
 
     const totalTargetSum = filteredUsers.reduce((sum, u) => sum + u.aggregatedTargetAmount, 0);
