@@ -49,6 +49,8 @@ async function ensureTenantSyncSchema(sequelize) {
         CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
         CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_created ON doctor_change_logs (created_at DESC);
       `);
+    } catch (e) {}
+
     // 6. Ensure sales_targets schema has head_office_id and nullable user_id
     try {
       await sequelize.query('ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS head_office_id UUID REFERENCES head_offices(id) ON DELETE CASCADE;');
