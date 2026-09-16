@@ -1476,13 +1476,38 @@ const bindDeviceToUser = async (req, res) => {
   }
 };
 
+// Cache for computed user daily distances (TTL: 2 minutes)
+const userDailyDistanceCache = new Map();
+
 const getUserDailyDistances = async (req, res) => {
   try {
     const { userId } = req.params;
     const { startDate, endDate } = req.query;
     const sequelize = req.app.get('sequelize');
 
-    // 1. Fetch from location_pings
+    const cacheKey = `${userId}_${startDate || 'all'}_${endDate || 'all'}`;
+    const cached = userDailyDistanceCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 120000)) {
+      return res.json({
+        success: true,
+        data: cached.data,
+        fromCache: true
+      });
+    }
+
+    // 0. Fetch active device IDs for user first (fast indexed lookup)
+    let devIds = [];
+    try {
+      const activeDevices = await sequelize.query(
+        "SELECT device_id, android_id FROM user_devices WHERE user_id::text = :userId AND status = 'ACTIVE'",
+        { replacements: { userId }, type: sequelize.QueryTypes.SELECT }
+      );
+      devIds = [...new Set(activeDevices.flatMap(d => [d.device_id, d.android_id]).filter(Boolean))];
+    } catch (devErr) {
+      console.warn('[getUserDailyDistances] activeDevices lookup note:', devErr.message);
+    }
+
+    // 1. Fetch from location_pings (fast indexed query on user_id, device_time_utc)
     let pingQuery = `
       SELECT 
         lp.latitude,
@@ -1490,11 +1515,11 @@ const getUserDailyDistances = async (req, res) => {
         lp.device_time_utc as timestamp,
         lp.accuracy_m as accuracy
       FROM location_pings lp
-      WHERE lp.user_id::text = :userId
+      WHERE (lp.user_id::text = :userId ${devIds.length > 0 ? 'OR lp.device_id IN (:devIds)' : ''})
         AND lp.latitude IS NOT NULL AND lp.longitude IS NOT NULL
         AND lp.latitude != 0 AND lp.longitude != 0
     `;
-    const pingReplacements = { userId };
+    const pingReplacements = { userId, ...(devIds.length > 0 ? { devIds } : {}) };
     if (startDate) {
       pingQuery += ` AND lp.device_time_utc >= :startDate`;
       pingReplacements.startDate = new Date(startDate);
@@ -1514,7 +1539,7 @@ const getUserDailyDistances = async (req, res) => {
       console.warn('[getUserDailyDistances] location_pings query note:', e.message);
     }
 
-    // 2. Fetch from offline_bg_tracking
+    // 2. Fetch from offline_bg_tracking (fast indexed query without full table Cartesian join)
     let obtQuery = `
       SELECT 
         (obt.payload->>'latitude')::numeric as latitude,
@@ -1522,17 +1547,13 @@ const getUserDailyDistances = async (req, res) => {
         COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) as timestamp,
         (obt.payload->>'accuracy')::numeric as accuracy
       FROM offline_bg_tracking obt
-      LEFT JOIN user_devices ud ON (
-           (obt.device_id IS NOT NULL AND obt.device_id != '' AND (ud.device_id = obt.device_id OR ud.android_id = obt.device_id))
-        OR (obt.payload->>'device_id' IS NOT NULL AND (ud.device_id = (obt.payload->>'device_id') OR ud.android_id = (obt.payload->>'device_id')))
-      ) AND ud.status = 'ACTIVE'
-      WHERE (obt.user_id::text = :userId OR (obt.payload->>'user_id') = :userId OR ud.user_id::text = :userId)
+      WHERE (obt.user_id::text = :userId ${devIds.length > 0 ? 'OR obt.device_id IN (:devIds)' : ''})
         AND obt.payload->>'latitude' IS NOT NULL 
         AND obt.payload->>'longitude' IS NOT NULL
         AND (obt.payload->>'latitude')::numeric != 0
         AND (obt.payload->>'longitude')::numeric != 0
     `;
-    const obtReplacements = { userId };
+    const obtReplacements = { userId, ...(devIds.length > 0 ? { devIds } : {}) };
     if (startDate) {
       obtQuery += ` AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startDate`;
       obtReplacements.startDate = new Date(startDate);
@@ -1669,6 +1690,12 @@ const getUserDailyDistances = async (req, res) => {
         distance_km: distKm,
         points_count: cleaned.length
       };
+    });
+
+    // Store in cache
+    userDailyDistanceCache.set(cacheKey, {
+      timestamp: Date.now(),
+      data: result
     });
 
     res.json({

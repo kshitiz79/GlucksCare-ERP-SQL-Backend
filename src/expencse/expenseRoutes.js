@@ -14,7 +14,8 @@ const {
   uploadBillImage,
   finalizeMonthPayment,
   getPaymentSummary,
-  sendExpenseReportEmail
+  sendExpenseReportEmail,
+  getUserVisitsSummary
 } = require('./expenseController');
 
 // GET expense settings
@@ -25,6 +26,12 @@ router.put('/settings', updateExpenseSettings);
 
 // UPLOAD bill image
 router.post('/upload-bill', upload.single('bill'), uploadBillImage);
+
+// GET payment summary by month (placed before /:id)
+router.get('/payment-summary', getPaymentSummary);
+
+// GET user visits summary for mileage verification (placed before /:id)
+router.get('/user-visits-summary/:userId', getUserVisitsSummary);
 
 // GET all expenses
 router.get('/', getAllExpenses);
@@ -49,9 +56,6 @@ router.put('/:id/reject', rejectExpense);
 
 // FINALIZE payment for a month
 router.post('/finalize-payment', finalizeMonthPayment);
-
-// GET payment summary by month
-router.get('/payment-summary', getPaymentSummary);
 
 // SEND expense report via email
 router.post('/send-email', sendExpenseReportEmail);

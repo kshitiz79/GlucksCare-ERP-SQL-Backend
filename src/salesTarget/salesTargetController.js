@@ -4,294 +4,425 @@ const { Op } = require('sequelize');
 const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
 const getSequelize = (req) => req?.tenantSequelize || (req?.app && req?.app.get('sequelize')) || defaultDb.sequelize;
 
-// Helper function to get subordinate user IDs based on hierarchy
-const getSubordinateUserIds = async (userId, role, targetMonth, targetYear, req = null) => {
-  try {
-    const models = getModels(req);
-    const sequelize = getSequelize(req);
-
-    const user = await models.User.findByPk(userId, {
-      attributes: ['id', 'role', 'state_id']
-    });
-
-    if (!user) {
-      console.log(`User ${userId} not found`);
-      return [];
-    }
-
-    let subordinateIds = [];
-
-    switch (role) {
-      case 'National Head':
-        // Gets all users below National Head (everyone except Super Admin, Admin, Opps Team, National Head)
-        const allUsers = await models.User.findAll({
-          where: {
-            role: { [Op.in]: ['State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'] },
-            id: { [Op.ne]: userId },
-            is_active: true
-          },
-          attributes: ['id']
-        });
-        subordinateIds = allUsers.map(u => u.id);
-        console.log(`National Head ${userId} has ${subordinateIds.length} subordinates`);
-        break;
-
-      case 'State Head':
-        // Gets all users in head offices that belong to this state
-        if (user.state_id) {
-          // Find all users whose head offices belong to this state
-          const stateUsers = await sequelize.query(`
-            SELECT DISTINCT u.id
-            FROM users u
-            INNER JOIN user_head_offices uho ON u.id = uho.user_id
-            INNER JOIN head_offices ho ON uho.head_office_id = ho.id
-            WHERE ho.state_id = :stateId
-            AND u.role IN ('Zonal Manager', 'Area Manager', 'Manager', 'User')
-            AND u.id != :userId
-            AND u.is_active = true
-          `, {
-            replacements: { stateId: user.state_id, userId },
-            type: sequelize.QueryTypes.SELECT
-          });
-          subordinateIds = (stateUsers || []).map(u => u.id);
-          console.log(`State Head ${userId} (state: ${user.state_id}) has ${subordinateIds.length} subordinates`);
-        } else {
-          console.log(`State Head ${userId} has no state_id assigned - will aggregate all users`);
-          // If no state assigned, aggregate all lower-level users
-          const allLowerUsers = await models.User.findAll({
-            where: {
-              role: { [Op.in]: ['Zonal Manager', 'Area Manager', 'Manager', 'User'] },
-              id: { [Op.ne]: userId },
-              is_active: true
-            },
-            attributes: ['id']
-          });
-          subordinateIds = allLowerUsers.map(u => u.id);
-        }
-        break;
-
-      case 'Zonal Manager':
-        // Gets Area Managers assigned to this Zonal Manager
-        const zonalManagerAreas = await models.ZonalManagerAreaManager.findAll({
-          where: { zonal_manager_id: userId },
-          attributes: ['area_manager_id']
-        });
-        const areaManagerIds = zonalManagerAreas.map(zm => zm.area_manager_id);
-        console.log(`Zonal Manager ${userId} has ${areaManagerIds.length} area managers assigned`);
-
-        // Get Managers and Users under these Area Managers
-        if (areaManagerIds.length > 0) {
-          const areaManagerSubordinates = await models.AreaManagerManager.findAll({
-            where: { area_manager_id: { [Op.in]: areaManagerIds } },
-            attributes: ['manager_id']
-          });
-          const managerIds = areaManagerSubordinates.map(am => am.manager_id);
-
-          // Get Users under these Managers using raw query to avoid association issues
-          if (managerIds.length > 0) {
-            const managerUsers = await sequelize.query(`
-              SELECT DISTINCT u.id
-              FROM users u
-              INNER JOIN user_head_offices uho ON u.id = uho.user_id
-              WHERE u.role = 'User'
-              AND uho.head_office_id IN (
-                SELECT head_office_id 
-                FROM user_head_offices 
-                WHERE user_id IN (:managerIds)
-              )
-            `, {
-              replacements: { managerIds },
-              type: sequelize.QueryTypes.SELECT
-            });
-
-            const userIds = managerUsers.map(u => u.id);
-            subordinateIds = [...areaManagerIds, ...managerIds, ...userIds];
-          } else {
-            subordinateIds = areaManagerIds;
-          }
-        }
-        break;
-
-      case 'Area Manager':
-        // Gets Managers assigned to this Area Manager
-        const areaManagerManagers = await models.AreaManagerManager.findAll({
-          where: { area_manager_id: userId },
-          attributes: ['manager_id']
-        });
-        const directManagerIds = areaManagerManagers.map(amm => amm.manager_id);
-        console.log(`Area Manager ${userId} has ${directManagerIds.length} managers assigned`);
-
-        // Get Users under these Managers using raw query
-        if (directManagerIds.length > 0) {
-          const usersUnderManagers = await sequelize.query(`
-            SELECT DISTINCT u.id
-            FROM users u
-            INNER JOIN user_head_offices uho ON u.id = uho.user_id
-            WHERE u.role = 'User'
-            AND uho.head_office_id IN (
-              SELECT head_office_id 
-              FROM user_head_offices 
-              WHERE user_id IN (:directManagerIds)
-            )
-          `, {
-            replacements: { directManagerIds },
-            type: sequelize.QueryTypes.SELECT
-          });
-
-          const directUserIds = usersUnderManagers.map(u => u.id);
-          subordinateIds = [...directManagerIds, ...directUserIds];
-        }
-        break;
-
-      case 'Manager':
-        // Gets Users under this Manager's head offices
-        const headOfficeUsers = await sequelize.query(`
-          SELECT DISTINCT u.id
-          FROM users u
-          INNER JOIN user_head_offices uho ON u.id = uho.user_id
-          WHERE u.role = 'User'
-          AND uho.head_office_id IN (
-            SELECT head_office_id 
-            FROM user_head_offices 
-            WHERE user_id = :userId
-          )
-        `, {
-          replacements: { userId },
-          type: sequelize.QueryTypes.SELECT
-        });
-
-        subordinateIds = headOfficeUsers.map(u => u.id);
-        console.log(`Manager ${userId} has ${subordinateIds.length} users in shared head offices`);
-        break;
-
-      default:
-        subordinateIds = [];
-    }
-
-    return subordinateIds;
-  } catch (error) {
-    console.error('Error getting subordinate user IDs:', error);
-    return [];
-  }
-};
-
-// GET all sales targets with filtering and pagination
+/**
+ * GET all sales targets (supports By Head Office and By User views)
+ */
 const getAllSalesTargets = async (req, res) => {
   try {
-    const models = getModels(req);
+    const sequelize = getSequelize(req);
     const {
-      userId,
+      viewMode = 'headoffice', // 'headoffice' | 'user'
       targetMonth,
-      targetYear,
+      targetYear = new Date().getFullYear(),
       status,
+      headOfficeId,
+      stateId,
+      userId,
+      search,
       page = 1,
-      limit = 10
+      limit = 100
     } = req.query;
 
-    // Build query filters
-    let whereClause = {};
+    const monthInt = targetMonth ? parseInt(targetMonth) : null;
+    const yearInt = parseInt(targetYear) || new Date().getFullYear();
 
-    if (userId) whereClause.user_id = userId;
-    if (targetMonth) whereClause.target_month = parseInt(targetMonth);
-    if (targetYear) whereClause.target_year = parseInt(targetYear);
-    if (status) whereClause.status = status;
+    // ==========================================
+    // 1. HEAD OFFICE VIEW
+    // ==========================================
+    if (viewMode === 'headoffice') {
+      let hoWhere = 'WHERE ho.is_active = true';
+      const replacements = { year: yearInt };
 
-    // Calculate pagination
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    // Get targets with user information
-    const { count, rows: targets } = await models.SalesTarget.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          where: { is_active: true }, // Only include targets for active users
-          attributes: ['id', 'name', 'email', 'employee_code', 'role', 'is_active']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ],
-      order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset: offset
-    });
-
-    // Calculate aggregated targets for hierarchical roles
-    const transformedTargets = await Promise.all(targets.map(async (target) => {
-      const plainTarget = target.toJSON();
-      const userRole = plainTarget.salesTargetUser?.role;
-
-      let aggregatedTarget = parseFloat(plainTarget.target_amount) || 0;
-      let aggregatedAchieved = parseFloat(plainTarget.achieved_amount) || 0;
-
-      // Only aggregate for hierarchical roles
-      if (['Manager', 'Area Manager', 'Zonal Manager', 'State Head', 'National Head'].includes(userRole)) {
-        const subordinateIds = await getSubordinateUserIds(
-          plainTarget.user_id,
-          userRole,
-          plainTarget.target_month,
-          plainTarget.target_year,
-          req
-        );
-
-        if (subordinateIds.length > 0) {
-          const subordinateTargets = await models.SalesTarget.findAll({
-            where: {
-              user_id: { [Op.in]: subordinateIds },
-              target_month: plainTarget.target_month,
-              target_year: plainTarget.target_year
-            },
-            attributes: ['target_amount', 'achieved_amount']
-          });
-
-          const subordinateTargetSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.target_amount || 0), 0);
-          const subordinateAchievedSum = subordinateTargets.reduce((sum, t) => sum + parseFloat(t.achieved_amount || 0), 0);
-
-          aggregatedTarget += subordinateTargetSum;
-          aggregatedAchieved += subordinateAchievedSum;
-        }
+      if (monthInt) {
+        replacements.month = monthInt;
+      }
+      if (stateId) {
+        hoWhere += ' AND ho.state_id = :stateId';
+        replacements.stateId = stateId;
+      }
+      if (headOfficeId) {
+        hoWhere += ' AND ho.id = :headOfficeId';
+        replacements.headOfficeId = headOfficeId;
+      }
+      if (search && search.trim()) {
+        hoWhere += ' AND (ho.name ILIKE :searchPattern OR s.name ILIKE :searchPattern)';
+        replacements.searchPattern = `%${search.trim()}%`;
       }
 
-      const aggregatedPercentage = aggregatedTarget > 0 ? Math.round((aggregatedAchieved / aggregatedTarget) * 100) : 0;
+      const targetJoin = monthInt
+        ? 'LEFT JOIN sales_targets st ON st.head_office_id = ho.id AND st.target_month = :month AND st.target_year = :year'
+        : 'LEFT JOIN sales_targets st ON st.head_office_id = ho.id AND st.target_year = :year';
+
+      const hoQuery = `
+        SELECT 
+          ho.id as head_office_id,
+          ho.name as head_office_name,
+          ho.pincode,
+          s.id as state_id,
+          s.name as state_name,
+          st.id as target_id,
+          st.target_amount,
+          st.achieved_amount,
+          st.achievement_percentage,
+          st.completion_deadline,
+          st.status as target_status,
+          st.notes,
+          st.target_month,
+          st.target_year
+        FROM head_offices ho
+        LEFT JOIN states s ON ho.state_id = s.id
+        ${targetJoin}
+        ${hoWhere}
+        ORDER BY ho.name ASC
+      `;
+
+      const hoRows = await sequelize.query(hoQuery, {
+        replacements,
+        type: sequelize.QueryTypes.SELECT
+      });
+
+      // Fetch all assigned users for all active head offices
+      const userMappings = await sequelize.query(`
+        SELECT DISTINCT
+          uho.head_office_id,
+          u.id as user_id,
+          u.name,
+          u.employee_code,
+          u.role,
+          u.email
+        FROM user_head_offices uho
+        JOIN users u ON uho.user_id = u.id
+        WHERE u.is_active = true
+        UNION
+        SELECT DISTINCT
+          u.head_office_id,
+          u.id as user_id,
+          u.name,
+          u.employee_code,
+          u.role,
+          u.email
+        FROM users u
+        WHERE u.head_office_id IS NOT NULL AND u.is_active = true
+      `, {
+        type: sequelize.QueryTypes.SELECT
+      });
+
+      const hoUsersMap = {};
+      userMappings.forEach(um => {
+        if (!um.head_office_id) return;
+        if (!hoUsersMap[um.head_office_id]) {
+          hoUsersMap[um.head_office_id] = [];
+        }
+        if (!hoUsersMap[um.head_office_id].some(u => u.user_id === um.user_id)) {
+          hoUsersMap[um.head_office_id].push({
+            id: um.user_id,
+            _id: um.user_id,
+            name: um.name,
+            employeeCode: um.employee_code,
+            role: um.role,
+            email: um.email
+          });
+        }
+      });
+
+      let transformedData = hoRows.map(row => {
+        const assignedUsers = hoUsersMap[row.head_office_id] || [];
+        const targetAmount = parseFloat(row.target_amount) || 0;
+        const achievedAmount = parseFloat(row.achieved_amount) || 0;
+        const achievementPercentage = targetAmount > 0 
+          ? (row.achievement_percentage !== null ? row.achievement_percentage : Math.round((achievedAmount / targetAmount) * 100))
+          : 0;
+
+        let status = 'Unassigned';
+        if (row.target_id) {
+          status = row.target_status || (achievementPercentage >= 100 ? 'Completed' : 'Active');
+        }
+
+        return {
+          _id: row.target_id || row.head_office_id,
+          targetId: row.target_id,
+          headOfficeId: row.head_office_id,
+          headOfficeName: row.head_office_name,
+          pincode: row.pincode,
+          stateId: row.state_id,
+          stateName: row.state_name || 'N/A',
+          assignedUsers,
+          userCount: assignedUsers.length,
+          targetAmount,
+          achievedAmount,
+          achievementPercentage,
+          targetMonth: row.target_month || monthInt || (new Date().getMonth() + 1),
+          targetYear: row.target_year || yearInt,
+          completionDeadline: row.completion_deadline,
+          status,
+          notes: row.notes || '',
+          hasTarget: !!row.target_id
+        };
+      });
+
+      // Filter by status if provided
+      if (status) {
+        transformedData = transformedData.filter(item => item.status === status);
+      }
+
+      // Calculate summary
+      const assignedTargets = transformedData.filter(d => d.hasTarget);
+      const totalTargetAmount = assignedTargets.reduce((sum, t) => sum + t.targetAmount, 0);
+      const totalAchievedAmount = assignedTargets.reduce((sum, t) => sum + t.achievedAmount, 0);
+      const overallPercentage = totalTargetAmount > 0 ? Math.round((totalAchievedAmount / totalTargetAmount) * 100) : 0;
+      const completedCount = assignedTargets.filter(t => t.status === 'Completed').length;
+      const activeCount = assignedTargets.filter(t => t.status === 'Active').length;
+      const overdueCount = assignedTargets.filter(t => t.status === 'Overdue').length;
+
+      return res.json({
+        success: true,
+        viewMode: 'headoffice',
+        data: transformedData,
+        summary: {
+          totalHeadOffices: transformedData.length,
+          totalAssignedHeadOffices: assignedTargets.length,
+          totalTargetAmount,
+          totalAchievedAmount,
+          overallAchievementPercentage: overallPercentage,
+          completedTargets: completedCount,
+          activeTargets: activeCount,
+          overdueTargets: overdueCount
+        },
+        pagination: {
+          current: parseInt(page),
+          pages: 1,
+          total: transformedData.length
+        }
+      });
+    }
+
+    // ==========================================
+    // 2. USER VIEW
+    // ==========================================
+    let userWhere = 'WHERE u.is_active = true';
+    const userReplacements = { year: yearInt };
+
+    if (monthInt) {
+      userReplacements.month = monthInt;
+    }
+    if (userId) {
+      userWhere += ' AND u.id = :userId';
+      userReplacements.userId = userId;
+    }
+    if (stateId) {
+      userWhere += ' AND u.state_id = :stateId';
+      userReplacements.stateId = stateId;
+    }
+    if (search && search.trim()) {
+      userWhere += ' AND (u.name ILIKE :searchPattern OR u.employee_code ILIKE :searchPattern OR u.email ILIKE :searchPattern)';
+      userReplacements.searchPattern = `%${search.trim()}%`;
+    }
+
+    const usersQuery = `
+      SELECT 
+        u.id as user_id,
+        u.name,
+        u.email,
+        u.employee_code,
+        u.role,
+        u.state_id,
+        s.name as state_name,
+        u.head_office_id as primary_ho_id
+      FROM users u
+      LEFT JOIN states s ON u.state_id = s.id
+      ${userWhere}
+      ORDER BY u.name ASC
+    `;
+
+    const activeUsers = await sequelize.query(usersQuery, {
+      replacements: userReplacements,
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    // Fetch user head office assignments
+    const uhoRows = await sequelize.query(`
+      SELECT 
+        uho.user_id,
+        ho.id as head_office_id,
+        ho.name as head_office_name,
+        ho.state_id,
+        s.name as state_name
+      FROM user_head_offices uho
+      JOIN head_offices ho ON uho.head_office_id = ho.id
+      LEFT JOIN states s ON ho.state_id = s.id
+      WHERE ho.is_active = true
+      UNION
+      SELECT 
+        u.id as user_id,
+        ho.id as head_office_id,
+        ho.name as head_office_name,
+        ho.state_id,
+        s.name as state_name
+      FROM users u
+      JOIN head_offices ho ON u.head_office_id = ho.id
+      LEFT JOIN states s ON ho.state_id = s.id
+      WHERE u.head_office_id IS NOT NULL AND ho.is_active = true
+    `, {
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    const userHoMap = {};
+    uhoRows.forEach(row => {
+      if (!userHoMap[row.user_id]) userHoMap[row.user_id] = [];
+      if (!userHoMap[row.user_id].some(h => h.head_office_id === row.head_office_id)) {
+        userHoMap[row.user_id].push({
+          headOfficeId: row.head_office_id,
+          headOfficeName: row.head_office_name,
+          stateId: row.state_id,
+          stateName: row.state_name
+        });
+      }
+    });
+
+    // Fetch all head office targets for this period
+    const hoTargetQuery = monthInt
+      ? 'SELECT * FROM sales_targets WHERE head_office_id IS NOT NULL AND target_month = :month AND target_year = :year'
+      : 'SELECT * FROM sales_targets WHERE head_office_id IS NOT NULL AND target_year = :year';
+
+    const hoTargets = await sequelize.query(hoTargetQuery, {
+      replacements: userReplacements,
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    const hoTargetMap = {};
+    hoTargets.forEach(st => {
+      hoTargetMap[st.head_office_id] = st;
+    });
+
+    // Fetch all head offices with state mapping for hierarchy aggregation
+    const allHeadOffices = await sequelize.query(`
+      SELECT id, name, state_id FROM head_offices WHERE is_active = true
+    `, {
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    const transformedUserTargets = activeUsers.map(user => {
+      const assignedHos = userHoMap[user.user_id] || [];
+      const userRole = user.role;
+
+      // 1. Calculate Own Target (Sum of directly assigned Head Offices)
+      let ownTargetAmount = 0;
+      let ownAchievedAmount = 0;
+      let deadline = null;
+      let targetStatus = 'Unassigned';
+      let primaryTargetId = null;
+
+      assignedHos.forEach(ho => {
+        const target = hoTargetMap[ho.headOfficeId];
+        if (target) {
+          ownTargetAmount += parseFloat(target.target_amount || 0);
+          ownAchievedAmount += parseFloat(target.achieved_amount || 0);
+          if (!deadline || (target.completion_deadline && new Date(target.completion_deadline) < new Date(deadline))) {
+            deadline = target.completion_deadline;
+          }
+          if (!primaryTargetId) primaryTargetId = target.id;
+        }
+      });
+
+      // 2. Calculate Team / Hierarchical Target
+      let teamTargetAmount = ownTargetAmount;
+      let teamAchievedAmount = ownAchievedAmount;
+
+      if (userRole === 'State Head' && user.state_id) {
+        // State Head: Sum of ALL head offices in this State
+        const stateHos = allHeadOffices.filter(ho => ho.state_id === user.state_id);
+        let stateTargetSum = 0;
+        let stateAchievedSum = 0;
+        stateHos.forEach(ho => {
+          const target = hoTargetMap[ho.id];
+          if (target) {
+            stateTargetSum += parseFloat(target.target_amount || 0);
+            stateAchievedSum += parseFloat(target.achieved_amount || 0);
+            if (!primaryTargetId) primaryTargetId = target.id;
+          }
+        });
+        teamTargetAmount = stateTargetSum;
+        teamAchievedAmount = stateAchievedSum;
+      } else if (['Admin', 'Super Admin', 'National Head'].includes(userRole)) {
+        // Admin / Super Admin / National Head: Sum of all Head Offices
+        let totalSum = 0;
+        let totalAchieved = 0;
+        allHeadOffices.forEach(ho => {
+          const target = hoTargetMap[ho.id];
+          if (target) {
+            totalSum += parseFloat(target.target_amount || 0);
+            totalAchieved += parseFloat(target.achieved_amount || 0);
+          }
+        });
+        teamTargetAmount = totalSum;
+        teamAchievedAmount = totalAchieved;
+      } else if (userRole === 'Manager' || userRole === 'Area Manager' || userRole === 'Zonal Manager') {
+        // Managers: Sum of assigned Head Offices
+        teamTargetAmount = ownTargetAmount;
+        teamAchievedAmount = ownAchievedAmount;
+      }
+
+      const ownPercentage = ownTargetAmount > 0 ? Math.round((ownAchievedAmount / ownTargetAmount) * 100) : 0;
+      const teamPercentage = teamTargetAmount > 0 ? Math.round((teamAchievedAmount / teamTargetAmount) * 100) : 0;
+
+      if (teamTargetAmount > 0) {
+        targetStatus = teamPercentage >= 100 ? 'Completed' : 'Active';
+      }
 
       return {
-        ...plainTarget,
-        _id: plainTarget.id,
-        userId: plainTarget.salesTargetUser ? {
-          _id: plainTarget.salesTargetUser.id,
-          name: plainTarget.salesTargetUser.name,
-          employeeCode: plainTarget.salesTargetUser.employee_code,
-          role: plainTarget.salesTargetUser.role
-        } : null,
-        targetAmount: plainTarget.target_amount,
-        targetMonth: plainTarget.target_month,
-        targetYear: plainTarget.target_year,
-        completionDeadline: plainTarget.completion_deadline,
-        achievedAmount: plainTarget.achieved_amount,
-        achievementPercentage: plainTarget.achievement_percentage,
-        // Add aggregated values
-        aggregatedTargetAmount: aggregatedTarget,
-        aggregatedAchievedAmount: aggregatedAchieved,
-        aggregatedPercentage: aggregatedPercentage
+        _id: primaryTargetId || user.user_id,
+        targetId: primaryTargetId,
+        userId: {
+          _id: user.user_id,
+          id: user.user_id,
+          name: user.name,
+          employeeCode: user.employee_code,
+          role: user.role,
+          email: user.email
+        },
+        stateId: user.state_id,
+        stateName: user.state_name || 'N/A',
+        headOffices: assignedHos,
+        headOfficeCount: assignedHos.length,
+        targetMonth: monthInt || (new Date().getMonth() + 1),
+        targetYear: yearInt,
+        // Individual / Own HO Target
+        targetAmount: ownTargetAmount,
+        achievedAmount: ownAchievedAmount,
+        achievementPercentage: ownPercentage,
+        // Aggregated / Team / State Target
+        aggregatedTargetAmount: teamTargetAmount,
+        aggregatedAchievedAmount: teamAchievedAmount,
+        aggregatedPercentage: teamPercentage,
+        completionDeadline: deadline,
+        status: targetStatus,
+        hasTarget: teamTargetAmount > 0
       };
-    }));
+    });
 
-    res.json({
+    let filteredUsers = transformedUserTargets;
+    if (status) {
+      filteredUsers = filteredUsers.filter(u => u.status === status);
+    }
+
+    const totalTargetSum = filteredUsers.reduce((sum, u) => sum + u.aggregatedTargetAmount, 0);
+    const totalAchievedSum = filteredUsers.reduce((sum, u) => sum + u.aggregatedAchievedAmount, 0);
+    const overallPercentage = totalTargetSum > 0 ? Math.round((totalAchievedSum / totalTargetSum) * 100) : 0;
+
+    return res.json({
       success: true,
-      data: transformedTargets,
+      viewMode: 'user',
+      data: filteredUsers,
+      summary: {
+        totalUsers: filteredUsers.length,
+        totalTargetAmount: totalTargetSum,
+        totalAchievedAmount: totalAchievedSum,
+        overallAchievementPercentage: overallPercentage
+      },
       pagination: {
         current: parseInt(page),
-        pages: Math.ceil(count / parseInt(limit)),
-        total: count
+        pages: 1,
+        total: filteredUsers.length
       }
     });
   } catch (error) {
@@ -303,76 +434,15 @@ const getAllSalesTargets = async (req, res) => {
   }
 };
 
-// GET sales target by ID
-const getSalesTargetById = async (req, res) => {
-  try {
-    const models = getModels(req);
-    const salesTarget = await models.SalesTarget.findByPk(req.params.id, {
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ]
-    });
-
-    if (!salesTarget) {
-      return res.status(404).json({
-        success: false,
-        message: 'Sales target not found'
-      });
-    }
-
-    // Transform data to match frontend expectations
-    const plainTarget = salesTarget.toJSON();
-    const transformedTarget = {
-      ...plainTarget,
-      _id: plainTarget.id,
-      userId: plainTarget.salesTargetUser ? {
-        _id: plainTarget.salesTargetUser.id,
-        name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code,
-        role: plainTarget.salesTargetUser.role
-      } : null,
-      targetAmount: plainTarget.target_amount,
-      targetMonth: plainTarget.target_month,
-      targetYear: plainTarget.target_year,
-      completionDeadline: plainTarget.completion_deadline,
-      achievedAmount: plainTarget.achieved_amount,
-      achievementPercentage: plainTarget.achievement_percentage
-    };
-
-    res.json({
-      success: true,
-      data: transformedTarget
-    });
-  } catch (error) {
-    console.error('Get sales target by ID error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
-  }
-};
-
-// CREATE a new sales target
+/**
+ * CREATE a new sales target (by Head Office or User)
+ */
 const createSalesTarget = async (req, res) => {
   const sequelize = getSequelize(req);
   const models = getModels(req);
   const transaction = await sequelize.transaction();
+
   try {
-    // Only Admin and Super Admin can create targets
     if (!['Admin', 'Super Admin'].includes(req.user.role)) {
       await transaction.rollback();
       return res.status(403).json({
@@ -381,111 +451,145 @@ const createSalesTarget = async (req, res) => {
       });
     }
 
-    const { userId, targetAmount, targetMonth, targetYear, completionDeadline, notes } = req.body;
+    const {
+      headOfficeId,
+      userId,
+      targetAmount,
+      targetMonth,
+      targetYear,
+      completionDeadline,
+      notes
+    } = req.body;
 
-    // Validate required fields
-    if (!userId || !targetAmount || !targetMonth || !targetYear || !completionDeadline) {
+    if ((!headOfficeId && !userId) || !targetAmount || !targetMonth || !targetYear || !completionDeadline) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'All required fields must be provided'
+        message: 'Head Office or User, Target Amount, Month, Year, and Deadline are required'
       });
     }
 
-    // Check if user exists
-    const user = await models.User.findByPk(userId);
-    if (!user) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
+    const monthInt = parseInt(targetMonth);
+    const yearInt = parseInt(targetYear);
+    const amountFloat = parseFloat(targetAmount);
 
-    // Check if target already exists for this user and period
-    const existingTarget = await models.SalesTarget.findOne({
-      where: {
-        user_id: userId,
-        target_month: parseInt(targetMonth),
-        target_year: parseInt(targetYear)
-      },
-      transaction
-    });
+    let targetRecord;
 
-    if (existingTarget) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Target already exists for ${user.name} for ${targetMonth}/${targetYear}`
-      });
-    }
-
-    // Create new target
-    const newTarget = await models.SalesTarget.create({
-      user_id: userId,
-      target_amount: parseFloat(targetAmount),
-      target_month: parseInt(targetMonth),
-      target_year: parseInt(targetYear),
-      completion_deadline: new Date(completionDeadline),
-      notes,
-      created_by: req.user.id,
-      updated_by: req.user.id
-    }, { transaction });
-
-    // Commit transaction
-    await transaction.commit();
-
-    // Get the created target with user information
-    const populatedTarget = await models.SalesTarget.findByPk(newTarget.id, {
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
+    if (headOfficeId) {
+      // 1. Check if target exists for this Head Office and Period
+      const existingHoTarget = await models.SalesTarget.findOne({
+        where: {
+          head_office_id: headOfficeId,
+          target_month: monthInt,
+          target_year: yearInt
         },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        }
-      ]
-    });
+        transaction
+      });
 
-    // Transform data to match frontend expectations
-    const plainTarget = populatedTarget.toJSON();
-    const transformedTarget = {
-      ...plainTarget,
-      _id: plainTarget.id,
-      userId: plainTarget.salesTargetUser ? {
-        _id: plainTarget.salesTargetUser.id,
-        name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code,
-        role: plainTarget.salesTargetUser.role
-      } : null,
-      targetAmount: plainTarget.target_amount,
-      targetMonth: plainTarget.target_month,
-      targetYear: plainTarget.target_year,
-      completionDeadline: plainTarget.completion_deadline,
-      achievedAmount: plainTarget.achieved_amount,
-      achievementPercentage: plainTarget.achievement_percentage
-    };
+      if (existingHoTarget) {
+        // Update existing HO target
+        existingHoTarget.target_amount = amountFloat;
+        existingHoTarget.completion_deadline = new Date(completionDeadline);
+        if (notes !== undefined) existingHoTarget.notes = notes;
+        existingHoTarget.updated_by = req.user.id;
+        await existingHoTarget.save({ transaction });
+        targetRecord = existingHoTarget;
+      } else {
+        // Create new HO target
+        targetRecord = await models.SalesTarget.create({
+          head_office_id: headOfficeId,
+          target_amount: amountFloat,
+          target_month: monthInt,
+          target_year: yearInt,
+          completion_deadline: new Date(completionDeadline),
+          notes,
+          created_by: req.user.id,
+          updated_by: req.user.id
+        }, { transaction });
+      }
+
+      // 2. Find all active users assigned to this head office and sync their target records
+      const assignedUsers = await sequelize.query(`
+        SELECT DISTINCT user_id FROM user_head_offices WHERE head_office_id = :headOfficeId
+        UNION
+        SELECT DISTINCT id as user_id FROM users WHERE head_office_id = :headOfficeId AND is_active = true
+      `, {
+        replacements: { headOfficeId },
+        type: sequelize.QueryTypes.SELECT,
+        transaction
+      });
+
+      for (const u of assignedUsers) {
+        const existingUserTarget = await models.SalesTarget.findOne({
+          where: {
+            user_id: u.user_id,
+            target_month: monthInt,
+            target_year: yearInt
+          },
+          transaction
+        });
+
+        if (existingUserTarget) {
+          existingUserTarget.target_amount = amountFloat;
+          existingUserTarget.head_office_id = headOfficeId;
+          existingUserTarget.completion_deadline = new Date(completionDeadline);
+          existingUserTarget.updated_by = req.user.id;
+          await existingUserTarget.save({ transaction });
+        } else {
+          await models.SalesTarget.create({
+            user_id: u.user_id,
+            head_office_id: headOfficeId,
+            target_amount: amountFloat,
+            target_month: monthInt,
+            target_year: yearInt,
+            completion_deadline: new Date(completionDeadline),
+            notes,
+            created_by: req.user.id,
+            updated_by: req.user.id
+          }, { transaction });
+        }
+      }
+    } else if (userId) {
+      // Single user direct assignment
+      const existingUserTarget = await models.SalesTarget.findOne({
+        where: {
+          user_id: userId,
+          target_month: monthInt,
+          target_year: yearInt
+        },
+        transaction
+      });
+
+      if (existingUserTarget) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Target already exists for this user for ${targetMonth}/${targetYear}`
+        });
+      }
+
+      targetRecord = await models.SalesTarget.create({
+        user_id: userId,
+        target_amount: amountFloat,
+        target_month: monthInt,
+        target_year: yearInt,
+        completion_deadline: new Date(completionDeadline),
+        notes,
+        created_by: req.user.id,
+        updated_by: req.user.id
+      }, { transaction });
+    }
+
+    await transaction.commit();
 
     res.status(201).json({
       success: true,
-      message: 'Sales target created successfully',
-      data: transformedTarget
+      message: 'Sales target assigned successfully',
+      data: targetRecord
     });
   } catch (error) {
     await transaction.rollback();
     console.error('Create sales target error:', error);
-
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Target already exists for this user and period'
-      });
-    }
-
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -493,25 +597,27 @@ const createSalesTarget = async (req, res) => {
   }
 };
 
-// UPDATE a sales target
+/**
+ * UPDATE a sales target
+ */
 const updateSalesTarget = async (req, res) => {
   const sequelize = getSequelize(req);
   const models = getModels(req);
   const transaction = await sequelize.transaction();
+
   try {
-    // Only Admin and Super Admin can update targets
     if (!['Admin', 'Super Admin'].includes(req.user.role)) {
       await transaction.rollback();
       return res.status(403).json({
         success: false,
-        message: 'Access denied. Only Admin can update targets'
+        message: 'Access denied'
       });
     }
 
-    const { targetAmount, completionDeadline, notes, achievedAmount } = req.body;
+    const { targetAmount, completionDeadline, notes, achievedAmount, status } = req.body;
+    const target = await models.SalesTarget.findByPk(req.params.id, { transaction });
 
-    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
-    if (!salesTarget) {
+    if (!target) {
       await transaction.rollback();
       return res.status(404).json({
         success: false,
@@ -519,65 +625,42 @@ const updateSalesTarget = async (req, res) => {
       });
     }
 
-    // Update fields
-    if (targetAmount !== undefined) salesTarget.target_amount = parseFloat(targetAmount);
-    if (completionDeadline) salesTarget.completion_deadline = new Date(completionDeadline);
-    if (notes !== undefined) salesTarget.notes = notes;
-    if (achievedAmount !== undefined) salesTarget.achieved_amount = parseFloat(achievedAmount);
+    if (targetAmount !== undefined) target.target_amount = parseFloat(targetAmount);
+    if (completionDeadline) target.completion_deadline = new Date(completionDeadline);
+    if (notes !== undefined) target.notes = notes;
+    if (achievedAmount !== undefined) target.achieved_amount = parseFloat(achievedAmount);
+    if (status) target.status = status;
 
-    // Update updated_by field
-    salesTarget.updated_by = req.user.id;
+    if (target.target_amount > 0 && target.achieved_amount !== undefined) {
+      target.achievement_percentage = Math.round((target.achieved_amount / target.target_amount) * 100);
+      if (target.achievement_percentage >= 100) target.status = 'Completed';
+    }
 
-    // Save the updated target
-    await salesTarget.save({ transaction });
+    target.updated_by = req.user.id;
+    await target.save({ transaction });
 
-    // Commit transaction
+    // If this is a Head Office target, sync target_amount and deadline to linked user records
+    if (target.head_office_id) {
+      await models.SalesTarget.update({
+        target_amount: target.target_amount,
+        completion_deadline: target.completion_deadline,
+        updated_by: req.user.id
+      }, {
+        where: {
+          head_office_id: target.head_office_id,
+          target_month: target.target_month,
+          target_year: target.target_year
+        },
+        transaction
+      });
+    }
+
     await transaction.commit();
-
-    // Get the updated target with user information
-    const updatedTarget = await models.SalesTarget.findByPk(salesTarget.id, {
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ]
-    });
-
-    // Transform data to match frontend expectations
-    const plainTarget = updatedTarget.toJSON();
-    const transformedTarget = {
-      ...plainTarget,
-      _id: plainTarget.id,
-      userId: plainTarget.salesTargetUser ? {
-        _id: plainTarget.salesTargetUser.id,
-        name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code,
-        role: plainTarget.salesTargetUser.role
-      } : null,
-      targetAmount: plainTarget.target_amount,
-      targetMonth: plainTarget.target_month,
-      targetYear: plainTarget.target_year,
-      completionDeadline: plainTarget.completion_deadline,
-      achievedAmount: plainTarget.achieved_amount,
-      achievementPercentage: plainTarget.achievement_percentage
-    };
 
     res.json({
       success: true,
       message: 'Sales target updated successfully',
-      data: transformedTarget
+      data: target
     });
   } catch (error) {
     await transaction.rollback();
@@ -589,14 +672,25 @@ const updateSalesTarget = async (req, res) => {
   }
 };
 
+/**
+ * DELETE a sales target
+ */
 const deleteSalesTarget = async (req, res) => {
-  const sequelize = getSequelize(req);
   const models = getModels(req);
+  const sequelize = getSequelize(req);
   const transaction = await sequelize.transaction();
+
   try {
-    // Find the sales target by ID
-    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
-    if (!salesTarget) {
+    if (!['Admin', 'Super Admin'].includes(req.user.role)) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    const target = await models.SalesTarget.findByPk(req.params.id, { transaction });
+    if (!target) {
       await transaction.rollback();
       return res.status(404).json({
         success: false,
@@ -604,10 +698,20 @@ const deleteSalesTarget = async (req, res) => {
       });
     }
 
-    // Delete the sales target
-    await salesTarget.destroy({ transaction });
+    // If it's an HO target, delete all linked records for that HO/month/year
+    if (target.head_office_id) {
+      await models.SalesTarget.destroy({
+        where: {
+          head_office_id: target.head_office_id,
+          target_month: target.target_month,
+          target_year: target.target_year
+        },
+        transaction
+      });
+    } else {
+      await target.destroy({ transaction });
+    }
 
-    // Commit transaction
     await transaction.commit();
 
     res.json({
@@ -624,67 +728,77 @@ const deleteSalesTarget = async (req, res) => {
   }
 };
 
-// Get targets for a specific user
-const getTargetsByUser = async (req, res) => {
+/**
+ * UPDATE achievement amount on a target
+ */
+const updateTargetAchievement = async (req, res) => {
+  const models = getModels(req);
+  const sequelize = getSequelize(req);
+  const transaction = await sequelize.transaction();
+
   try {
-    const models = getModels(req);
-    const { userId } = req.params;
-    const { year, status } = req.query;
+    const { achievedAmount } = req.body;
+    if (achievedAmount === undefined || achievedAmount < 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Valid achieved amount is required'
+      });
+    }
 
-    let whereClause = { user_id: userId };
+    const target = await models.SalesTarget.findByPk(req.params.id, { transaction });
+    if (!target) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Sales target not found'
+      });
+    }
 
-    if (year) whereClause.target_year = parseInt(year);
-    if (status) whereClause.status = status;
+    target.achieved_amount = parseFloat(achievedAmount);
+    if (target.target_amount > 0) {
+      target.achievement_percentage = Math.round((target.achieved_amount / target.target_amount) * 100);
+    }
 
-    const targets = await models.SalesTarget.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
+    const now = new Date();
+    if (target.achievement_percentage >= 100) {
+      target.status = 'Completed';
+    } else if (now > new Date(target.completion_deadline)) {
+      target.status = 'Overdue';
+    } else {
+      target.status = 'Active';
+    }
+
+    target.updated_by = req.user.id;
+    await target.save({ transaction });
+
+    // If Head Office target, update linked records
+    if (target.head_office_id) {
+      await models.SalesTarget.update({
+        achieved_amount: target.achieved_amount,
+        achievement_percentage: target.achievement_percentage,
+        status: target.status,
+        updated_by: req.user.id
+      }, {
+        where: {
+          head_office_id: target.head_office_id,
+          target_month: target.target_month,
+          target_year: target.target_year
         },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ],
-      order: [['target_year', 'DESC'], ['target_month', 'DESC']]
-    });
+        transaction
+      });
+    }
 
-    // Transform data to match frontend expectations
-    const transformedTargets = targets.map(target => {
-      const plainTarget = target.toJSON();
-      return {
-        ...plainTarget,
-        _id: plainTarget.id,
-        userId: plainTarget.salesTargetUser ? {
-          _id: plainTarget.salesTargetUser.id,
-          name: plainTarget.salesTargetUser.name,
-          employeeCode: plainTarget.salesTargetUser.employee_code,
-          role: plainTarget.salesTargetUser.role
-        } : null,
-        targetAmount: plainTarget.target_amount,
-        targetMonth: plainTarget.target_month,
-        targetYear: plainTarget.target_year,
-        completionDeadline: plainTarget.completion_deadline,
-        achievedAmount: plainTarget.achieved_amount,
-        achievementPercentage: plainTarget.achievement_percentage
-      };
-    });
+    await transaction.commit();
 
     res.json({
       success: true,
-      data: transformedTargets
+      message: 'Achievement updated successfully',
+      data: target
     });
   } catch (error) {
-    console.error('Get targets by user error:', error);
+    await transaction.rollback();
+    console.error('Update achievement error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -692,52 +806,103 @@ const getTargetsByUser = async (req, res) => {
   }
 };
 
-// Get current user's targets
+/**
+ * GET current logged-in user's sales targets (My Targets)
+ */
 const getMyTargets = async (req, res) => {
   try {
-    const models = getModels(req);
-    const { year, status } = req.query;
+    const sequelize = getSequelize(req);
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const { year = new Date().getFullYear() } = req.query;
+    const yearInt = parseInt(year);
 
-    let whereClause = { user_id: req.user.id };
+    let targets = [];
 
-    if (year) whereClause.target_year = parseInt(year);
-    if (status) whereClause.status = status;
+    if (userRole === 'State Head') {
+      // Find State Head's state_id
+      const [u] = await sequelize.query(`SELECT state_id FROM users WHERE id = :userId`, {
+        replacements: { userId },
+        type: sequelize.QueryTypes.SELECT
+      });
 
-    const targets = await models.SalesTarget.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ],
-      order: [['target_year', 'DESC'], ['target_month', 'DESC']]
-    });
+      if (u && u.state_id) {
+        // Aggregate all HO targets in this state by month
+        targets = await sequelize.query(`
+          SELECT 
+            st.target_month,
+            st.target_year,
+            SUM(st.target_amount) as target_amount,
+            SUM(st.achieved_amount) as achieved_amount,
+            MAX(st.completion_deadline) as completion_deadline,
+            MAX(st.id) as _id,
+            MAX(st.id) as id
+          FROM sales_targets st
+          JOIN head_offices ho ON st.head_office_id = ho.id
+          WHERE ho.state_id = :stateId AND st.target_year = :year
+          GROUP BY st.target_month, st.target_year
+          ORDER BY st.target_month ASC
+        `, {
+          replacements: { stateId: u.state_id, year: yearInt },
+          type: sequelize.QueryTypes.SELECT
+        });
+      }
+    } else {
+      // Regular user or Manager: get targets for assigned Head Offices or direct user targets
+      targets = await sequelize.query(`
+        SELECT DISTINCT
+          st.id as _id,
+          st.id,
+          st.target_month,
+          st.target_year,
+          st.target_amount,
+          st.achieved_amount,
+          st.achievement_percentage,
+          st.completion_deadline,
+          st.status,
+          st.notes,
+          ho.name as head_office_name
+        FROM sales_targets st
+        LEFT JOIN head_offices ho ON st.head_office_id = ho.id
+        WHERE (
+          st.user_id = :userId 
+          OR st.head_office_id IN (
+            SELECT head_office_id FROM user_head_offices WHERE user_id = :userId
+            UNION
+            SELECT head_office_id FROM users WHERE id = :userId AND head_office_id IS NOT NULL
+          )
+        )
+        AND st.target_year = :year
+        ORDER BY st.target_month ASC
+      `, {
+        replacements: { userId, year: yearInt },
+        type: sequelize.QueryTypes.SELECT
+      });
+    }
 
-    // Transform data to match frontend expectations
-    const transformedTargets = targets.map(target => {
-      const plainTarget = target.toJSON();
+    const transformed = targets.map(t => {
+      const targetAmount = parseFloat(t.target_amount) || 0;
+      const achievedAmount = parseFloat(t.achieved_amount) || 0;
+      const percentage = targetAmount > 0 ? Math.round((achievedAmount / targetAmount) * 100) : 0;
+      let status = t.status || (percentage >= 100 ? 'Completed' : 'Active');
+
       return {
-        ...plainTarget,
-        _id: plainTarget.id,
-        targetAmount: plainTarget.target_amount,
-        targetMonth: plainTarget.target_month,
-        targetYear: plainTarget.target_year,
-        completionDeadline: plainTarget.completion_deadline,
-        achievedAmount: plainTarget.achieved_amount,
-        achievementPercentage: plainTarget.achievement_percentage
+        _id: t._id || t.id,
+        targetMonth: parseInt(t.target_month),
+        targetYear: parseInt(t.target_year),
+        targetAmount,
+        achievedAmount,
+        achievementPercentage: percentage,
+        completionDeadline: t.completion_deadline,
+        status,
+        headOfficeName: t.head_office_name || '',
+        notes: t.notes || ''
       };
     });
 
     res.json({
       success: true,
-      data: transformedTargets
+      data: transformed
     });
   } catch (error) {
     console.error('Get my targets error:', error);
@@ -748,156 +913,44 @@ const getMyTargets = async (req, res) => {
   }
 };
 
-// Update target achievement
-const updateTargetAchievement = async (req, res) => {
-  const sequelize = getSequelize(req);
-  const models = getModels(req);
-  const transaction = await sequelize.transaction();
-  try {
-    const { achievedAmount } = req.body;
-
-    if (achievedAmount === undefined || achievedAmount < 0) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Valid achieved amount is required'
-      });
-    }
-
-    const salesTarget = await models.SalesTarget.findByPk(req.params.id, { transaction });
-    if (!salesTarget) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'Sales target not found'
-      });
-    }
-
-    // Check if user can update this target (own target or admin)
-    if (salesTarget.user_id !== req.user.id &&
-      !['Admin', 'Super Admin'].includes(req.user.role)) {
-      await transaction.rollback();
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
-    }
-
-    // Update achievement fields
-    salesTarget.achieved_amount = parseFloat(achievedAmount);
-
-    // Calculate achievement percentage
-    if (salesTarget.target_amount > 0) {
-      salesTarget.achievement_percentage = Math.round((salesTarget.achieved_amount / salesTarget.target_amount) * 100);
-    }
-
-    // Update status based on achievement and deadline
-    const now = new Date();
-    if (salesTarget.achievement_percentage >= 100) {
-      salesTarget.status = 'Completed';
-    } else if (now > salesTarget.completion_deadline) {
-      salesTarget.status = 'Overdue';
-    } else {
-      salesTarget.status = 'Active';
-    }
-
-    // Update updated_by field
-    salesTarget.updated_by = req.user.id;
-
-    // Save the updated target
-    await salesTarget.save({ transaction });
-
-    // Commit transaction
-    await transaction.commit();
-
-    // Get the updated target with user information
-    const updatedTarget = await models.SalesTarget.findByPk(salesTarget.id, {
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['id', 'name', 'email', 'employee_code', 'role']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetCreator',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: models.User,
-          as: 'salesTargetUpdater',
-          attributes: ['id', 'name', 'email']
-        }
-      ]
-    });
-
-    // Transform data to match frontend expectations
-    const plainTarget = updatedTarget.toJSON();
-    const transformedTarget = {
-      ...plainTarget,
-      _id: plainTarget.id,
-      userId: plainTarget.salesTargetUser ? {
-        _id: plainTarget.salesTargetUser.id,
-        name: plainTarget.salesTargetUser.name,
-        employeeCode: plainTarget.salesTargetUser.employee_code,
-        role: plainTarget.salesTargetUser.role
-      } : null,
-      targetAmount: plainTarget.target_amount,
-      targetMonth: plainTarget.target_month,
-      targetYear: plainTarget.target_year,
-      completionDeadline: plainTarget.completion_deadline,
-      achievedAmount: plainTarget.achieved_amount,
-      achievementPercentage: plainTarget.achievement_percentage
-    };
-
-    res.json({
-      success: true,
-      message: 'Target achievement updated successfully',
-      data: transformedTarget
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Update target achievement error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
-  }
-};
-
-// Get sales targets dashboard data
+/**
+ * GET Sales Targets Dashboard Data (Summary Cards & Widgets)
+ */
 const getDashboardData = async (req, res) => {
   try {
-    const models = getModels(req);
+    const sequelize = getSequelize(req);
     const currentDate = new Date();
     const currentMonth = currentDate.getMonth() + 1;
     const currentYear = currentDate.getFullYear();
 
-    // Get current month targets with user information
-    const currentMonthTargets = await models.SalesTarget.findAll({
-      where: {
-        target_month: currentMonth,
-        target_year: currentYear
-      },
-      include: [
-        {
-          model: models.User,
-          as: 'salesTargetUser',
-          attributes: ['name', 'email', 'employee_code', 'role']
-        }
-      ]
+    const targets = await sequelize.query(`
+      SELECT 
+        st.id,
+        st.target_amount,
+        st.achieved_amount,
+        st.achievement_percentage,
+        st.status,
+        ho.name as head_office_name,
+        s.name as state_name
+      FROM sales_targets st
+      LEFT JOIN head_offices ho ON st.head_office_id = ho.id
+      LEFT JOIN states s ON ho.state_id = s.id
+      WHERE st.target_month = :currentMonth AND st.target_year = :currentYear
+    `, {
+      replacements: { currentMonth, currentYear },
+      type: sequelize.QueryTypes.SELECT
     });
 
-    // Calculate summary statistics
-    const totalTargets = currentMonthTargets.length;
-    const completedTargets = currentMonthTargets.filter(t => t.status === 'Completed').length;
-    const overdueTargets = currentMonthTargets.filter(t => t.status === 'Overdue').length;
-    const activeTargets = currentMonthTargets.filter(t => t.status === 'Active').length;
+    const totalTargets = targets.length;
+    const totalTargetAmount = targets.reduce((sum, t) => sum + parseFloat(t.target_amount || 0), 0);
+    const totalAchievedAmount = targets.reduce((sum, t) => sum + parseFloat(t.achieved_amount || 0), 0);
+    const overallAchievementPercentage = totalTargetAmount > 0 
+      ? Math.round((totalAchievedAmount / totalTargetAmount) * 100)
+      : 0;
 
-    const totalTargetAmount = currentMonthTargets.reduce((sum, t) => sum + parseFloat(t.target_amount), 0);
-    const totalAchievedAmount = currentMonthTargets.reduce((sum, t) => sum + parseFloat(t.achieved_amount), 0);
-    const overallAchievementPercentage = totalTargetAmount > 0 ?
-      Math.round((totalAchievedAmount / totalTargetAmount) * 100) : 0;
+    const completedTargets = targets.filter(t => t.status === 'Completed').length;
+    const activeTargets = targets.filter(t => t.status === 'Active' || !t.status).length;
+    const overdueTargets = targets.filter(t => t.status === 'Overdue').length;
 
     res.json({
       success: true,
@@ -911,7 +964,7 @@ const getDashboardData = async (req, res) => {
           totalAchievedAmount,
           overallAchievementPercentage
         },
-        currentMonthTargets
+        currentMonthTargets: targets
       }
     });
   } catch (error) {
@@ -920,6 +973,67 @@ const getDashboardData = async (req, res) => {
       success: false,
       message: error.message || 'Server error'
     });
+  }
+};
+
+/**
+ * GET target by ID
+ */
+const getSalesTargetById = async (req, res) => {
+  try {
+    const models = getModels(req);
+    const target = await models.SalesTarget.findByPk(req.params.id, {
+      include: [
+        { model: models.User, as: 'salesTargetUser', attributes: ['id', 'name', 'email', 'employee_code', 'role'] },
+        { model: models.HeadOffice, as: 'salesTargetHeadOffice', attributes: ['id', 'name', 'state_id'] }
+      ]
+    });
+
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Sales target not found' });
+    }
+
+    res.json({ success: true, data: target });
+  } catch (error) {
+    console.error('Get sales target by ID error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+/**
+ * GET targets for a specific user
+ */
+const getTargetsByUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { year = new Date().getFullYear() } = req.query;
+    const sequelize = getSequelize(req);
+
+    const targets = await sequelize.query(`
+      SELECT 
+        st.*,
+        ho.name as head_office_name
+      FROM sales_targets st
+      LEFT JOIN head_offices ho ON st.head_office_id = ho.id
+      WHERE (
+        st.user_id = :userId
+        OR st.head_office_id IN (
+          SELECT head_office_id FROM user_head_offices WHERE user_id = :userId
+          UNION
+          SELECT head_office_id FROM users WHERE id = :userId AND head_office_id IS NOT NULL
+        )
+      )
+      AND st.target_year = :year
+      ORDER BY st.target_month ASC
+    `, {
+      replacements: { userId, year: parseInt(year) },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    res.json({ success: true, data: targets });
+  } catch (error) {
+    console.error('Get targets by user error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
   }
 };
 

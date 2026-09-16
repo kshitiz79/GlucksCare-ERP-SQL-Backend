@@ -9,9 +9,17 @@ const SalesTarget = (sequelize) => {
     },
     user_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'users',
+        key: 'id'
+      }
+    },
+    head_office_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'head_offices',
         key: 'id'
       }
     },
@@ -86,8 +94,10 @@ const SalesTarget = (sequelize) => {
     underscored: true,
     indexes: [
       {
-        unique: true,
         fields: ['user_id', 'target_month', 'target_year']
+      },
+      {
+        fields: ['head_office_id', 'target_month', 'target_year']
       }
     ]
   });

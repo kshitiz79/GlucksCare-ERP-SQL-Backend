@@ -326,15 +326,30 @@ async function ensurePerformanceIndexes() {
       CREATE INDEX IF NOT EXISTS idx_chemist_visits_user_date ON chemist_visits (user_id, date DESC);
       CREATE INDEX IF NOT EXISTS idx_chemist_visits_date ON chemist_visits (date DESC);
       CREATE INDEX IF NOT EXISTS idx_stockist_visits_user_date ON stockist_visits (user_id, date DESC);
-      CREATE INDEX IF NOT EXISTS idx_stockist_visits_date ON stockist_visits (date DESC);
       CREATE INDEX IF NOT EXISTS idx_offline_bg_tracking_device ON offline_bg_tracking (device_id);
+      CREATE INDEX IF NOT EXISTS idx_offline_bg_tracking_user_created ON offline_bg_tracking (user_id, created_at_utc DESC);
+      CREATE INDEX IF NOT EXISTS idx_offline_bg_tracking_user ON offline_bg_tracking (user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_devices_user_status ON user_devices (user_id, status);
+      CREATE INDEX IF NOT EXISTS idx_user_devices_device_id ON user_devices (device_id);
       CREATE INDEX IF NOT EXISTS idx_location_pings_user_time ON location_pings (user_id, device_time_utc DESC);
       CREATE INDEX IF NOT EXISTS idx_location_pings_device_time ON location_pings (device_id, device_time_utc DESC);
       CREATE INDEX IF NOT EXISTS idx_location_pings_fix_id ON location_pings (client_fix_id);
+
+      CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses (user_id);
+      CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses (user_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses (date DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_status ON expenses (status);
+      CREATE INDEX IF NOT EXISTS idx_expenses_payment_status ON expenses (payment_status);
+      CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses (category);
+      CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses (created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_doctor_visits_user_confirmed_date ON doctor_visits (user_id, confirmed, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_chemist_visits_user_confirmed_date ON chemist_visits (user_id, confirmed, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_stockist_visits_user_confirmed_date ON stockist_visits (user_id, confirmed, date DESC);
     `);
-    console.log('✅ Doctor sync schema and performance indexes checked/created successfully');
+    console.log('✅ Performance indexes checked/created successfully');
   } catch (err) {
-    console.error('⚠️ Warning: Failed to create doctor sync schema/indexes:', err.message);
+    console.error('⚠️ Warning: Failed to create performance indexes:', err.message);
   }
 }
 

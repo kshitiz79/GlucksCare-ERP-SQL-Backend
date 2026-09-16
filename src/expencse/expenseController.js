@@ -31,22 +31,40 @@ const uploadToCloudinary = async (imageData, isBase64 = true) => {
 const getAllExpenses = async (req, res) => {
   try {
     const { Expense, User } = req.app.get('models');
-    const { userId } = req.query;
+    const { userId, lean } = req.query;
 
     let whereClause = {};
     if (userId) {
       whereClause.user_id = userId;
     }
 
-    const expenses = await Expense.findAll({
+    const isLean = lean === 'true' || !userId;
+
+    const findOptions = {
       where: whereClause,
-      include: [{
+      order: [['created_at', 'DESC']]
+    };
+
+    if (isLean) {
+      findOptions.attributes = [
+        'id', 'user_id', 'user_name', 'category', 'status', 'amount',
+        'date', 'end_date', 'payment_status', 'payment_date', 'payment_month_year',
+        'created_at'
+      ];
+      findOptions.include = [{
         model: User,
         as: 'UserInfo',
         attributes: ['id', 'name', 'email']
-      }],
-      order: [['created_at', 'DESC']]
-    });
+      }];
+    } else {
+      findOptions.include = [{
+        model: User,
+        as: 'UserInfo',
+        attributes: ['id', 'name', 'email']
+      }];
+    }
+
+    const expenses = await Expense.findAll(findOptions);
 
     // Transform the response to match frontend expectations
     const transformedExpenses = expenses.map(expense => {
@@ -61,7 +79,6 @@ const getAllExpenses = async (req, res) => {
         amount: expenseObj.amount,
         travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
         dailyAllowanceType: expenseObj.daily_allowance_type,
-        // Remove the nested object
         UserInfo: undefined
       };
     });
@@ -72,6 +89,62 @@ const getAllExpenses = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+// GET fast aggregated confirmed visits summary by date for an employee (Doctor, Chemist, Stockist)
+const getUserVisitsSummary = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const sequelize = req.app.get('sequelize');
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required' });
+    }
+
+    const query = `
+      SELECT 'doctor' AS type, date::text, COUNT(*)::int AS count
+      FROM doctor_visits
+      WHERE user_id::text = :userId AND confirmed = true
+      GROUP BY date
+      UNION ALL
+      SELECT 'chemist' AS type, date::text, COUNT(*)::int AS count
+      FROM chemist_visits
+      WHERE user_id::text = :userId AND confirmed = true
+      GROUP BY date
+      UNION ALL
+      SELECT 'stockist' AS type, date::text, COUNT(*)::int AS count
+      FROM stockist_visits
+      WHERE user_id::text = :userId AND confirmed = true
+      GROUP BY date;
+    `;
+
+    const rows = await sequelize.query(query, {
+      replacements: { userId },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    const dateMap = {};
+    rows.forEach(r => {
+      const d = r.date ? r.date.split('T')[0] : '';
+      if (!d) return;
+      if (!dateMap[d]) {
+        dateMap[d] = { doctorConfirmed: 0, chemistConfirmed: 0, stockistConfirmed: 0, totalConfirmed: 0 };
+      }
+      const count = Number(r.count) || 0;
+      if (r.type === 'doctor') dateMap[d].doctorConfirmed += count;
+      else if (r.type === 'chemist') dateMap[d].chemistConfirmed += count;
+      else if (r.type === 'stockist') dateMap[d].stockistConfirmed += count;
+      dateMap[d].totalConfirmed += count;
+    });
+
+    res.json({
+      success: true,
+      data: dateMap
+    });
+  } catch (error) {
+    console.error('Error in getUserVisitsSummary:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -1087,5 +1160,6 @@ module.exports = {
   uploadBillImage,
   finalizeMonthPayment,
   getPaymentSummary,
-  sendExpenseReportEmail
+  sendExpenseReportEmail,
+  getUserVisitsSummary
 };

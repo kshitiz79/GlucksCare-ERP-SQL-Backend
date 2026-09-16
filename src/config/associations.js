@@ -172,6 +172,8 @@ module.exports = (db) => {
 
   // SalesTarget associations
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'user_id', as: 'salesTargetUser' });
+  db.SalesTarget.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'salesTargetHeadOffice' });
+  db.HeadOffice.hasMany(db.SalesTarget, { foreignKey: 'head_office_id', as: 'salesTargets' });
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'created_by', as: 'salesTargetCreator' });
   db.SalesTarget.belongsTo(db.User, { foreignKey: 'updated_by', as: 'salesTargetUpdater' });
 

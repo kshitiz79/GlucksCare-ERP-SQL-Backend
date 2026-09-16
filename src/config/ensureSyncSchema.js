@@ -49,6 +49,12 @@ async function ensureTenantSyncSchema(sequelize) {
         CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_ho ON doctor_change_logs (head_office_id);
         CREATE INDEX IF NOT EXISTS idx_doctor_change_logs_created ON doctor_change_logs (created_at DESC);
       `);
+    // 6. Ensure sales_targets schema has head_office_id and nullable user_id
+    try {
+      await sequelize.query('ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS head_office_id UUID REFERENCES head_offices(id) ON DELETE CASCADE;');
+      await sequelize.query('ALTER TABLE sales_targets ALTER COLUMN user_id DROP NOT NULL;');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sales_targets_head_office_id ON sales_targets (head_office_id);');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sales_targets_month_year ON sales_targets (target_month, target_year);');
     } catch (e) {}
   } catch (err) {
     console.warn('⚠️ [ensureTenantSyncSchema] Warning:', err.message);
