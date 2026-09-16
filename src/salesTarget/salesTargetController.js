@@ -50,8 +50,18 @@ const getAllSalesTargets = async (req, res) => {
       }
 
       const targetJoin = monthInt
-        ? 'LEFT JOIN sales_targets st ON st.head_office_id = ho.id AND st.target_month = :month AND st.target_year = :year'
-        : 'LEFT JOIN sales_targets st ON st.head_office_id = ho.id AND st.target_year = :year';
+        ? `LEFT JOIN (
+            SELECT DISTINCT ON (head_office_id, target_month, target_year) *
+            FROM sales_targets
+            WHERE head_office_id IS NOT NULL
+            ORDER BY head_office_id, target_month, target_year, (user_id IS NULL) DESC, created_at DESC
+          ) st ON st.head_office_id = ho.id AND st.target_month = :month AND st.target_year = :year`
+        : `LEFT JOIN (
+            SELECT DISTINCT ON (head_office_id, target_year) *
+            FROM sales_targets
+            WHERE head_office_id IS NOT NULL
+            ORDER BY head_office_id, target_year, (user_id IS NULL) DESC, created_at DESC
+          ) st ON st.head_office_id = ho.id AND st.target_year = :year`;
 
       const hoQuery = `
         SELECT 
@@ -512,47 +522,16 @@ const createSalesTarget = async (req, res) => {
         }, { transaction });
       }
 
-      // 2. Find all active users assigned to this head office and sync their target records
-      const assignedUsers = await sequelize.query(`
-        SELECT DISTINCT user_id FROM user_head_offices WHERE head_office_id = :headOfficeId
-        UNION
-        SELECT DISTINCT id as user_id FROM users WHERE head_office_id = :headOfficeId AND is_active = true
-      `, {
-        replacements: { headOfficeId },
-        type: sequelize.QueryTypes.SELECT,
+      // 2. Clean up any redundant duplicate user records for this Head Office and Period
+      await models.SalesTarget.destroy({
+        where: {
+          head_office_id: headOfficeId,
+          user_id: { [Op.ne]: null },
+          target_month: monthInt,
+          target_year: yearInt
+        },
         transaction
       });
-
-      for (const u of assignedUsers) {
-        const existingUserTarget = await models.SalesTarget.findOne({
-          where: {
-            user_id: u.user_id,
-            target_month: monthInt,
-            target_year: yearInt
-          },
-          transaction
-        });
-
-        if (existingUserTarget) {
-          existingUserTarget.target_amount = amountFloat;
-          existingUserTarget.head_office_id = headOfficeId;
-          existingUserTarget.completion_deadline = new Date(completionDeadline);
-          existingUserTarget.updated_by = req.user.id;
-          await existingUserTarget.save({ transaction });
-        } else {
-          await models.SalesTarget.create({
-            user_id: u.user_id,
-            head_office_id: headOfficeId,
-            target_amount: amountFloat,
-            target_month: monthInt,
-            target_year: yearInt,
-            completion_deadline: new Date(completionDeadline),
-            notes,
-            created_by: req.user.id,
-            updated_by: req.user.id
-          }, { transaction });
-        }
-      }
     } else if (userId) {
       // Single user direct assignment
       const existingUserTarget = await models.SalesTarget.findOne({

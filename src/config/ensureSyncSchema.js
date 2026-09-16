@@ -57,6 +57,8 @@ async function ensureTenantSyncSchema(sequelize) {
       await sequelize.query('ALTER TABLE sales_targets ALTER COLUMN user_id DROP NOT NULL;');
       await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sales_targets_head_office_id ON sales_targets (head_office_id);');
       await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sales_targets_month_year ON sales_targets (target_month, target_year);');
+      // Clean up any duplicate records that had both head_office_id and user_id populated
+      await sequelize.query('DELETE FROM sales_targets WHERE head_office_id IS NOT NULL AND user_id IS NOT NULL;');
     } catch (e) {}
   } catch (err) {
     console.warn('⚠️ [ensureTenantSyncSchema] Warning:', err.message);
