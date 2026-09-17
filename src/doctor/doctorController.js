@@ -1758,7 +1758,7 @@ const createBulkDoctors = async (req, res) => {
     if (!models || !models.Doctor || !models.HeadOffice) {
       throw new Error('Required models are not available');
     }
-    const { Doctor, HeadOffice } = models;
+    const { Doctor, HeadOffice, Area } = models;
 
     // Validate request body
     if (!req.body.doctors || !Array.isArray(req.body.doctors)) {
@@ -1804,6 +1804,19 @@ const createBulkDoctors = async (req, res) => {
         doctorData.areaId = resolveAreaId(doctorData);
         delete doctorData.area_id;
         delete doctorData.area;
+
+        if (doctorData.areaId) {
+          if (!isUUID(doctorData.areaId)) {
+            doctorData.areaId = null;
+          } else if (Area) {
+            const areaRecord = await Area.findByPk(doctorData.areaId);
+            if (!areaRecord) {
+              doctorData.areaId = null;
+            }
+          }
+        } else {
+          doctorData.areaId = null;
+        }
 
         // Validate and set priority field
         if (doctorData.priority) {
