@@ -10,6 +10,7 @@ const {
   getDoctorsByHeadOffice,
   getMyDoctors,
   createBulkDoctors,
+  assignAreaToDoctor,
   getVisitedDoctorsInRange,
   getUnvisitedDoctorsInRange,
   setGlobalUcpmpCap,
@@ -75,6 +76,11 @@ router.put('/edit-requests/:id/reject', authMiddleware, rejectDoctorEditRequest)
 
 // GET doctor by ID
 router.get('/:id', authMiddleware, getDoctorById);
+
+// ASSIGN area to doctor (Single or Bulk)
+router.post('/assign-area', authMiddleware, assignAreaToDoctor);
+router.post('/:id/assign-area', authMiddleware, assignAreaToDoctor);
+router.put('/:id/assign-area', authMiddleware, assignAreaToDoctor);
 
 // CREATE multiple doctors at once (Bulk Creation)
 router.post('/bulk', authMiddleware, createBulkDoctors);

@@ -986,6 +986,202 @@ const updateDoctor = async (req, res) => {
   }
 };
 
+// ASSIGN / UNASSIGN Area to Doctor (Single or Bulk)
+const assignAreaToDoctor = async (req, res) => {
+  try {
+    const models = req.app.get('models');
+    if (!models || !models.Doctor || !models.Area) {
+      throw new Error('Required models are not available');
+    }
+    const { Doctor, HeadOffice, Area, DoctorChangeLog } = models;
+
+    const sanitizedBody = sanitizePayload(req.body) || {};
+    const targetDoctorId = req.params.id || sanitizedBody.doctorId || sanitizedBody.doctor_id || sanitizedBody.id;
+    const targetDoctorIds = sanitizedBody.doctorIds || sanitizedBody.doctor_ids;
+
+    // Resolve areaId from body (supports areaId, area_id, area)
+    const resolvedAreaId = resolveAreaId(sanitizedBody);
+    let areaRecord = null;
+
+    if (resolvedAreaId) {
+      if (!isUUID(resolvedAreaId)) {
+        return res.status(400).json({
+          success: false,
+          message: `Area ID '${resolvedAreaId}' is not a valid UUID format`
+        });
+      }
+      areaRecord = await Area.findByPk(resolvedAreaId);
+      if (!areaRecord) {
+        return res.status(404).json({
+          success: false,
+          message: `Area with ID '${resolvedAreaId}' does not exist`
+        });
+      }
+    }
+
+    const finalAreaId = areaRecord ? areaRecord.id : null;
+
+    // Bulk doctor assignment if array provided
+    if (Array.isArray(targetDoctorIds) && targetDoctorIds.length > 0) {
+      const doctors = await Doctor.findAll({
+        where: { id: { [require('sequelize').Op.in]: targetDoctorIds } }
+      });
+
+      if (doctors.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No doctors found matching the provided IDs'
+        });
+      }
+
+      let nextVersion = Date.now();
+      try {
+        const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+        if (seqRes && seqRes[0] && seqRes[0].ver) {
+          nextVersion = Number(seqRes[0].ver);
+        }
+      } catch (e) {
+        nextVersion = Date.now();
+      }
+
+      await Doctor.update(
+        { areaId: finalAreaId, sync_version: nextVersion },
+        { where: { id: { [require('sequelize').Op.in]: targetDoctorIds } } }
+      );
+
+      // Track in change logs for sync
+      if (DoctorChangeLog) {
+        try {
+          const logs = doctors.map(d => ({
+            doctorId: d.id,
+            changeVersion: nextVersion,
+            operation: 'UPDATE',
+            headOfficeId: d.headOfficeId,
+            areaId: finalAreaId,
+            snapshot: {
+              id: d.id,
+              name: d.name,
+              headOfficeId: d.headOfficeId,
+              areaId: finalAreaId,
+              syncVersion: nextVersion
+            }
+          }));
+          await DoctorChangeLog.bulkCreate(logs);
+        } catch (logErr) {
+          console.warn('⚠️ Warning: Failed to create DoctorChangeLog on bulk assign area:', logErr.message);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: finalAreaId ? `Assigned area '${areaRecord.name}' to ${doctors.length} doctor(s)` : `Unassigned area from ${doctors.length} doctor(s)`,
+        count: doctors.length,
+        areaId: finalAreaId,
+        areaName: areaRecord ? areaRecord.name : null
+      });
+    }
+
+    // Single doctor assignment
+    if (!targetDoctorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Doctor ID is required (in URL :id or body doctorId)'
+      });
+    }
+
+    let doctor = null;
+    if (isUUID(targetDoctorId)) {
+      doctor = await Doctor.findByPk(targetDoctorId);
+    }
+    if (!doctor) {
+      doctor = await Doctor.findOne({
+        where: { clientGeneratedId: targetDoctorId }
+      });
+    }
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: `Doctor with ID '${targetDoctorId}' not found`
+      });
+    }
+
+    // Compute monotonic syncVersion
+    let nextVersion = Date.now();
+    try {
+      const [seqRes] = await Doctor.sequelize.query("SELECT nextval('doctor_change_version_seq') AS ver;");
+      if (seqRes && seqRes[0] && seqRes[0].ver) {
+        nextVersion = Number(seqRes[0].ver);
+      }
+    } catch (e) {
+      nextVersion = (Number(doctor.syncVersion || doctor.sync_version) || 1) + 1;
+    }
+
+    await doctor.update({
+      areaId: finalAreaId,
+      sync_version: nextVersion
+    });
+
+    // Record change log for sync
+    if (DoctorChangeLog) {
+      try {
+        await DoctorChangeLog.create({
+          doctorId: doctor.id,
+          changeVersion: nextVersion,
+          operation: 'UPDATE',
+          headOfficeId: doctor.headOfficeId,
+          areaId: finalAreaId,
+          snapshot: {
+            id: doctor.id,
+            name: doctor.name,
+            headOfficeId: doctor.headOfficeId,
+            areaId: finalAreaId,
+            syncVersion: nextVersion
+          }
+        });
+      } catch (logErr) {
+        console.warn('⚠️ Warning: Failed to create DoctorChangeLog on assign area:', logErr.message);
+      }
+    }
+
+    // Fetch updated doctor with associations
+    const updatedDoctor = await Doctor.findByPk(doctor.id, {
+      include: [
+        { model: HeadOffice, as: 'HeadOffice', attributes: ['id', 'name'] },
+        { model: Area, as: 'Area', attributes: ['id', 'name'] }
+      ]
+    });
+
+    const doctorObj = updatedDoctor.toJSON();
+    const transformedDoctor = {
+      ...doctorObj,
+      id: doctorObj.id,
+      _id: doctorObj.id,
+      clientGeneratedId: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
+      client_generated_id: doctorObj.clientGeneratedId || doctorObj.client_generated_id || null,
+      headOffice: doctorObj.HeadOffice || doctorObj.headOffice,
+      area: doctorObj.Area || null,
+      is_assigned_to_area: !!doctorObj.areaId,
+      createdAt: doctorObj.created_at,
+      updatedAt: doctorObj.updated_at,
+      HeadOffice: undefined,
+      Area: undefined
+    };
+
+    res.status(200).json({
+      success: true,
+      message: finalAreaId ? `Area '${areaRecord.name}' assigned to Doctor '${doctor.name}' successfully` : `Area unassigned from Doctor '${doctor.name}' successfully`,
+      data: transformedDoctor
+    });
+  } catch (error) {
+    console.error('Error in assignAreaToDoctor:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // GET all edit requests (Universal: Doctor / Chemist / Stockist) (Admin / Requester)
 const getDoctorEditRequests = async (req, res) => {
   try {
@@ -2404,6 +2600,7 @@ module.exports = {
   getDoctorsByHeadOffice,
   getMyDoctors,
   createBulkDoctors,
+  assignAreaToDoctor,
   getVisitedDoctorsInRange,
   getUnvisitedDoctorsInRange,
   setGlobalUcpmpCap,
