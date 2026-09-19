@@ -780,10 +780,25 @@ const updateDoctor = async (req, res) => {
     }
 
     // =========================================================================
-    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest instead of direct DB update
+    // COORDINATES CHANGE CHECK: Only coordinate updates from non-admins require approval
+    // All other edits (area, name, phone, etc.) apply directly to DB
     // =========================================================================
-    if (!isAdmin) {
-      console.log(`[Doctor Edit Request] User ${req.user.name} (${req.user.role}) requested edit for Doctor ${doctor.name} (${doctor.id})`);
+    const parseCoord = (val) => {
+      if (val === undefined || val === null || val === '') return null;
+      const num = parseFloat(val);
+      return isNaN(num) ? null : Number(num.toFixed(6));
+    };
+
+    const currentLat = parseCoord(doctor.latitude);
+    const currentLng = parseCoord(doctor.longitude);
+    const newLat = convertedData.latitude !== undefined ? parseCoord(convertedData.latitude) : currentLat;
+    const newLng = convertedData.longitude !== undefined ? parseCoord(convertedData.longitude) : currentLng;
+
+    const hasCoordinatesChanged = (convertedData.latitude !== undefined && newLat !== currentLat) ||
+                                  (convertedData.longitude !== undefined && newLng !== currentLng);
+
+    if (!isAdmin && hasCoordinatesChanged) {
+      console.log(`[Doctor Location Change Request] User ${req.user.name} (${req.user.role}) requested coordinate change for Doctor ${doctor.name} (${doctor.id})`);
 
       const currentDoctorJson = doctor.toJSON();
       const currentSnapshot = {
@@ -855,8 +870,8 @@ const updateDoctor = async (req, res) => {
           });
           if (adminUsers && adminUsers.length > 0) {
             const notif = await Notification.create({
-              title: 'Doctor Edit Request',
-              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Doctor "${doctor.name}". Please review and approve.`,
+              title: 'Doctor Coordinates Change Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested location/coordinate changes for Doctor "${doctor.name}". Please review and approve.`,
               sender_id: req.user.id,
               is_broadcast: false
             });
@@ -869,19 +884,19 @@ const updateDoctor = async (req, res) => {
           }
         }
       } catch (notifErr) {
-        console.warn('⚠️ Notification error on doctor edit request:', notifErr.message);
+        console.warn('⚠️ Notification error on doctor location change request:', notifErr.message);
       }
 
       return res.status(200).json({
         success: true,
         approvalRequired: true,
-        message: 'Doctor edit request submitted to Admin for approval. Changes will be applied once approved.',
+        message: 'Doctor coordinate changes submitted to Admin for approval. Location will update once approved.',
         data: editRequest || { doctor_id: doctor.id, status: 'Pending' }
       });
     }
 
     // =========================================================================
-    // ADMIN / SUPER ADMIN: Direct update into database
+    // DIRECT DATABASE UPDATE (No coordinates changed, or requester is Admin)
     // =========================================================================
     // Optimistic Concurrency Check (baseServerVersion)
     const baseServerVersion = req.body.baseServerVersion !== undefined

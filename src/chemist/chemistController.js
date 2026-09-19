@@ -612,13 +612,28 @@ const updateChemist = async (req, res) => {
     }
 
     // =========================================================================
-    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest (category: chemist) instead of direct DB update
+    // COORDINATES CHANGE CHECK: Only coordinate updates from non-admins require approval
+    // All other edits (area, name, phone, etc.) apply directly to DB
     // =========================================================================
+    const parseCoord = (val) => {
+      if (val === undefined || val === null || val === '') return null;
+      const num = parseFloat(val);
+      return isNaN(num) ? null : Number(num.toFixed(6));
+    };
+
+    const currentLat = parseCoord(chemist.latitude);
+    const currentLng = parseCoord(chemist.longitude);
+    const newLat = chemistUpdateData.latitude !== undefined ? parseCoord(chemistUpdateData.latitude) : currentLat;
+    const newLng = chemistUpdateData.longitude !== undefined ? parseCoord(chemistUpdateData.longitude) : currentLng;
+
+    const hasCoordinatesChanged = (chemistUpdateData.latitude !== undefined && newLat !== currentLat) ||
+                                  (chemistUpdateData.longitude !== undefined && newLng !== currentLng);
+
     const userRole = (req.user && req.user.role) ? req.user.role.toLowerCase() : '';
     const isAdmin = ['admin', 'super admin', 'superadmin'].includes(userRole) || (req.user && req.user.role_name && req.user.role_name.toLowerCase().includes('admin'));
 
-    if (!isAdmin) {
-      console.log(`[Chemist Edit Request] User ${req.user?.name} (${req.user?.role}) requested edit for Chemist ${chemist.firm_name} (${chemist.id})`);
+    if (!isAdmin && hasCoordinatesChanged) {
+      console.log(`[Chemist Location Change Request] User ${req.user?.name} (${req.user?.role}) requested coordinate change for Chemist ${chemist.firm_name} (${chemist.id})`);
 
       const existingTurnovers = await ChemistAnnualTurnover.findAll({
         where: { chemist_id: chemist.id },
@@ -689,8 +704,8 @@ const updateChemist = async (req, res) => {
           });
           if (adminUsers && adminUsers.length > 0) {
             const notif = await Notification.create({
-              title: 'Chemist Edit Request',
-              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Chemist "${chemist.firm_name}". Please review and approve.`,
+              title: 'Chemist Coordinates Change Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested location/coordinate changes for Chemist "${chemist.firm_name}". Please review and approve.`,
               sender_id: req.user.id,
               is_broadcast: false
             });
@@ -703,18 +718,22 @@ const updateChemist = async (req, res) => {
           }
         }
       } catch (notifErr) {
-        console.warn('⚠️ Notification error on chemist edit request:', notifErr.message);
+        console.warn('⚠️ Notification error on chemist location change request:', notifErr.message);
       }
 
       return res.status(200).json({
         success: true,
         approvalRequired: true,
-        message: 'Chemist edit request submitted for Admin approval. Changes will take effect once reviewed.',
+        message: 'Chemist coordinate changes submitted for Admin approval. Location will take effect once reviewed.',
         data: editRequest
       });
     }
 
-    // Start a transaction for Admin direct update
+    // =========================================================================
+    // DIRECT DATABASE UPDATE (No coordinates changed, or requester is Admin)
+    // =========================================================================
+
+    // Start a transaction for direct update
     const transaction = await sequelize.transaction();
 
     try {

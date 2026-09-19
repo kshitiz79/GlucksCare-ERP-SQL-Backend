@@ -782,13 +782,28 @@ const updateStockist = async (req, res) => {
     }
 
     // =========================================================================
-    // NON-ADMIN ROLE CHECK: Create DoctorEditRequest (category: stockist) instead of direct DB update
+    // COORDINATES CHANGE CHECK: Only coordinate updates from non-admins require approval
+    // All other edits (area, name, phone, etc.) apply directly to DB
     // =========================================================================
+    const parseCoord = (val) => {
+      if (val === undefined || val === null || val === '') return null;
+      const num = parseFloat(val);
+      return isNaN(num) ? null : Number(num.toFixed(6));
+    };
+
+    const currentLat = parseCoord(stockist.latitude);
+    const currentLng = parseCoord(stockist.longitude);
+    const newLat = stockistUpdateData.latitude !== undefined ? parseCoord(stockistUpdateData.latitude) : currentLat;
+    const newLng = stockistUpdateData.longitude !== undefined ? parseCoord(stockistUpdateData.longitude) : currentLng;
+
+    const hasCoordinatesChanged = (stockistUpdateData.latitude !== undefined && newLat !== currentLat) ||
+                                  (stockistUpdateData.longitude !== undefined && newLng !== currentLng);
+
     const userRole = (req.user && req.user.role) ? req.user.role.toLowerCase() : '';
     const isAdmin = ['admin', 'super admin', 'superadmin'].includes(userRole) || (req.user && req.user.role_name && req.user.role_name.toLowerCase().includes('admin'));
 
-    if (!isAdmin) {
-      console.log(`[Stockist Edit Request] User ${req.user?.name} (${req.user?.role}) requested edit for Stockist ${stockist.firm_name} (${stockist.id})`);
+    if (!isAdmin && hasCoordinatesChanged) {
+      console.log(`[Stockist Location Change Request] User ${req.user?.name} (${req.user?.role}) requested coordinate change for Stockist ${stockist.firm_name} (${stockist.id})`);
 
       const existingTurnovers = await StockistAnnualTurnover.findAll({
         where: { stockist_id: stockist.id },
@@ -872,8 +887,8 @@ const updateStockist = async (req, res) => {
           });
           if (adminUsers && adminUsers.length > 0) {
             const notif = await Notification.create({
-              title: 'Stockist Edit Request',
-              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested changes for Stockist "${stockist.firm_name}". Please review and approve.`,
+              title: 'Stockist Coordinates Change Request',
+              body: `${req.user.name || 'User'} (${req.user.role || 'MR'}) requested location/coordinate changes for Stockist "${stockist.firm_name}". Please review and approve.`,
               sender_id: req.user.id,
               is_broadcast: false
             });
@@ -886,18 +901,22 @@ const updateStockist = async (req, res) => {
           }
         }
       } catch (notifErr) {
-        console.warn('⚠️ Notification error on stockist edit request:', notifErr.message);
+        console.warn('⚠️ Notification error on stockist location change request:', notifErr.message);
       }
 
       return res.status(200).json({
         success: true,
         approvalRequired: true,
-        message: 'Stockist edit request submitted for Admin approval. Changes will take effect once reviewed.',
+        message: 'Stockist coordinate changes submitted for Admin approval. Location will take effect once reviewed.',
         data: editRequest
       });
     }
 
-    // Start a transaction for Admin direct update
+    // =========================================================================
+    // DIRECT DATABASE UPDATE (No coordinates changed, or requester is Admin)
+    // =========================================================================
+
+    // Start a transaction for direct update
     const transaction = await sequelize.transaction();
 
     try {
