@@ -542,6 +542,122 @@ const bulkConfirmStockistVisits = async (req, res) => {
   }
 };
 
+// BULK CREATE / SCHEDULE stockist visits
+const bulkCreateStockistVisits = async (req, res) => {
+  const sequelize = req.app.get('sequelize');
+  const transaction = await sequelize.transaction();
+  try {
+    const { StockistVisit, Stockist, User } = req.app.get('models');
+
+    // Accept either { visits: [...] } or direct array [...]
+    let visits = Array.isArray(req.body) ? req.body : req.body.visits;
+
+    if (!Array.isArray(visits) || visits.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain an array of visits (e.g. { visits: [...] } or direct JSON array [...])'
+      });
+    }
+
+    const currentUserId = req.user?.id;
+    const createdVisits = [];
+    const skippedVisits = [];
+    const errors = [];
+
+    for (let i = 0; i < visits.length; i++) {
+      const item = visits[i];
+      const stockistId = item.stockist_id || item.stockistId;
+      const targetUserId = item.user_id || item.userId || currentUserId;
+      const visitDate = item.date || item.visit_date || item.visitDate;
+      const notes = item.notes || item.note || '';
+
+      if (!stockistId) {
+        errors.push({ index: i, item, error: 'Missing stockist_id' });
+        continue;
+      }
+      if (!targetUserId) {
+        errors.push({ index: i, item, error: 'Missing user_id (not provided and no authenticated user found)' });
+        continue;
+      }
+      if (!visitDate) {
+        errors.push({ index: i, item, error: 'Missing visit date (YYYY-MM-DD)' });
+        continue;
+      }
+
+      // Check if stockist exists
+      const stockist = await Stockist.findByPk(stockistId, { transaction });
+      if (!stockist) {
+        errors.push({ index: i, item, error: `Stockist with ID '${stockistId}' not found` });
+        continue;
+      }
+
+      // Check if user exists
+      const user = await User.findByPk(targetUserId, { transaction });
+      if (!user) {
+        errors.push({ index: i, item, error: `User with ID '${targetUserId}' not found` });
+        continue;
+      }
+
+      // Check if an unconfirmed visit already exists on the same date for this stockist and user
+      const existingUnconfirmed = await StockistVisit.findOne({
+        where: {
+          stockist_id: stockistId,
+          user_id: targetUserId,
+          date: visitDate,
+          confirmed: false
+        },
+        transaction
+      });
+
+      if (existingUnconfirmed) {
+        skippedVisits.push({
+          index: i,
+          item,
+          reason: 'An unconfirmed visit for this stockist on this date already exists for this user',
+          existingVisitId: existingUnconfirmed.id
+        });
+        continue;
+      }
+
+      const newVisit = await StockistVisit.create({
+        stockist_id: stockistId,
+        user_id: targetUserId,
+        date: visitDate,
+        notes
+      }, { transaction });
+
+      createdVisits.push(newVisit);
+    }
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: `Bulk stockist schedule processed: ${createdVisits.length} created, ${skippedVisits.length} skipped, ${errors.length} errors.`,
+      summary: {
+        total: visits.length,
+        createdCount: createdVisits.length,
+        skippedCount: skippedVisits.length,
+        errorCount: errors.length
+      },
+      data: createdVisits,
+      skipped: skippedVisits,
+      errors
+    });
+
+  } catch (error) {
+    if (transaction) {
+      try { await transaction.rollback(); } catch (e) {}
+    }
+    console.error('Error in bulkCreateStockistVisits:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during bulk stockist visit creation'
+    });
+  }
+};
+
 module.exports = {
   getAllStockistVisits,
   getStockistVisitById,
@@ -550,5 +666,6 @@ module.exports = {
   deleteStockistVisit,
   confirmStockistVisit,
   getStockistVisitsByUserId,
-  bulkConfirmStockistVisits
+  bulkConfirmStockistVisits,
+  bulkCreateStockistVisits
 };

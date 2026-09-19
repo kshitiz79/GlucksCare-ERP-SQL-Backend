@@ -8,11 +8,17 @@ const {
   deleteDoctorVisit,
   confirmDoctorVisit,
   getDoctorVisitsByUserId,
-  bulkConfirmDoctorVisits
+  bulkConfirmDoctorVisits,
+  bulkCreateDoctorVisits
 } = require('./doctorVisitController');
+const { authMiddleware } = require('../middleware/auth');
 
 // GET all doctor visits
 router.get('/', getAllDoctorVisits);
+
+// BULK SCHEDULE doctor visits (MUST come before /:id to avoid route conflict)
+router.post('/bulk-schedule', authMiddleware, bulkCreateDoctorVisits);
+router.post('/bulk', authMiddleware, bulkCreateDoctorVisits);
 
 // GET visits by user ID (MUST come before /:id to avoid route conflict)
 router.get('/user/:userId', getDoctorVisitsByUserId);

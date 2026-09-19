@@ -8,11 +8,17 @@ const {
   deleteChemistVisit,
   confirmChemistVisit,
   getChemistVisitsByUserId,
-  bulkConfirmChemistVisits
+  bulkConfirmChemistVisits,
+  bulkCreateChemistVisits
 } = require('./chemistVisitController');
+const { authMiddleware } = require('../middleware/auth');
 
 // GET all chemist visits
 router.get('/', getAllChemistVisits);
+
+// BULK SCHEDULE chemist visits (MUST come before /:id to avoid route conflict)
+router.post('/bulk-schedule', authMiddleware, bulkCreateChemistVisits);
+router.post('/bulk', authMiddleware, bulkCreateChemistVisits);
 
 // GET visits by user ID (MUST come before /:id to avoid route conflict)
 router.get('/user/:userId', getChemistVisitsByUserId);

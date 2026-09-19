@@ -8,11 +8,17 @@ const {
   deleteStockistVisit,
   confirmStockistVisit,
   getStockistVisitsByUserId,
-  bulkConfirmStockistVisits
+  bulkConfirmStockistVisits,
+  bulkCreateStockistVisits
 } = require('./stockistVisitController');
+const { authMiddleware } = require('../middleware/auth');
 
 // GET all stockist visits
 router.get('/', getAllStockistVisits);
+
+// BULK SCHEDULE stockist visits (MUST come before /:id to avoid route conflict)
+router.post('/bulk-schedule', authMiddleware, bulkCreateStockistVisits);
+router.post('/bulk', authMiddleware, bulkCreateStockistVisits);
 
 // GET visits by user ID (MUST come before /:id to avoid route conflict)
 router.get('/user/:userId', getStockistVisitsByUserId);
