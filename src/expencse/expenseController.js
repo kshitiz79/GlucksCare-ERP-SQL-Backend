@@ -31,7 +31,7 @@ const uploadToCloudinary = async (imageData, isBase64 = true) => {
 const getAllExpenses = async (req, res) => {
   try {
     const { Expense, User } = req.app.get('models');
-    const { userId, lean } = req.query;
+    const { userId, lean, includeInactive } = req.query;
 
     let whereClause = {};
     if (userId) {
@@ -45,24 +45,29 @@ const getAllExpenses = async (req, res) => {
       order: [['created_at', 'DESC']]
     };
 
+    // By default, filter out expenses from inactive users when viewing overall expenses dashboard
+    const shouldFilterActiveOnly = !userId && includeInactive !== 'true';
+
+    const userInclude = {
+      model: User,
+      as: 'UserInfo',
+      attributes: ['id', 'name', 'email', 'is_active']
+    };
+
+    if (shouldFilterActiveOnly) {
+      userInclude.where = { is_active: true };
+      userInclude.required = true;
+    }
+
     if (isLean) {
       findOptions.attributes = [
         'id', 'user_id', 'user_name', 'category', 'status', 'amount',
         'date', 'end_date', 'payment_status', 'payment_date', 'payment_month_year',
         'created_at'
       ];
-      findOptions.include = [{
-        model: User,
-        as: 'UserInfo',
-        attributes: ['id', 'name', 'email']
-      }];
-    } else {
-      findOptions.include = [{
-        model: User,
-        as: 'UserInfo',
-        attributes: ['id', 'name', 'email']
-      }];
     }
+
+    findOptions.include = [userInclude];
 
     const expenses = await Expense.findAll(findOptions);
 
@@ -74,6 +79,7 @@ const getAllExpenses = async (req, res) => {
         _id: expenseObj.id, // For compatibility with frontend
         user: expenseObj.user_id,
         userName: expenseObj.user_name || (expenseObj.UserInfo ? expenseObj.UserInfo.name : 'Unknown User'),
+        userIsActive: expenseObj.UserInfo ? expenseObj.UserInfo.is_active : true,
         totalDistanceKm: expenseObj.total_distance_km,
         ratePerKm: expenseObj.rate_per_km,
         amount: expenseObj.amount,
