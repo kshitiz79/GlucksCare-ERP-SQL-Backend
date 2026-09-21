@@ -11,7 +11,7 @@ const {
   bulkConfirmChemistVisits,
   bulkCreateChemistVisits
 } = require('./chemistVisitController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // GET all chemist visits
 router.get('/', getAllChemistVisits);

@@ -11,7 +11,7 @@ const {
   bulkConfirmStockistVisits,
   bulkCreateStockistVisits
 } = require('./stockistVisitController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // GET all stockist visits
 router.get('/', getAllStockistVisits);

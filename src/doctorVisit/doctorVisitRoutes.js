@@ -11,7 +11,7 @@ const {
   bulkConfirmDoctorVisits,
   bulkCreateDoctorVisits
 } = require('./doctorVisitController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // GET all doctor visits
 router.get('/', getAllDoctorVisits);
