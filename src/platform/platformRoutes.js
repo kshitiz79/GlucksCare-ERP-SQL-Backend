@@ -28,12 +28,17 @@ function platformAuthMiddleware(req, res, next) {
   }
 }
 
-// Public Auth Endpoint
+// Public Auth & App Configuration Endpoints
 router.post('/auth/login', platformController.login);
+router.get('/companies/public', platformController.getPublicCompanies);
+router.get('/company-config/:identifier', platformController.getCompanyConfig);
+router.get('/company-config', platformController.getCompanyConfig);
 
-// Protected Platform Management Endpoints (Can be accessed with or without strict token depending on configuration)
+// Platform Management Endpoints
 router.get('/tenants', platformController.getTenants);
 router.post('/tenants', platformController.createTenant);
+router.put('/tenants/:id', platformController.updateTenant);
+router.patch('/tenants/:id', platformController.updateTenant);
 router.patch('/tenants/:id/status', platformController.toggleTenantStatus);
 router.delete('/tenants/:id', platformController.deleteTenant);
 

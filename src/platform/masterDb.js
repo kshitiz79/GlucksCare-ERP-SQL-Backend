@@ -48,6 +48,14 @@ const Tenant = masterSequelize.define('Tenant', {
     allowNull: false,
     unique: true
   },
+  logo_url: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  backend_url: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   db_name: {
     type: DataTypes.STRING(100),
     allowNull: false,
@@ -121,6 +129,8 @@ async function initMasterDatabase() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name VARCHAR(255) NOT NULL,
         slug VARCHAR(100) NOT NULL UNIQUE,
+        logo_url TEXT,
+        backend_url VARCHAR(255),
         db_name VARCHAR(100) NOT NULL UNIQUE,
         subdomain VARCHAR(255) NOT NULL,
         admin_name VARCHAR(255),
@@ -130,6 +140,9 @@ async function initMasterDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS backend_url VARCHAR(255);
 
       CREATE TABLE IF NOT EXISTS platform_admins (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -144,7 +157,7 @@ async function initMasterDatabase() {
     `);
 
     // Sync Tenant & PlatformAdmin models in Master DB
-    await Tenant.sync();
+    await Tenant.sync({ alter: true });
     await PlatformAdmin.sync();
 
     // Seed default Platform Super Admin if not present
@@ -170,6 +183,8 @@ async function initMasterDatabase() {
       await Tenant.create({
         name: 'GlucksCare Pharmaceuticals (Main)',
         slug: 'gluckscare',
+        logo_url: 'https://gluckscare.com/logo.png',
+        backend_url: 'https://api.gluckscare.com',
         db_name: process.env.DB_NAME || 'gluckscare_erp_production',
         subdomain: 'gluckscare.gluckscare.com',
         admin_name: 'Main Administrator',

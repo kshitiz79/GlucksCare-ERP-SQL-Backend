@@ -53,7 +53,7 @@ const User = (sequelize) => {
         isIn: [['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User', 'Accounts', 'Logistics']]
       }
     },
-    // References
+
     head_office_id: {
       type: DataTypes.UUID,
       references: {

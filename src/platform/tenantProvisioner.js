@@ -7,7 +7,7 @@ const { masterSequelize, Tenant } = require('./masterDb');
 const { initTenantModels } = require('../config/modelFactory');
 const { initializeDatabase } = require('../config/initDatabase');
 
-async function provisionTenantDatabase({ name, slug, adminName, adminEmail, adminPassword }) {
+async function provisionTenantDatabase({ name, slug, adminName, adminEmail, adminPassword, logoUrl, backendUrl }) {
   if (!name || !slug || !adminEmail || !adminPassword) {
     throw new Error('Company name, slug, admin email, and password are required');
   }
@@ -16,6 +16,7 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
   const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
   const dbName = `gluckscare_${cleanSlug.replace(/-/g, '_')}_db`;
   const subdomain = `${cleanSlug}.gluckscare.com`;
+  const defaultBackendUrl = backendUrl || process.env.PUBLIC_API_URL || 'https://api.gluckscare.com';
 
   // Check if tenant slug or db_name already exists in master registry
   const existingTenant = await Tenant.findOne({
@@ -88,11 +89,11 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
     email_verified: true
   });
 
-  // 5. Seed default Company Settings with company's own name and blank logo
+  // 5. Seed default Company Settings with company's own name and logo
   try {
     await tenantModels.CompanySetting.create({
       companyName: name,
-      logoUrl: null,
+      logoUrl: logoUrl || null,
       tagline: null
     });
   } catch (csErr) {
@@ -119,6 +120,8 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
   const newTenant = await Tenant.create({
     name,
     slug: cleanSlug,
+    logo_url: logoUrl || null,
+    backend_url: defaultBackendUrl,
     db_name: dbName,
     subdomain,
     admin_name: adminName || `${name} Admin`,
@@ -136,6 +139,8 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
     id: newTenant.id,
     name: newTenant.name,
     slug: newTenant.slug,
+    logoUrl: newTenant.logo_url,
+    backendUrl: newTenant.backend_url,
     db_name: newTenant.db_name,
     subdomain: newTenant.subdomain,
     adminName: newTenant.admin_name,
