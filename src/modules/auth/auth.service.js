@@ -90,7 +90,7 @@ const resolveCompanyData = async (tenantContext = null, targetModels = null) => 
     const companyName = companySetting?.companyName || tenantContext?.name || 'Zenith Healthcare Ltd';
     const slug = tenantContext?.slug || (companySetting?.companyName ? companySetting.companyName.toLowerCase().replace(/[^a-z0-9]/g, '') : 'zenith');
     const logoUrl = companySetting?.logoUrl || tenantContext?.logo_url || 'https://example.com/logo.png';
-    const backendUrl = tenantContext?.backend_url || process.env.API_BASE_URL || 'https://api.gluckscare.com';
+    const backendUrl = tenantContext?.backend_url || process.env.API_BASE_URL || 'https://test.gluckscare.com';
     const subdomain = tenantContext?.subdomain || (slug ? `${slug}.gluckscare.com` : 'zenith.gluckscare.com');
     const status = tenantContext?.status || 'ACTIVE';
 
@@ -105,8 +105,7 @@ const resolveCompanyData = async (tenantContext = null, targetModels = null) => 
     };
 };
 
-class AuthService {
-    static async register(body, files) {
+    static async register(body, files, req = null) {
         console.log('Register req.body:', body);
         console.log('Register req.files:', files);
 
@@ -167,18 +166,6 @@ class AuthService {
         if (!employeeCode) throw { statusCode: 400, message: 'Employee Code is required' };
         if (!gender) throw { statusCode: 400, message: 'Gender is required' };
 
-        // Check if user already exists
-        const existingUser = await AuthRepository.findUserByEmail(email);
-        if (existingUser) {
-            throw { statusCode: 400, message: 'User already exists' };
-        }
-
-        // Check if employee code already exists
-        const existingEmployeeCode = await AuthRepository.findUserByEmployeeCode(employeeCode);
-        if (existingEmployeeCode) {
-            throw { statusCode: 400, message: 'Employee Code already exists' };
-        }
-
         if (role && !validRoles.includes(role)) {
             throw {
                 statusCode: 400,
@@ -186,18 +173,96 @@ class AuthService {
             };
         }
 
-        // Initialize transaction
-        const transaction = await sequelize.transaction();
+        // 1. Resolve Multi-tenant DB Context
+        const { resolveTenantByEmail, resolveTenantFromRequest } = require('../../platform/tenantConnectionManager');
+        let targetDbModels = null;
+        let tenantContext = null;
+
+        if (req && req.db) {
+            targetDbModels = req.db;
+            tenantContext = req.tenant;
+        } else if (req) {
+            const reqTenantResult = await resolveTenantFromRequest(req);
+            if (reqTenantResult) {
+                tenantContext = reqTenantResult.tenant;
+                targetDbModels = reqTenantResult.db.models;
+            }
+        }
+
+        if (!targetDbModels && email) {
+            const emailTenantResult = await resolveTenantByEmail(email).catch(() => null);
+            if (emailTenantResult) {
+                tenantContext = emailTenantResult.tenant;
+                targetDbModels = emailTenantResult.db.models;
+            }
+        }
+
+        const models = targetDbModels || require('../../config/database');
+
+        // 2. Check if user or employee code already exists in target DB
+        const existingUser = await models.User.findOne({
+            where: { email: email.toLowerCase().trim() }
+        });
+        if (existingUser) {
+            throw { statusCode: 400, message: 'User already exists' };
+        }
+
+        const existingEmployeeCode = await models.User.findOne({
+            where: { employee_code: employeeCode.trim() }
+        });
+        if (existingEmployeeCode) {
+            throw { statusCode: 400, message: 'Employee Code already exists' };
+        }
+
+        // 3. Foreign Key Validation & Sanitization (prevents ForeignKeyConstraintError)
+        let validBranchId = null;
+        if (branch && isUUID(branch) && models.Branch) {
+            const b = await models.Branch.findByPk(branch).catch(() => null);
+            if (b) validBranchId = branch;
+        }
+
+        let validDepartmentId = null;
+        if (department && isUUID(department) && models.Department) {
+            const d = await models.Department.findByPk(department).catch(() => null);
+            if (d) validDepartmentId = department;
+        }
+
+        let validDesignationId = null;
+        if (designation && isUUID(designation) && models.Designation) {
+            const des = await models.Designation.findByPk(designation).catch(() => null);
+            if (des) validDesignationId = designation;
+        }
+
+        let validEmploymentTypeId = null;
+        if (employmentType && isUUID(employmentType) && models.EmploymentType) {
+            const et = await models.EmploymentType.findByPk(employmentType).catch(() => null);
+            if (et) validEmploymentTypeId = employmentType;
+        }
+
+        let validStateId = null;
+        if (state && isUUID(state) && models.State) {
+            const s = await models.State.findByPk(state).catch(() => null);
+            if (s) validStateId = state;
+        }
+
+        let validHeadOfficeId = null;
+        if (headOffice && isUUID(headOffice) && models.HeadOffice) {
+            const ho = await models.HeadOffice.findByPk(headOffice).catch(() => null);
+            if (ho) validHeadOfficeId = headOffice;
+        }
+
+        // Initialize transaction on the correct DB connection
+        const transaction = await models.sequelize.transaction();
 
         try {
             // Check if structured address is provided
             let addressId = null;
-            if (addressLine1 && pincode) {
+            if (addressLine1 && pincode && models.Address) {
                 console.log('Creating structured address...');
                 const addressPayload = {
                     address_name: name || 'User Address',
                     address_line_1: addressLine1,
-                    address_line_2: addressLine2,
+                    address_line_2: addressLine2 || null,
                     area_locality: landmark || postOffice || 'N/A',
                     post_office: postOffice || 'N/A',
                     district: district || 'N/A',
@@ -208,19 +273,18 @@ class AuthService {
                     contact_number: mobileNumber || phone || '0000000000',
                     communication_type: 'Home'
                 };
-                const createdAddress = await AuthRepository.createAddress(addressPayload, transaction);
+                const createdAddress = await models.Address.create(addressPayload, { transaction });
                 addressId = createdAddress.id;
                 console.log('✅ Structured address created with ID:', addressId);
             }
 
-            console.log('Creating User record...');
-            // Create user
-            const user = await AuthRepository.createUser({
+            console.log('Creating User record in database...');
+            const user = await models.User.create({
                 name,
-                email,
+                email: email.toLowerCase().trim(),
                 password_hash: password, // Will be hashed by the model hook
                 mobile_number: mobileNumber || phone,
-                head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : (headOffice && isUUID(headOffice) ? headOffice : null),
+                head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : validHeadOfficeId,
                 employee_code: employeeCode,
                 role,
                 gender,
@@ -233,59 +297,86 @@ class AuthService {
                 bank_details: parsedBankDetails || {},
                 emergency_contact: parsedEmergencyContact || {},
                 reference: parsedReference || {},
-                state_id: (state && isUUID(state)) ? state : null,
-                branch_id: (branch && isUUID(branch)) ? branch : null,
-                department_id: (department && isUUID(department)) ? department : null,
-                designation_id: (designation && isUUID(designation)) ? designation : null,
-                employment_type_id: (employmentType && isUUID(employmentType)) ? employmentType : null,
+                state_id: validStateId,
+                branch_id: validBranchId,
+                department_id: validDepartmentId,
+                designation_id: validDesignationId,
+                employment_type_id: validEmploymentTypeId,
                 legal_documents: legal_documents,
                 email_verified: true,
                 email_verified_at: new Date()
-            }, transaction);
+            }, { transaction });
 
             console.log('✅ User record created with ID:', user.id);
 
-            // Handle headOffices array if provided
-            if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0) {
-                const userHeadOfficeRecords = parsedHeadOffices
-                    .filter(hoId => hoId && isUUID(hoId))
-                    .map(headOfficeId => ({
-                        user_id: user.id,
-                        head_office_id: headOfficeId
-                    }));
+            // Handle headOffices array if provided - safely filter existing head offices
+            if (parsedHeadOffices && Array.isArray(parsedHeadOffices) && parsedHeadOffices.length > 0 && models.UserHeadOffice && models.HeadOffice) {
+                const validUuids = parsedHeadOffices.filter(hoId => hoId && isUUID(hoId));
+                if (validUuids.length > 0) {
+                    const existingOffices = await models.HeadOffice.findAll({
+                        where: { id: validUuids },
+                        attributes: ['id'],
+                        raw: true
+                    }).catch(() => []);
+                    const existingIds = new Set(existingOffices.map(o => o.id));
+                    const userHeadOfficeRecords = validUuids
+                        .filter(hoId => existingIds.has(hoId))
+                        .map(headOfficeId => ({
+                            user_id: user.id,
+                            head_office_id: headOfficeId
+                        }));
 
-                if (userHeadOfficeRecords.length > 0) {
-                    await AuthRepository.bulkCreateUserHeadOffices(userHeadOfficeRecords, transaction);
+                    if (userHeadOfficeRecords.length > 0) {
+                        await models.UserHeadOffice.bulkCreate(userHeadOfficeRecords, { transaction });
+                    }
                 }
             }
 
-            // Handle Managers if provided
-            if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0) {
-                const managerRecords = parsedManagers
-                    .filter(mId => mId && isUUID(mId))
-                    .map(managerId => ({
-                        user_id: user.id,
-                        manager_id: managerId,
-                        manager_type: 'manager'
-                    }));
+            // Handle Managers if provided - safely filter existing users
+            if (parsedManagers && Array.isArray(parsedManagers) && parsedManagers.length > 0 && models.UserManager) {
+                const validUuids = parsedManagers.filter(mId => mId && isUUID(mId));
+                if (validUuids.length > 0) {
+                    const existingUsers = await models.User.findAll({
+                        where: { id: validUuids },
+                        attributes: ['id'],
+                        raw: true
+                    }).catch(() => []);
+                    const existingIds = new Set(existingUsers.map(u => u.id));
+                    const managerRecords = validUuids
+                        .filter(mId => existingIds.has(mId))
+                        .map(managerId => ({
+                            user_id: user.id,
+                            manager_id: managerId,
+                            manager_type: 'manager'
+                        }));
 
-                if (managerRecords.length > 0) {
-                    await AuthRepository.bulkCreateUserManagers(managerRecords, transaction);
+                    if (managerRecords.length > 0) {
+                        await models.UserManager.bulkCreate(managerRecords, { transaction });
+                    }
                 }
             }
 
-            // Handle Area Managers if provided
-            if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0) {
-                const areaManagerRecords = parsedAreaManagers
-                    .filter(amId => amId && isUUID(amId))
-                    .map(areaManagerId => ({
-                        user_id: user.id,
-                        manager_id: areaManagerId,
-                        manager_type: 'area_manager'
-                    }));
+            // Handle Area Managers if provided - safely filter existing users
+            if (parsedAreaManagers && Array.isArray(parsedAreaManagers) && parsedAreaManagers.length > 0 && models.UserManager) {
+                const validUuids = parsedAreaManagers.filter(amId => amId && isUUID(amId));
+                if (validUuids.length > 0) {
+                    const existingUsers = await models.User.findAll({
+                        where: { id: validUuids },
+                        attributes: ['id'],
+                        raw: true
+                    }).catch(() => []);
+                    const existingIds = new Set(existingUsers.map(u => u.id));
+                    const areaManagerRecords = validUuids
+                        .filter(amId => existingIds.has(amId))
+                        .map(areaManagerId => ({
+                            user_id: user.id,
+                            manager_id: areaManagerId,
+                            manager_type: 'area_manager'
+                        }));
 
-                if (areaManagerRecords.length > 0) {
-                    await AuthRepository.bulkCreateUserManagers(areaManagerRecords, transaction);
+                    if (areaManagerRecords.length > 0) {
+                        await models.UserManager.bulkCreate(areaManagerRecords, { transaction });
+                    }
                 }
             }
 
@@ -304,18 +395,29 @@ class AuthService {
                 console.error('[WhatsApp Welcome] register trigger error:', err);
             }
 
-            const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
+            const token = JwtService.generateToken({
+                id: user.id,
+                role: user.role,
+                ...(tenantContext && {
+                    tenant: {
+                        id: tenantContext.id,
+                        name: tenantContext.name,
+                        slug: tenantContext.slug,
+                        subdomain: tenantContext.subdomain
+                    }
+                })
+            }, '30d');
 
-            const populatedUser = await AuthRepository.findUserById(user.id, {
-                include: [
+            const populatedUser = await models.User.findByPk(user.id, {
+                include: models.HeadOffice ? [
                     {
-                        model: HeadOffice,
+                        model: models.HeadOffice,
                         as: 'headOffices',
                         through: { attributes: [] },
                         attributes: ['id', 'name', 'latitude', 'longitude']
                     }
-                ]
-            });
+                ] : []
+            }).catch(() => null);
 
             let responseHeadOffices = [];
             if (populatedUser && populatedUser.headOffices && populatedUser.headOffices.length > 0) {
@@ -327,7 +429,7 @@ class AuthService {
                 }));
             }
 
-            const companyData = await resolveCompanyData(null, null);
+            const companyData = await resolveCompanyData(tenantContext, models);
 
             return {
                 success: true,
@@ -339,7 +441,15 @@ class AuthService {
                     email: user.email,
                     role: user.role,
                     headOffices: responseHeadOffices,
-                    meter_range: 200
+                    meter_range: 200,
+                    ...(tenantContext && {
+                        tenant: {
+                            id: tenantContext.id,
+                            name: tenantContext.name,
+                            slug: tenantContext.slug,
+                            subdomain: tenantContext.subdomain
+                        }
+                    })
                 },
                 company: companyData
             };

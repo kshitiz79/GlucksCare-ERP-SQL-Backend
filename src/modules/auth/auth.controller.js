@@ -68,30 +68,38 @@ const handleControllerError = (err, res, defaultMessage = 'Server error') => {
         return res.status(err.statusCode).json({ msg: err.message });
     }
 
-    // Generic fallback errors
-    if (defaultMessage === 'Login error') {
-        return res.status(500).json({ msg: 'Server error during login' });
+    // Sequelize foreign key constraint error mapping
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+        const detail = err.parent?.detail || err.original?.detail || `Foreign key constraint failed on ${err.table || 'table'}`;
+        return res.status(400).json({
+            msg: detail,
+            error: detail,
+            detail: detail
+        });
     }
 
-    if (defaultMessage === 'Get current user error') {
-        return res.status(500).json({ msg: 'Server error' });
-    }
-
-    if (defaultMessage === 'Verify OTP error') {
-        return res.status(500).json({ msg: 'Server error' });
+    // Sequelize database error mapping
+    if (err.name === 'SequelizeDatabaseError') {
+        const detail = err.parent?.detail || err.original?.detail || err.message;
+        return res.status(500).json({
+            msg: `Database Error: ${err.message}`,
+            error: err.message,
+            detail: detail
+        });
     }
 
     return res.status(500).json({
-        msg: defaultMessage,
-        error: err.message,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        msg: err.message || defaultMessage,
+        error: err.message || defaultMessage,
+        detail: err.parent?.detail || err.original?.detail || err.message,
+        stack: err.stack
     });
 };
 
 class AuthController {
     static async register(req, res, next) {
         try {
-            const result = await authService.register(req.body, req.files);
+            const result = await authService.register(req.body, req.files, req);
             return res.json(result);
         } catch (err) {
             handleControllerError(err, res, 'Register error');
