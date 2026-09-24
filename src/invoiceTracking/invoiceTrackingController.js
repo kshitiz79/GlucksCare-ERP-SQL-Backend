@@ -7,6 +7,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const { syncHeadOfficeSalesTarget } = require('../salesTarget/salesTargetSync');
 
 
 // Configure multer for memory storage
@@ -443,6 +444,18 @@ const createInvoiceTracking = async (req, res) => {
 
     const invoiceTracking = await InvoiceTracking.create(invoiceTrackingData);
 
+    // Auto-sync Head Office Sales Target (subtracts taxable amount after discount from remaining target)
+    if (stockist.head_office_id && invoice_date) {
+      try {
+        const invD = new Date(invoice_date);
+        const m = invD.getMonth() + 1;
+        const y = invD.getFullYear();
+        await syncHeadOfficeSalesTarget(stockist.head_office_id, m, y, req.app.get('models'));
+      } catch (syncErr) {
+        console.warn('Failed to auto-sync sales target on invoice create:', syncErr);
+      }
+    }
+
     // Fetch the created record with associations
     const createdRecord = await InvoiceTracking.findByPk(invoiceTracking.id, {
       include: [
@@ -497,6 +510,9 @@ const updateInvoiceTracking = async (req, res) => {
         message: 'Invoice tracking record not found'
       });
     }
+
+    const previousStockistId = invoiceTracking.stockist_id;
+    const previousInvoiceDate = invoiceTracking.invoice_date;
 
     let updateData = {
       invoice_number,
@@ -555,6 +571,25 @@ const updateInvoiceTracking = async (req, res) => {
 
     await invoiceTracking.update(updateData);
 
+    // Auto-sync affected Head Office Sales Target(s)
+    try {
+      const models = req.app.get('models');
+      const oldStockist = await Stockist.findByPk(previousStockistId);
+      const newStockist = stockist_id ? await Stockist.findByPk(stockist_id) : oldStockist;
+      
+      const oldDate = new Date(previousInvoiceDate);
+      const newDate = invoice_date ? new Date(invoice_date) : oldDate;
+
+      if (oldStockist?.head_office_id) {
+        await syncHeadOfficeSalesTarget(oldStockist.head_office_id, oldDate.getMonth() + 1, oldDate.getFullYear(), models);
+      }
+      if (newStockist?.head_office_id && (newStockist.head_office_id !== oldStockist?.head_office_id || newDate.getMonth() !== oldDate.getMonth() || newDate.getFullYear() !== oldDate.getFullYear())) {
+        await syncHeadOfficeSalesTarget(newStockist.head_office_id, newDate.getMonth() + 1, newDate.getFullYear(), models);
+      }
+    } catch (syncErr) {
+      console.warn('Failed to auto-sync sales target on invoice update:', syncErr);
+    }
+
     // Sync invoice changes to forwarding notes if they changed
     const forwardingNoteUpdates = {};
     if (amount !== undefined) forwardingNoteUpdates.amount = amount;
@@ -595,7 +630,7 @@ const updateInvoiceTracking = async (req, res) => {
 // DELETE invoice tracking record
 const deleteInvoiceTracking = async (req, res) => {
   try {
-    const { InvoiceTracking } = req.app.get('models');
+    const { InvoiceTracking, Stockist } = req.app.get('models');
     const { id } = req.params;
 
     const invoiceTracking = await InvoiceTracking.findByPk(id);
@@ -605,6 +640,9 @@ const deleteInvoiceTracking = async (req, res) => {
         message: 'Invoice tracking record not found'
       });
     }
+
+    const previousStockistId = invoiceTracking.stockist_id;
+    const previousInvoiceDate = invoiceTracking.invoice_date;
 
     // Delete image from Cloudinary if exists
     if (invoiceTracking.invoice_image_public_id) {
@@ -616,6 +654,17 @@ const deleteInvoiceTracking = async (req, res) => {
     }
 
     await invoiceTracking.destroy();
+
+    // Auto-sync Head Office Sales Target after deletion
+    try {
+      const stockist = await Stockist.findByPk(previousStockistId);
+      if (stockist?.head_office_id && previousInvoiceDate) {
+        const d = new Date(previousInvoiceDate);
+        await syncHeadOfficeSalesTarget(stockist.head_office_id, d.getMonth() + 1, d.getFullYear(), req.app.get('models'));
+      }
+    } catch (syncErr) {
+      console.warn('Failed to auto-sync sales target on invoice delete:', syncErr);
+    }
 
     res.json({
       success: true,
@@ -636,7 +685,7 @@ const getStockistsForDropdown = async (req, res) => {
     const { Stockist } = req.app.get('models');
 
     const stockists = await Stockist.findAll({
-      attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'drug_license_number', 'registered_office_address', 'gst_number', 'address_id'],
+      attributes: ['id', 'firm_name', 'email_address', 'mobile_number', 'drug_license_number', 'registered_office_address', 'gst_number', 'address_id', 'head_office_id'],
       order: [['firm_name', 'ASC']]
     });
 

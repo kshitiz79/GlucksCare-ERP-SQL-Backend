@@ -63,6 +63,29 @@ const getAllSalesTargets = async (req, res) => {
             ORDER BY head_office_id, target_year, (user_id IS NULL) DESC, created_at DESC
           ) st ON st.head_office_id = ho.id AND st.target_year = :year`;
 
+      const invoiceJoin = monthInt
+        ? `LEFT JOIN (
+            SELECT 
+              s.head_office_id,
+              SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+            FROM invoice_tracking it
+            JOIN stockists s ON it.stockist_id = s.id
+            WHERE it.status != 'cancelled'
+              AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
+              AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+            GROUP BY s.head_office_id
+          ) inv ON inv.head_office_id = ho.id`
+        : `LEFT JOIN (
+            SELECT 
+              s.head_office_id,
+              SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+            FROM invoice_tracking it
+            JOIN stockists s ON it.stockist_id = s.id
+            WHERE it.status != 'cancelled'
+              AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+            GROUP BY s.head_office_id
+          ) inv ON inv.head_office_id = ho.id`;
+
       const hoQuery = `
         SELECT 
           ho.id as head_office_id,
@@ -72,7 +95,7 @@ const getAllSalesTargets = async (req, res) => {
           s.name as state_name,
           st.id as target_id,
           st.target_amount,
-          st.achieved_amount,
+          COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount,
           st.achievement_percentage,
           st.completion_deadline,
           st.status as target_status,
@@ -82,6 +105,7 @@ const getAllSalesTargets = async (req, res) => {
         FROM head_offices ho
         LEFT JOIN states s ON ho.state_id = s.id
         ${targetJoin}
+        ${invoiceJoin}
         ${hoWhere}
         ORDER BY ho.name ASC
       `;
@@ -139,13 +163,14 @@ const getAllSalesTargets = async (req, res) => {
         const assignedUsers = hoUsersMap[row.head_office_id] || [];
         const targetAmount = parseFloat(row.target_amount) || 0;
         const achievedAmount = parseFloat(row.achieved_amount) || 0;
+        const remainingAmount = Math.max(0, targetAmount - achievedAmount);
         const achievementPercentage = targetAmount > 0 
-          ? (row.achievement_percentage !== null ? row.achievement_percentage : Math.round((achievedAmount / targetAmount) * 100))
+          ? Math.round((achievedAmount / targetAmount) * 100)
           : 0;
 
         let status = 'Unassigned';
         if (row.target_id) {
-          status = row.target_status || (achievementPercentage >= 100 ? 'Completed' : 'Active');
+          status = achievementPercentage >= 100 ? 'Completed' : (row.target_status || 'Active');
         }
 
         return {
@@ -160,6 +185,7 @@ const getAllSalesTargets = async (req, res) => {
           userCount: assignedUsers.length,
           targetAmount,
           achievedAmount,
+          remainingAmount,
           achievementPercentage,
           targetMonth: row.target_month || monthInt || (new Date().getMonth() + 1),
           targetYear: row.target_year || yearInt,
@@ -291,10 +317,39 @@ const getAllSalesTargets = async (req, res) => {
       }
     });
 
-    // Fetch all head office targets for this period
+    // Fetch all head office targets for this period with live invoice billing deduction/achievement
     const hoTargetQuery = monthInt
-      ? 'SELECT * FROM sales_targets WHERE head_office_id IS NOT NULL AND target_month = :month AND target_year = :year'
-      : 'SELECT * FROM sales_targets WHERE head_office_id IS NOT NULL AND target_year = :year';
+      ? `SELECT 
+          st.*,
+          COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount
+        FROM sales_targets st
+        LEFT JOIN (
+          SELECT 
+            s.head_office_id,
+            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+          FROM invoice_tracking it
+          JOIN stockists s ON it.stockist_id = s.id
+          WHERE it.status != 'cancelled'
+            AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
+            AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+          GROUP BY s.head_office_id
+        ) inv ON inv.head_office_id = st.head_office_id
+        WHERE st.head_office_id IS NOT NULL AND st.target_month = :month AND st.target_year = :year`
+      : `SELECT 
+          st.*,
+          COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount
+        FROM sales_targets st
+        LEFT JOIN (
+          SELECT 
+            s.head_office_id,
+            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+          FROM invoice_tracking it
+          JOIN stockists s ON it.stockist_id = s.id
+          WHERE it.status != 'cancelled'
+            AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+          GROUP BY s.head_office_id
+        ) inv ON inv.head_office_id = st.head_office_id
+        WHERE st.head_office_id IS NOT NULL AND st.target_year = :year`;
 
     const hoTargets = await sequelize.query(hoTargetQuery, {
       replacements: userReplacements,

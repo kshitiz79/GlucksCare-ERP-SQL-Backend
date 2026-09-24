@@ -16,7 +16,7 @@ async function provisionTenantDatabase({ name, slug, adminName, adminEmail, admi
   const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
   const dbName = `gluckscare_${cleanSlug.replace(/-/g, '_')}_db`;
   const subdomain = `${cleanSlug}.gluckscare.com`;
-  const defaultBackendUrl = backendUrl || process.env.PUBLIC_API_URL || 'https://api.gluckscare.com';
+  const defaultBackendUrl = backendUrl || process.env.PUBLIC_API_URL || 'http://localhost:5051';
 
   // Check if tenant slug or db_name already exists in master registry
   const existingTenant = await Tenant.findOne({

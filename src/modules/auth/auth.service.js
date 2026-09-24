@@ -73,6 +73,38 @@ const getUserAssignedHeadOffices = async (user, targetModels = null) => {
     }));
 };
 
+const resolveCompanyData = async (tenantContext = null, targetModels = null) => {
+    let companySetting = null;
+    try {
+        const models = targetModels || require('../../config/database');
+        if (models && models.CompanySetting) {
+            companySetting = await models.CompanySetting.findOne({
+                order: [['id', 'ASC']]
+            });
+        }
+    } catch (e) {
+        console.error('Error fetching CompanySetting in auth service:', e);
+    }
+
+    const id = tenantContext?.id ? tenantContext.id.toString() : (companySetting?.id ? companySetting.id.toString() : 'main');
+    const companyName = companySetting?.companyName || tenantContext?.name || 'Zenith Healthcare Ltd';
+    const slug = tenantContext?.slug || (companySetting?.companyName ? companySetting.companyName.toLowerCase().replace(/[^a-z0-9]/g, '') : 'zenith');
+    const logoUrl = companySetting?.logoUrl || tenantContext?.logo_url || 'https://example.com/logo.png';
+    const backendUrl = tenantContext?.backend_url || process.env.API_BASE_URL || 'http://localhost:5051';
+    const subdomain = tenantContext?.subdomain || (slug ? `${slug}.gluckscare.com` : 'zenith.gluckscare.com');
+    const status = tenantContext?.status || 'ACTIVE';
+
+    return {
+        id,
+        companyName,
+        slug,
+        logoUrl,
+        backendUrl,
+        subdomain,
+        status
+    };
+};
+
 class AuthService {
     static async register(body, files) {
         console.log('Register req.body:', body);
@@ -295,7 +327,10 @@ class AuthService {
                 }));
             }
 
+            const companyData = await resolveCompanyData(null, null);
+
             return {
+                success: true,
                 token,
                 meter_range: 200,
                 user: {
@@ -305,7 +340,8 @@ class AuthService {
                     role: user.role,
                     headOffices: responseHeadOffices,
                     meter_range: 200
-                }
+                },
+                company: companyData
             };
         } catch (dbError) {
             console.error('❌ Database/Internal Error during registration:', dbError);
@@ -379,7 +415,7 @@ class AuthService {
         }
 
         const bcrypt = require('bcryptjs');
-        const isMatch = user.comparePassword 
+        const isMatch = user.comparePassword
             ? await user.comparePassword(password)
             : await bcrypt.compare(password, user.password_hash);
 
@@ -586,10 +622,14 @@ class AuthService {
             db: targetDbModels
         });
 
+        const companyData = await resolveCompanyData(tenantContext, targetDbModels);
+
         return {
+            success: true,
             token,
             meter_range: 200,
-            user: responseUser
+            user: responseUser,
+            company: companyData
         };
     }
 
@@ -681,6 +721,19 @@ class AuthService {
 
         console.log(`🚀 Email login successful for ${email}`);
 
+        const { resolveTenantByEmail } = require('../../platform/tenantConnectionManager');
+        let targetDbModels = null;
+        let tenantContext = null;
+        try {
+            const emailTenantResult = await resolveTenantByEmail(email);
+            if (emailTenantResult) {
+                tenantContext = emailTenantResult.tenant;
+                targetDbModels = emailTenantResult.db.models;
+            }
+        } catch (e) { }
+
+        const companyData = await resolveCompanyData(tenantContext, targetDbModels);
+
         return {
             success: true,
             msg: 'Login successful',
@@ -699,8 +752,17 @@ class AuthService {
                     latitude: user.HeadOffice.latitude,
                     longitude: user.HeadOffice.longitude
                 }] : [],
-                meter_range: 200
-            }
+                meter_range: 200,
+                ...(tenantContext && {
+                    tenant: {
+                        id: tenantContext.id,
+                        name: tenantContext.name,
+                        slug: tenantContext.slug,
+                        subdomain: tenantContext.subdomain
+                    }
+                })
+            },
+            company: companyData
         };
     }
 
