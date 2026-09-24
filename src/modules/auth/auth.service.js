@@ -253,7 +253,17 @@ class AuthService {
         }
 
         // Initialize transaction on the correct DB connection
-        const transaction = await models.sequelize.transaction();
+        const activeSequelize = (models.User && models.User.sequelize) || models.sequelize || (models.Address && models.Address.sequelize) || require('../../config/database').sequelize;
+        let transaction = null;
+        try {
+            if (activeSequelize && typeof activeSequelize.transaction === 'function') {
+                transaction = await activeSequelize.transaction();
+            }
+        } catch (txErr) {
+            console.warn('⚠️ Could not open transaction, proceeding without transaction:', txErr.message);
+            transaction = null;
+        }
+        const txOption = transaction ? { transaction } : {};
 
         try {
             // Check if structured address is provided
@@ -274,7 +284,7 @@ class AuthService {
                     contact_number: mobileNumber || phone || '0000000000',
                     communication_type: 'Home'
                 };
-                const createdAddress = await models.Address.create(addressPayload, { transaction });
+                const createdAddress = await models.Address.create(addressPayload, txOption);
                 addressId = createdAddress.id;
                 console.log('✅ Structured address created with ID:', addressId);
             }
@@ -306,7 +316,7 @@ class AuthService {
                 legal_documents: legal_documents,
                 email_verified: true,
                 email_verified_at: new Date()
-            }, { transaction });
+            }, txOption);
 
             console.log('✅ User record created with ID:', user.id);
 
@@ -328,7 +338,7 @@ class AuthService {
                         }));
 
                     if (userHeadOfficeRecords.length > 0) {
-                        await models.UserHeadOffice.bulkCreate(userHeadOfficeRecords, { transaction });
+                        await models.UserHeadOffice.bulkCreate(userHeadOfficeRecords, txOption);
                     }
                 }
             }
@@ -352,7 +362,7 @@ class AuthService {
                         }));
 
                     if (managerRecords.length > 0) {
-                        await models.UserManager.bulkCreate(managerRecords, { transaction });
+                        await models.UserManager.bulkCreate(managerRecords, txOption);
                     }
                 }
             }
@@ -376,13 +386,15 @@ class AuthService {
                         }));
 
                     if (areaManagerRecords.length > 0) {
-                        await models.UserManager.bulkCreate(areaManagerRecords, { transaction });
+                        await models.UserManager.bulkCreate(areaManagerRecords, txOption);
                     }
                 }
             }
 
-            await transaction.commit();
-            console.log('✅ Transaction committed successfully');
+            if (transaction && typeof transaction.commit === 'function') {
+                await transaction.commit();
+                console.log('✅ Transaction committed successfully');
+            }
 
             // Trigger WhatsApp welcome message template
             try {
@@ -456,8 +468,8 @@ class AuthService {
             };
         } catch (dbError) {
             console.error('❌ Database/Internal Error during registration:', dbError);
-            if (transaction) {
-                await transaction.rollback();
+            if (transaction && typeof transaction.rollback === 'function') {
+                await transaction.rollback().catch(() => {});
             }
             throw dbError;
         }
