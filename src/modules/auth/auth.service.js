@@ -105,6 +105,7 @@ const resolveCompanyData = async (tenantContext = null, targetModels = null) => 
     };
 };
 
+class AuthService {
     static async register(body, files, req = null) {
         console.log('Register req.body:', body);
         console.log('Register req.files:', files);
