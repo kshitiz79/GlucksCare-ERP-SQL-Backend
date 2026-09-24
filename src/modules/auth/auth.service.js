@@ -469,7 +469,7 @@ class AuthService {
         } catch (dbError) {
             console.error('❌ Database/Internal Error during registration:', dbError);
             if (transaction && typeof transaction.rollback === 'function') {
-                await transaction.rollback().catch(() => {});
+                await transaction.rollback().catch(() => { });
             }
             throw dbError;
         }

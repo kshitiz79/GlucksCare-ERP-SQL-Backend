@@ -23,6 +23,8 @@ const defaultOrigins = [
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
+    'https://fieldomni.com',
+    'https://fieldomni.com',
     'https://gluckscare.rbshstudio.in'
 ];
 
