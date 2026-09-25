@@ -87,6 +87,7 @@ const userActivityLogRoutes = require('../userActivityLog/userActivityLogRoutes'
 const delhiveryRoutes = require('../delhivery/delhiveryRoutes');
 const forwardingNoteRoutes = require('../forwardingNote/forwardingNoteRoutes');
 const courierCompanyRoutes = require('../courierCompany/courierCompanyRoutes');
+const bankRoutes = require('../bankMaster/bankRoutes');
 const addressRoutes = require('../Address/AddressRoute');
 const partyRoutes = require('../party/PartyRoute');
 
@@ -180,6 +181,8 @@ router.use('/user-activity-logs', userActivityLogRoutes);
 router.use('/delhivery', delhiveryRoutes);
 router.use('/forwarding-notes', forwardingNoteRoutes);
 router.use('/courier-companies', courierCompanyRoutes);
+router.use('/banks', bankRoutes);
+router.use('/bank-master', bankRoutes);
 router.use('/addresses', addressRoutes);
 router.use('/parties', partyRoutes);
 

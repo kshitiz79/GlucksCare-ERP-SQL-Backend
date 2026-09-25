@@ -90,7 +90,7 @@ const resolveCompanyData = async (tenantContext = null, targetModels = null) => 
     const companyName = companySetting?.companyName || tenantContext?.name || 'Zenith Healthcare Ltd';
     const slug = tenantContext?.slug || (companySetting?.companyName ? companySetting.companyName.toLowerCase().replace(/[^a-z0-9]/g, '') : 'zenith');
     const logoUrl = companySetting?.logoUrl || tenantContext?.logo_url || 'https://example.com/logo.png';
-    const backendUrl = tenantContext?.backend_url || process.env.API_BASE_URL || 'https://test.gluckscare.com';
+    const backendUrl = tenantContext?.backend_url || process.env.API_BASE_URL || 'https://api.gluckscare.com';
     const subdomain = tenantContext?.subdomain || (slug ? `${slug}.gluckscare.com` : 'zenith.gluckscare.com');
     const status = tenantContext?.status || 'ACTIVE';
 

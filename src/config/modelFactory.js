@@ -62,6 +62,7 @@ const ChallanItem = require('../challan/ChallanItem');
 
 const Address = require('../Address/Address');
 const CourierCompany = require('../courierCompany/CourierCompany');
+const Bank = require('../bankMaster/Bank');
 const PartyExpense = require('../partyExpense/PartyExpense');
 const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/ProductMasters');
 const InventoryItem = require('../inventory/InventoryItem');
@@ -139,6 +140,7 @@ function initTenantModels(targetSequelize) {
 
     Address: Address(targetSequelize),
     CourierCompany: CourierCompany(targetSequelize),
+    Bank: Bank(targetSequelize),
     PartyExpense: PartyExpense(targetSequelize),
     Salt: Salt(targetSequelize),
     Unit: Unit(targetSequelize),

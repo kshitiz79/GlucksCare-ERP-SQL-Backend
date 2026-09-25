@@ -105,6 +105,7 @@ const ChallanItem = require('../challan/ChallanItem');
 
 const Address = require('../Address/Address');
 const CourierCompany = require('../courierCompany/CourierCompany');
+const Bank = require('../bankMaster/Bank');
 const PartyExpense = require('../partyExpense/PartyExpense');
 const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = require('../productMaster/ProductMasters');
 const InventoryItem = require('../inventory/InventoryItem');
@@ -183,6 +184,7 @@ const models = {
 
   Address: Address(sequelize),
   CourierCompany: CourierCompany(sequelize),
+  Bank: Bank(sequelize),
   PartyExpense: PartyExpense(sequelize),
   Salt: Salt(sequelize),
   Unit: Unit(sequelize),

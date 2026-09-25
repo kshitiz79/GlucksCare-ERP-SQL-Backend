@@ -19,11 +19,10 @@ const defaultOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
-    'https://test.gluckscare.com',
+    'https://api.gluckscare.com',
     'https://gluckscare.com',
     'https://sales-rep-visite.gluckscare.com',
     'https://demo.gluckscare.com',
-    'https://fieldomni.com',
     'https://fieldomni.com',
     'https://gluckscare.rbshstudio.in'
 ];

@@ -184,7 +184,7 @@ async function initMasterDatabase() {
         name: 'GlucksCare Pharmaceuticals (Main)',
         slug: 'gluckscare',
         logo_url: 'https://gluckscare.com/logo.png',
-        backend_url: 'https://test.gluckscare.com',
+        backend_url: 'https://api.gluckscare.com',
         db_name: process.env.DB_NAME || 'gluckscare_erp_production',
         subdomain: 'gluckscare.gluckscare.com',
         admin_name: 'Main Administrator',
