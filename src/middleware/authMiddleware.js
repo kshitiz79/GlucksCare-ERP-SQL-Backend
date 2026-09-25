@@ -183,6 +183,7 @@ const optionalAuth = async (req, res, next) => {
 
 module.exports = {
     authMiddleware,
+    requireAuth: authMiddleware,
     authorize,
     adminAuth,
     managerAuth,
