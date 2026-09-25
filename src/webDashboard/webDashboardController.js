@@ -4,18 +4,104 @@ const { Op } = require('sequelize');
 const getModels = (req) => req.db || (req.app && req.app.get('models')) || require('../config/database');
 const getSequelize = (req) => req.tenantSequelize || (req.app && req.app.get('sequelize')) || require('../config/database').sequelize;
 
-// GET web dashboard data - optimized single API call
+// Helper to get IST Date strings for periods
+const getPeriodDateRange = (period) => {
+    const now = new Date();
+    // Get current IST date string YYYY-MM-DD
+    const istDateStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(now);
+
+    if (period === 'today') {
+        return {
+            startDate: istDateStr,
+            endDate: istDateStr,
+            isDateRange: true
+        };
+    }
+
+    if (period === 'week') {
+        const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        const day = istNow.getDay(); // 0 is Sun, 1 is Mon
+        const diff = istNow.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(istNow.setDate(diff));
+        const mondayStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(monday);
+        return {
+            startDate: mondayStr,
+            endDate: istDateStr,
+            isDateRange: true
+        };
+    }
+
+    if (period === 'month') {
+        const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        const firstDay = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
+        const firstDayStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(firstDay);
+        return {
+            startDate: firstDayStr,
+            endDate: istDateStr,
+            isDateRange: true
+        };
+    }
+
+    return {
+        startDate: null,
+        endDate: null,
+        isDateRange: false
+    };
+};
+
+// GET web dashboard data - optimized single API call with period filtering
 const getWebDashboardData = async (req, res) => {
     try {
         const models = getModels(req);
         const sequelize = getSequelize(req);
+        const { period = 'all', startDate: customStart, endDate: customEnd } = req.query;
+
+        let dateRange = { startDate: null, endDate: null, isDateRange: false };
+        if (customStart && customEnd) {
+            dateRange = { startDate: customStart, endDate: customEnd, isDateRange: true };
+        } else if (period && period !== 'all') {
+            dateRange = getPeriodDateRange(period);
+        }
+
+        const dateWhere = dateRange.isDateRange
+            ? { date: { [Op.between]: [dateRange.startDate, dateRange.endDate] } }
+            : {};
+
+        const expenseWhere = dateRange.isDateRange
+            ? { date: { [Op.between]: [dateRange.startDate, dateRange.endDate] } }
+            : {};
+
+        const invoiceWhere = dateRange.isDateRange
+            ? { invoice_date: { [Op.between]: [dateRange.startDate, dateRange.endDate] } }
+            : {};
+
+        const ticketWhere = dateRange.isDateRange
+            ? { created_at: { [Op.between]: [`${dateRange.startDate} 00:00:00+05:30`, `${dateRange.endDate} 23:59:59+05:30`] } }
+            : {};
 
         const [
             usersCount,
             doctorsCount,
             chemistsCount,
             stockistsCount,
-            visitsCount,
+            drVisitsCount,
+            chemVisitsCount,
+            stkVisitsCount,
             expensesSum,
             ticketsCount,
             invoicesCount,
@@ -34,17 +120,19 @@ const getWebDashboardData = async (req, res) => {
             // Stockists count
             models.Stockist ? models.Stockist.count() : 0,
 
-            // Total Visits count
-            models.DoctorVisit ? models.DoctorVisit.count() : 0,
+            // Visits counts by type
+            models.DoctorVisit ? models.DoctorVisit.count({ where: dateWhere }) : 0,
+            models.ChemistVisit ? models.ChemistVisit.count({ where: dateWhere }) : 0,
+            models.StockistVisit ? models.StockistVisit.count({ where: dateWhere }) : 0,
 
             // Total Expenses sum
-            models.Expense ? models.Expense.sum('amount') : 0,
+            models.Expense ? models.Expense.sum('amount', { where: expenseWhere }) : 0,
 
             // Tickets count
-            models.Ticket ? models.Ticket.count() : 0,
+            models.Ticket ? models.Ticket.count({ where: ticketWhere }) : 0,
 
             // Invoices count
-            models.InvoiceTracking ? models.InvoiceTracking.count() : 0,
+            models.InvoiceTracking ? models.InvoiceTracking.count({ where: invoiceWhere }) : 0,
 
             // Users by role
             models.User ? models.User.findAll({
@@ -70,6 +158,8 @@ const getWebDashboardData = async (req, res) => {
             getSalesTargetsSummary(models)
         ]);
 
+        const totalVisits = (drVisitsCount || 0) + (chemVisitsCount || 0) + (stkVisitsCount || 0);
+
         // Transform users by role to object
         const roleStats = {};
         if (Array.isArray(usersByRole)) {
@@ -90,12 +180,17 @@ const getWebDashboardData = async (req, res) => {
 
         // Prepare response data
         const dashboardData = {
+            period,
+            dateRange: dateRange.isDateRange ? { startDate: dateRange.startDate, endDate: dateRange.endDate } : null,
             stats: {
                 totalUsers: usersCount,
                 totalDoctors: doctorsCount,
                 totalChemists: chemistsCount,
                 totalStockists: stockistsCount,
-                totalVisits: visitsCount,
+                totalVisits: totalVisits || (drVisitsCount || 0),
+                drVisits: drVisitsCount || 0,
+                chemVisits: chemVisitsCount || 0,
+                stkVisits: stkVisitsCount || 0,
                 totalExpenses: expensesSum || 0,
                 totalOrders: invoicesCount || 0,
                 totalTickets: ticketsCount,

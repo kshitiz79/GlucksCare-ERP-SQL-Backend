@@ -83,7 +83,11 @@ const getAllExpenses = async (req, res) => {
         totalDistanceKm: expenseObj.total_distance_km,
         ratePerKm: expenseObj.rate_per_km,
         amount: expenseObj.amount,
-        travelDetails: expenseObj.travel_details ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : [],
+        travelDetails: Array.isArray(expenseObj.travel_details)
+          ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 }))
+          : (typeof expenseObj.travel_details === 'string'
+              ? (() => { try { const parsed = JSON.parse(expenseObj.travel_details); return Array.isArray(parsed) ? parsed.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : []; } catch(e) { return []; } })()
+              : []),
         dailyAllowanceType: expenseObj.daily_allowance_type,
         UserInfo: undefined
       };
