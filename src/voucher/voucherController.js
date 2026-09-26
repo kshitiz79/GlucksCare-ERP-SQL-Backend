@@ -269,7 +269,8 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
 // 2. Get stockist advance balance and transaction history
 exports.getStockistAdvanceDetails = async (req, res) => {
   try {
-    const { models } = getModels(req);
+    const { models, sequelize } = getModels(req);
+    await ensureVoucherTables(sequelize);
     const { StockistAdvanceTransaction, Stockist, Voucher, InvoiceTracking } = models;
     const { stockistId } = req.params;
 
@@ -324,6 +325,7 @@ exports.getStockistAdvanceDetails = async (req, res) => {
 // 3. Create Payment Voucher (Atomic Transaction with Validation)
 exports.createVoucher = async (req, res) => {
   const { models, sequelize } = getModels(req);
+  await ensureVoucherTables(sequelize);
   const {
     Voucher,
     VoucherPaymentAllocation,
@@ -633,7 +635,8 @@ exports.createVoucher = async (req, res) => {
 // 4. Get all Vouchers (with filtering, search, pagination & summary statistics)
 exports.getVouchers = async (req, res) => {
   try {
-    const { models } = getModels(req);
+    const { models, sequelize } = getModels(req);
+    await ensureVoucherTables(sequelize);
     const { Voucher, Stockist, Bank, User, VoucherPaymentAllocation, InvoiceTracking } = models;
     const {
       page = 1,
@@ -744,7 +747,8 @@ exports.getVouchers = async (req, res) => {
 // 5. Get Voucher by ID (Full detail view)
 exports.getVoucherById = async (req, res) => {
   try {
-    const { models } = getModels(req);
+    const { models, sequelize } = getModels(req);
+    await ensureVoucherTables(sequelize);
     const {
       Voucher,
       Stockist,
