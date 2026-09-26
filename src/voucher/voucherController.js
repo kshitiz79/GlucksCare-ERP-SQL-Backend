@@ -46,54 +46,81 @@ const calculateStockistAdvanceBalance = async (StockistAdvanceTransaction, stock
 const ensureVoucherTables = async (sequelize) => {
   if (!sequelize) return;
   try {
-    await sequelize.query(`
-      CREATE TABLE IF NOT EXISTS vouchers (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        voucher_number VARCHAR(100) NOT NULL UNIQUE,
-        voucher_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        voucher_type VARCHAR(50) DEFAULT 'receipt',
-        stockist_id UUID NOT NULL REFERENCES stockists(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-        party_name VARCHAR(255) NOT NULL,
-        payment_mode VARCHAR(50) NOT NULL DEFAULT 'Cash',
-        bank_id UUID REFERENCES master_banks(id) ON UPDATE CASCADE ON DELETE SET NULL,
-        reference_number VARCHAR(100),
-        amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
-        allocated_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
-        advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
-        used_advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
-        status VARCHAR(50) DEFAULT 'posted',
-        remarks TEXT,
-        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS voucher_payment_allocations (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        voucher_id UUID NOT NULL REFERENCES vouchers(id) ON UPDATE CASCADE ON DELETE CASCADE,
-        invoice_id UUID NOT NULL REFERENCES invoice_tracking(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-        allocated_amount DECIMAL(15, 2) NOT NULL,
-        notes VARCHAR(255),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS stockist_advance_transactions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        stockist_id UUID NOT NULL REFERENCES stockists(id) ON UPDATE CASCADE ON DELETE CASCADE,
-        voucher_id UUID REFERENCES vouchers(id) ON UPDATE CASCADE ON DELETE SET NULL,
-        invoice_id UUID REFERENCES invoice_tracking(id) ON UPDATE CASCADE ON DELETE SET NULL,
-        transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        type VARCHAR(20) NOT NULL,
-        amount DECIMAL(15, 2) NOT NULL,
-        balance_after DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
-        description TEXT,
-        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-    `);
+    try {
+      await sequelize.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
+    } catch (e) {}
+
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS vouchers (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          voucher_number VARCHAR(100) NOT NULL UNIQUE,
+          voucher_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          voucher_type VARCHAR(50) DEFAULT 'receipt',
+          stockist_id UUID NOT NULL,
+          party_name VARCHAR(255) NOT NULL,
+          payment_mode VARCHAR(50) NOT NULL DEFAULT 'Cash',
+          bank_id UUID,
+          reference_number VARCHAR(100),
+          amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+          allocated_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+          advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+          used_advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+          status VARCHAR(50) DEFAULT 'posted',
+          remarks TEXT,
+          created_by UUID,
+          updated_by UUID,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vouchers_stockist ON vouchers (stockist_id);`);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers (voucher_date);`);
+    } catch (err) {
+      console.warn('Vouchers table create warning:', err.message);
+    }
+
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS voucher_payment_allocations (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          voucher_id UUID NOT NULL,
+          invoice_id UUID NOT NULL,
+          allocated_amount DECIMAL(15, 2) NOT NULL,
+          notes VARCHAR(255),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_voucher_id ON voucher_payment_allocations (voucher_id);`);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_invoice_id ON voucher_payment_allocations (invoice_id);`);
+    } catch (err) {
+      console.warn('VoucherPaymentAllocation table create warning:', err.message);
+    }
+
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS stockist_advance_transactions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          stockist_id UUID NOT NULL,
+          voucher_id UUID,
+          invoice_id UUID,
+          transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          type VARCHAR(20) NOT NULL,
+          amount DECIMAL(15, 2) NOT NULL,
+          balance_after DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+          description TEXT,
+          created_by UUID,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_sat_stockist_id ON stockist_advance_transactions (stockist_id);`);
+    } catch (err) {
+      console.warn('StockistAdvanceTransaction table create warning:', err.message);
+    }
   } catch (err) {
-    // Tables might already exist
+    console.warn('ensureVoucherTables error:', err.message);
   }
 };
 
