@@ -42,10 +42,67 @@ const calculateStockistAdvanceBalance = async (StockistAdvanceTransaction, stock
   return Math.max(0, parseFloat((credits - debits).toFixed(2)));
 };
 
+// Helper to ensure voucher tables exist dynamically on the active database connection
+const ensureVoucherTables = async (sequelize) => {
+  if (!sequelize) return;
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS vouchers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        voucher_number VARCHAR(100) NOT NULL UNIQUE,
+        voucher_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        voucher_type VARCHAR(50) DEFAULT 'receipt',
+        stockist_id UUID NOT NULL REFERENCES stockists(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+        party_name VARCHAR(255) NOT NULL,
+        payment_mode VARCHAR(50) NOT NULL DEFAULT 'Cash',
+        bank_id UUID REFERENCES master_banks(id) ON UPDATE CASCADE ON DELETE SET NULL,
+        reference_number VARCHAR(100),
+        amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        allocated_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        used_advance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        status VARCHAR(50) DEFAULT 'posted',
+        remarks TEXT,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS voucher_payment_allocations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        voucher_id UUID NOT NULL REFERENCES vouchers(id) ON UPDATE CASCADE ON DELETE CASCADE,
+        invoice_id UUID NOT NULL REFERENCES invoice_tracking(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+        allocated_amount DECIMAL(15, 2) NOT NULL,
+        notes VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS stockist_advance_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        stockist_id UUID NOT NULL REFERENCES stockists(id) ON UPDATE CASCADE ON DELETE CASCADE,
+        voucher_id UUID REFERENCES vouchers(id) ON UPDATE CASCADE ON DELETE SET NULL,
+        invoice_id UUID REFERENCES invoice_tracking(id) ON UPDATE CASCADE ON DELETE SET NULL,
+        transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        type VARCHAR(20) NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        balance_after DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+        description TEXT,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+  } catch (err) {
+    // Tables might already exist
+  }
+};
+
 // 1. Get unpaid / outstanding invoices for a stockist
 exports.getUnpaidInvoicesByStockist = async (req, res) => {
   try {
-    const { models } = getModels(req);
+    const { models, sequelize } = getModels(req);
+    await ensureVoucherTables(sequelize);
+
     const { InvoiceTracking, VoucherPaymentAllocation, Stockist } = models;
     const { stockistId } = req.params;
 
@@ -58,37 +115,66 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Stockist not found' });
     }
 
+    // Build flexible where clause matching either stockist_id or party_name
+    const whereClause = {
+      [Op.and]: [
+        {
+          [Op.or]: [
+            { stockist_id: stockistId },
+            ...(stockist.firm_name ? [{ party_name: { [Op.iLike]: stockist.firm_name.trim() } }] : [])
+          ]
+        },
+        {
+          status: { [Op.ne]: 'cancelled' }
+        }
+      ]
+    };
+
     // Fetch all active invoices for this stockist
     const invoices = await InvoiceTracking.findAll({
-      where: {
-        stockist_id: stockistId,
-        status: { [Op.ne]: 'cancelled' }
-      },
-      include: [
-        {
-          model: VoucherPaymentAllocation,
-          as: 'paymentAllocations',
-          attributes: ['id', 'allocated_amount', 'created_at']
-        }
-      ],
+      where: whereClause,
       order: [
         ['invoice_date', 'ASC'],
         ['created_at', 'ASC']
       ]
     });
 
+    // Safely collect payment allocations
+    const allocationMap = {};
+    if (invoices.length > 0 && VoucherPaymentAllocation) {
+      try {
+        const invoiceIds = invoices.map((i) => i.id);
+        const allocs = await VoucherPaymentAllocation.findAll({
+          where: { invoice_id: { [Op.in]: invoiceIds } },
+          attributes: ['invoice_id', 'allocated_amount']
+        });
+        for (const a of allocs) {
+          allocationMap[a.invoice_id] = (allocationMap[a.invoice_id] || 0) + parseFloat(a.allocated_amount || 0);
+        }
+      } catch (allocErr) {
+        console.warn('Could not query voucher payment allocations:', allocErr.message);
+      }
+    }
+
     const unpaidInvoices = [];
 
     for (const inv of invoices) {
-      const invTotal = parseFloat(inv.amount || 0);
-      const paidTotal = (inv.paymentAllocations || []).reduce(
-        (sum, alloc) => sum + parseFloat(alloc.allocated_amount || 0),
-        0
-      );
-      const remainingBalance = parseFloat((invTotal - paidTotal).toFixed(2));
+      let invTotal = parseFloat(inv.amount || 0);
+      // Fallback calculation if amount was not directly populated
+      if (invTotal <= 0 && inv.taxable_amount) {
+        const taxable = parseFloat(inv.taxable_amount || 0);
+        const discount = parseFloat(inv.discount_amount || 0);
+        const gstPct = parseFloat(inv.gst_percent || 5);
+        const taxableAfterDiscount = Math.max(0, taxable - discount);
+        const gstAmount = (taxableAfterDiscount * gstPct) / 100;
+        invTotal = parseFloat((taxableAfterDiscount + gstAmount).toFixed(2));
+      }
+
+      const paidTotal = allocationMap[inv.id] || 0;
+      const remainingBalance = parseFloat(Math.max(0, invTotal - paidTotal).toFixed(2));
 
       // Only include invoices that have an outstanding balance > 0
-      if (remainingBalance > 0.009) {
+      if (remainingBalance > 0.009 || invTotal === 0) {
         unpaidInvoices.push({
           id: inv.id,
           invoice_number: inv.invoice_number,
@@ -99,7 +185,7 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
           taxable_amount: parseFloat(inv.taxable_amount || 0),
           discount_amount: parseFloat(inv.discount_amount || 0),
           paid_amount: parseFloat(paidTotal.toFixed(2)),
-          remaining_balance: remainingBalance,
+          remaining_balance: remainingBalance > 0 ? remainingBalance : invTotal,
           status: inv.status,
           remarks: inv.remarks
         });
@@ -107,10 +193,17 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
     }
 
     // Also get current available advance for this stockist
-    const advanceBalance = await calculateStockistAdvanceBalance(
-      models.StockistAdvanceTransaction,
-      stockistId
-    );
+    let advanceBalance = 0;
+    try {
+      if (models.StockistAdvanceTransaction) {
+        advanceBalance = await calculateStockistAdvanceBalance(
+          models.StockistAdvanceTransaction,
+          stockistId
+        );
+      }
+    } catch (e) {
+      advanceBalance = 0;
+    }
 
     return res.json({
       success: true,
