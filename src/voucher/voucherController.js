@@ -116,19 +116,28 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
     }
 
     // Build flexible where clause matching either stockist_id or party_name
+    const cleanFirmName = (stockist.firm_name || '').trim();
     const whereClause = {
       [Op.and]: [
         {
           [Op.or]: [
             { stockist_id: stockistId },
-            ...(stockist.firm_name ? [{ party_name: { [Op.iLike]: stockist.firm_name.trim() } }] : [])
+            ...(cleanFirmName ? [
+              { party_name: { [Op.iLike]: `%${cleanFirmName}%` } },
+              { party_name: cleanFirmName }
+            ] : [])
           ]
         },
         {
-          status: { [Op.ne]: 'cancelled' }
+          [Op.or]: [
+            { status: { [Op.notIn]: ['cancelled', 'CANCELLED'] } },
+            { status: null }
+          ]
         }
       ]
     };
+
+    console.log(`🔍 [Voucher] Fetching invoices for stockist: "${cleanFirmName}" (ID: ${stockistId})`);
 
     // Fetch all active invoices for this stockist
     const invoices = await InvoiceTracking.findAll({
@@ -138,6 +147,8 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
         ['created_at', 'ASC']
       ]
     });
+
+    console.log(`✅ [Voucher] Found ${invoices.length} invoices matching criteria for "${cleanFirmName}"`);
 
     // Safely collect payment allocations
     const allocationMap = {};
