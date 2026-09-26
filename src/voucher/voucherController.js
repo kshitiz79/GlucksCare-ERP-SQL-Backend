@@ -815,3 +815,75 @@ exports.getVoucherById = async (req, res) => {
     });
   }
 };
+
+// 6. Delete Voucher (Revert allocations and advance)
+exports.deleteVoucher = async (req, res) => {
+  const { models, sequelize } = getModels(req);
+  await ensureVoucherTables(sequelize);
+  const {
+    Voucher,
+    VoucherPaymentAllocation,
+    StockistAdvanceTransaction,
+    Bank
+  } = models;
+
+  const dbTransaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const voucher = await Voucher.findByPk(id, { transaction: dbTransaction });
+    if (!voucher) {
+      await dbTransaction.rollback();
+      return res.status(404).json({ success: false, message: 'Voucher not found' });
+    }
+
+    // Revert bank balance if bank was credited
+    if (voucher.bank_id && parseFloat(voucher.amount || 0) > 0 && Bank) {
+      try {
+        const bank = await Bank.findByPk(voucher.bank_id, { transaction: dbTransaction });
+        if (bank) {
+          const currentBal = parseFloat(bank.current_balance || 0);
+          const newBal = Math.max(0, currentBal - parseFloat(voucher.amount));
+          await bank.update({ current_balance: newBal }, { transaction: dbTransaction });
+        }
+      } catch (bankErr) {
+        console.warn('Bank balance revert warning:', bankErr.message);
+      }
+    }
+
+    // Delete payment allocations
+    if (VoucherPaymentAllocation) {
+      await VoucherPaymentAllocation.destroy({
+        where: { voucher_id: id },
+        transaction: dbTransaction
+      });
+    }
+
+    // Delete advance transactions linked to this voucher
+    if (StockistAdvanceTransaction) {
+      await StockistAdvanceTransaction.destroy({
+        where: { voucher_id: id },
+        transaction: dbTransaction
+      });
+    }
+
+    // Delete the voucher record
+    await voucher.destroy({ transaction: dbTransaction });
+
+    await dbTransaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Voucher ${voucher.voucher_number} deleted successfully`
+    });
+  } catch (error) {
+    await dbTransaction.rollback();
+    console.error('Error deleting voucher:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete voucher',
+      error: error.message
+    });
+  }
+};
+
