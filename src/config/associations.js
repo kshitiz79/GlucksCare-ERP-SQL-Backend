@@ -401,5 +401,41 @@ module.exports = (db) => {
     db.DeviceAssignmentHistory.belongsTo(db.User, { foreignKey: 'assigned_by', as: 'admin' });
   }
 
+  // Voucher & Payment Allocation & Stockist Advance associations
+  if (db.Voucher) {
+    if (db.Stockist) {
+      db.Voucher.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'stockist' });
+      db.Stockist.hasMany(db.Voucher, { foreignKey: 'stockist_id', as: 'vouchers' });
+    }
+    if (db.Bank) {
+      db.Voucher.belongsTo(db.Bank, { foreignKey: 'bank_id', as: 'bank' });
+      db.Bank.hasMany(db.Voucher, { foreignKey: 'bank_id', as: 'vouchers' });
+    }
+    if (db.User) {
+      db.Voucher.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+      db.Voucher.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
+    }
+    if (db.VoucherPaymentAllocation) {
+      db.Voucher.hasMany(db.VoucherPaymentAllocation, { foreignKey: 'voucher_id', as: 'allocations' });
+      db.VoucherPaymentAllocation.belongsTo(db.Voucher, { foreignKey: 'voucher_id', as: 'voucher' });
+
+      if (db.InvoiceTracking) {
+        db.VoucherPaymentAllocation.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_id', as: 'invoice' });
+        db.InvoiceTracking.hasMany(db.VoucherPaymentAllocation, { foreignKey: 'invoice_id', as: 'paymentAllocations' });
+      }
+    }
+    if (db.StockistAdvanceTransaction) {
+      db.Voucher.hasMany(db.StockistAdvanceTransaction, { foreignKey: 'voucher_id', as: 'advanceTransactions' });
+      db.StockistAdvanceTransaction.belongsTo(db.Voucher, { foreignKey: 'voucher_id', as: 'voucher' });
+      if (db.Stockist) {
+        db.StockistAdvanceTransaction.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'stockist' });
+        db.Stockist.hasMany(db.StockistAdvanceTransaction, { foreignKey: 'stockist_id', as: 'advanceTransactions' });
+      }
+      if (db.InvoiceTracking) {
+        db.StockistAdvanceTransaction.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_id', as: 'invoice' });
+      }
+    }
+  }
+
   return db;
 };

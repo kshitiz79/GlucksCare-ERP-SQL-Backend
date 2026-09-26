@@ -121,6 +121,9 @@ const LocationPing = require('../offlineBgTracking/LocationPing');
 const UserActivityLog = require('../userActivityLog/UserActivityLog');
 const CompanyDevice = require('../companyDevice/CompanyDevice');
 const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistory');
+const Voucher = require('../voucher/Voucher');
+const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
+const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
 
 // Initialize models
 const models = {
@@ -208,7 +211,10 @@ const models = {
   LocationPing: LocationPing(sequelize),
   UserActivityLog: UserActivityLog(sequelize),
   CompanyDevice: CompanyDevice(sequelize),
-  DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize)
+  DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize),
+  Voucher: Voucher(sequelize),
+  VoucherPaymentAllocation: VoucherPaymentAllocation(sequelize),
+  StockistAdvanceTransaction: StockistAdvanceTransaction(sequelize)
 };
 
 // Set up hooks

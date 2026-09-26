@@ -78,6 +78,9 @@ const LocationPing = require('../offlineBgTracking/LocationPing');
 const UserActivityLog = require('../userActivityLog/UserActivityLog');
 const CompanyDevice = require('../companyDevice/CompanyDevice');
 const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistory');
+const Voucher = require('../voucher/Voucher');
+const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
+const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
 
 const applyAssociations = require('./associations');
 
@@ -164,7 +167,10 @@ function initTenantModels(targetSequelize) {
     LocationPing: LocationPing(targetSequelize),
     UserActivityLog: UserActivityLog(targetSequelize),
     CompanyDevice: CompanyDevice(targetSequelize),
-    DeviceAssignmentHistory: DeviceAssignmentHistory(targetSequelize)
+    DeviceAssignmentHistory: DeviceAssignmentHistory(targetSequelize),
+    Voucher: Voucher(targetSequelize),
+    VoucherPaymentAllocation: VoucherPaymentAllocation(targetSequelize),
+    StockistAdvanceTransaction: StockistAdvanceTransaction(targetSequelize)
   };
 
   // Set up hooks
