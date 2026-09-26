@@ -130,7 +130,7 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
         },
         {
           [Op.or]: [
-            { status: { [Op.notIn]: ['cancelled', 'CANCELLED'] } },
+            { status: { [Op.ne]: 'cancelled' } },
             { status: null }
           ]
         }
