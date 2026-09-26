@@ -1,11 +1,10 @@
-// src/voucher/voucherRoutes.js
 const express = require('express');
 const router = express.Router();
 const voucherController = require('./voucherController');
-const { verifyToken } = require('../middleware/authMiddleware');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // Mount routes with authentication
-router.use(verifyToken);
+router.use(authMiddleware);
 
 // 1. Get unpaid invoices for a specific stockist
 router.get('/unpaid-invoices/:stockistId', voucherController.getUnpaidInvoicesByStockist);
