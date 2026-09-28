@@ -196,14 +196,7 @@ const getAllSalesTargets = async (req, res) => {
         };
       });
 
-      // Filter by status if provided, else default to only assigned targets
-      if (status) {
-        transformedData = transformedData.filter(item => item.status === status);
-      } else if (req.query.includeUnassigned !== 'true') {
-        transformedData = transformedData.filter(item => item.hasTarget);
-      }
-
-      // Calculate summary
+      // Calculate summary over all assigned targets
       const assignedTargets = transformedData.filter(d => d.hasTarget);
       const totalTargetAmount = assignedTargets.reduce((sum, t) => sum + t.targetAmount, 0);
       const totalAchievedAmount = assignedTargets.reduce((sum, t) => sum + t.achievedAmount, 0);
@@ -211,6 +204,13 @@ const getAllSalesTargets = async (req, res) => {
       const completedCount = assignedTargets.filter(t => t.status === 'Completed').length;
       const activeCount = assignedTargets.filter(t => t.status === 'Active').length;
       const overdueCount = assignedTargets.filter(t => t.status === 'Overdue').length;
+
+      // Filter by status if provided, else default to only assigned targets
+      if (status) {
+        transformedData = transformedData.filter(item => item.status === status);
+      } else if (req.query.includeUnassigned !== 'true') {
+        transformedData = transformedData.filter(item => item.hasTarget);
+      }
 
       return res.json({
         success: true,
@@ -467,6 +467,14 @@ const getAllSalesTargets = async (req, res) => {
       };
     });
 
+    const allAssignedUsers = transformedUserTargets.filter(u => u.hasTarget && (u.targetAmount > 0 || u.aggregatedTargetAmount > 0));
+    const totalTargetSum = allAssignedUsers.reduce((sum, u) => sum + u.aggregatedTargetAmount, 0);
+    const totalAchievedSum = allAssignedUsers.reduce((sum, u) => sum + u.aggregatedAchievedAmount, 0);
+    const overallPercentage = totalTargetSum > 0 ? Math.round((totalAchievedSum / totalTargetSum) * 100) : 0;
+    const completedCount = allAssignedUsers.filter(u => u.status === 'Completed').length;
+    const activeCount = allAssignedUsers.filter(u => u.status === 'Active').length;
+    const overdueCount = allAssignedUsers.filter(u => u.status === 'Overdue').length;
+
     let filteredUsers = transformedUserTargets;
     if (status) {
       filteredUsers = filteredUsers.filter(u => u.status === status);
@@ -474,19 +482,19 @@ const getAllSalesTargets = async (req, res) => {
       filteredUsers = filteredUsers.filter(u => u.hasTarget && (u.targetAmount > 0 || u.aggregatedTargetAmount > 0));
     }
 
-    const totalTargetSum = filteredUsers.reduce((sum, u) => sum + u.aggregatedTargetAmount, 0);
-    const totalAchievedSum = filteredUsers.reduce((sum, u) => sum + u.aggregatedAchievedAmount, 0);
-    const overallPercentage = totalTargetSum > 0 ? Math.round((totalAchievedSum / totalTargetSum) * 100) : 0;
-
     return res.json({
       success: true,
       viewMode: 'user',
       data: filteredUsers,
       summary: {
         totalUsers: filteredUsers.length,
+        totalAssignedUsers: allAssignedUsers.length,
         totalTargetAmount: totalTargetSum,
         totalAchievedAmount: totalAchievedSum,
-        overallAchievementPercentage: overallPercentage
+        overallAchievementPercentage: overallPercentage,
+        completedTargets: completedCount,
+        activeTargets: activeCount,
+        overdueTargets: overdueCount
       },
       pagination: {
         current: parseInt(page),

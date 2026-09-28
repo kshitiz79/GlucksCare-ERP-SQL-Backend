@@ -124,6 +124,7 @@ const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistor
 const Voucher = require('../voucher/Voucher');
 const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
 const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
+const ThemeColor = require('../themeSetting/ThemeColor');
 
 // Initialize models
 const models = {
@@ -214,7 +215,8 @@ const models = {
   DeviceAssignmentHistory: DeviceAssignmentHistory(sequelize),
   Voucher: Voucher(sequelize),
   VoucherPaymentAllocation: VoucherPaymentAllocation(sequelize),
-  StockistAdvanceTransaction: StockistAdvanceTransaction(sequelize)
+  StockistAdvanceTransaction: StockistAdvanceTransaction(sequelize),
+  ThemeColor: ThemeColor(sequelize)
 };
 
 // Set up hooks

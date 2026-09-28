@@ -123,6 +123,30 @@ async function ensureTenantSyncSchema(sequelize) {
     } catch (vchErr) {
       console.warn('⚠️ [ensureTenantSyncSchema] Voucher tables setup warning:', vchErr.message);
     }
+
+    // 8. Ensure theme_colors table exists in tenant DB
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS theme_colors (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          theme_name VARCHAR(50) NOT NULL DEFAULT 'FieldOmni',
+          color_key VARCHAR(100) NOT NULL,
+          color_hex VARCHAR(20) NOT NULL,
+          color_value_hex_int VARCHAR(20),
+          category VARCHAR(50) NOT NULL DEFAULT 'brand',
+          description VARCHAR(255),
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          CONSTRAINT unique_theme_color_key UNIQUE (theme_name, color_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_theme_colors_theme_name ON theme_colors (theme_name);
+        CREATE INDEX IF NOT EXISTS idx_theme_colors_category ON theme_colors (category);
+        CREATE INDEX IF NOT EXISTS idx_theme_colors_key ON theme_colors (color_key);
+      `);
+    } catch (themeErr) {
+      console.warn('⚠️ [ensureTenantSyncSchema] Theme table setup warning:', themeErr.message);
+    }
   } catch (err) {
     console.warn('⚠️ [ensureTenantSyncSchema] Warning:', err.message);
   }

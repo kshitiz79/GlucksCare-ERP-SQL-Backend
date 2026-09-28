@@ -81,6 +81,7 @@ const DeviceAssignmentHistory = require('../companyDevice/DeviceAssignmentHistor
 const Voucher = require('../voucher/Voucher');
 const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
 const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
+const ThemeColor = require('../themeSetting/ThemeColor');
 
 const applyAssociations = require('./associations');
 
@@ -170,7 +171,8 @@ function initTenantModels(targetSequelize) {
     DeviceAssignmentHistory: DeviceAssignmentHistory(targetSequelize),
     Voucher: Voucher(targetSequelize),
     VoucherPaymentAllocation: VoucherPaymentAllocation(targetSequelize),
-    StockistAdvanceTransaction: StockistAdvanceTransaction(targetSequelize)
+    StockistAdvanceTransaction: StockistAdvanceTransaction(targetSequelize),
+    ThemeColor: ThemeColor(targetSequelize)
   };
 
   // Set up hooks
