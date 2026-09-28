@@ -10,6 +10,9 @@ const getSequelize = (req) => req?.tenantSequelize || (req?.app && req?.app.get(
 async function ensureThemeColorsSeeded(models, sequelize, themeName = 'FieldOmni') {
   if (!models.ThemeColor) return;
   try {
+    // Ensure table exists
+    await models.ThemeColor.sync();
+
     const count = await models.ThemeColor.count({
       where: { theme_name: themeName }
     });
@@ -145,8 +148,11 @@ const getFlutterPalette = async (req, res) => {
 const getThemeColorByKey = async (req, res) => {
   try {
     const models = getModels(req);
+    const sequelize = getSequelize(req);
     const { key } = req.params;
     const { theme = 'FieldOmni' } = req.query;
+
+    await ensureThemeColorsSeeded(models, sequelize, theme);
 
     const color = await models.ThemeColor.findOne({
       where: {
