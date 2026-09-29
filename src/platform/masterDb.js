@@ -74,7 +74,7 @@ const Tenant = masterSequelize.define('Tenant', {
     allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('ACTIVE', 'SUSPENDED', 'TRIAL'),
+    type: DataTypes.STRING(50),
     defaultValue: 'ACTIVE'
   },
   active_users: {
@@ -157,7 +157,7 @@ async function initMasterDatabase() {
     `);
 
     // Sync Tenant & PlatformAdmin models in Master DB
-    await Tenant.sync({ alter: true });
+    await Tenant.sync();
     await PlatformAdmin.sync();
 
     // Seed default Platform Super Admin if not present

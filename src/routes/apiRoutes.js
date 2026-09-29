@@ -56,6 +56,8 @@ const invoiceTrackingRoutes = require('../invoiceTracking/invoiceTrackingRoutes'
 const voucherRoutes = require('../voucher/voucherRoutes');
 const advanceRoutes = require('../advance/advanceRoutes');
 const financialYearRoutes = require('../financialYear/financialYearRoutes');
+const partyOpeningBalanceRoutes = require('../partyOpeningBalance/partyOpeningBalanceRoutes');
+const ledgerRoutes = require('../ledger/ledgerRoutes');
 const purchaseRoutes = require('../purchase/purchaseRoutes');
 const challanRoutes = require('../challan/challanRoutes');
 const inventoryRoutes = require('../inventory/inventoryRoutes');
@@ -157,6 +159,8 @@ router.use('/invoice-tracking', invoiceTrackingRoutes);
 router.use('/vouchers', voucherRoutes);
 router.use('/advances', advanceRoutes);
 router.use('/financial-years', financialYearRoutes);
+router.use('/party-opening-balances', partyOpeningBalanceRoutes);
+router.use('/ledger', ledgerRoutes);
 router.use('/purchases', purchaseRoutes);
 router.use('/challans', challanRoutes);
 router.use('/inventory', inventoryRoutes);

@@ -313,6 +313,32 @@ async function initializeDatabase(sequelize) {
             console.warn('⚠️ Warning: Failed to create stockist_advance_transactions table:', advErr.message);
         }
 
+        // Dynamically create party_opening_balances table if not exists
+        try {
+            await sequelize.query(`
+              CREATE TABLE IF NOT EXISTS party_opening_balances (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                stockist_id UUID NOT NULL REFERENCES stockists(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                financial_year_id UUID NOT NULL REFERENCES financial_years(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                direction VARCHAR(10) NOT NULL DEFAULT 'Dr',
+                source VARCHAR(50) NOT NULL DEFAULT 'MANUAL',
+                source_financial_year_id UUID REFERENCES financial_years(id) ON DELETE SET NULL,
+                notes TEXT,
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                CONSTRAINT uq_party_fy_opening UNIQUE (stockist_id, financial_year_id)
+              );
+            `);
+            await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_pob_stockist ON party_opening_balances (stockist_id);`);
+            await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_pob_fy ON party_opening_balances (financial_year_id);`);
+            console.log('✅ Checked/Created party_opening_balances table');
+        } catch (pobErr) {
+            console.warn('⚠️ Warning: Failed to create party_opening_balances table:', pobErr.message);
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Unable to connect to PostgreSQL:', error);

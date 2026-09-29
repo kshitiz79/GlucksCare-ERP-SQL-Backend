@@ -437,5 +437,21 @@ module.exports = (db) => {
     }
   }
 
+  // Party Opening Balance associations
+  if (db.PartyOpeningBalance) {
+    if (db.Stockist) {
+      db.PartyOpeningBalance.belongsTo(db.Stockist, { foreignKey: 'stockist_id', as: 'stockist' });
+      db.Stockist.hasMany(db.PartyOpeningBalance, { foreignKey: 'stockist_id', as: 'openingBalances' });
+    }
+    if (db.FinancialYear) {
+      db.PartyOpeningBalance.belongsTo(db.FinancialYear, { foreignKey: 'financial_year_id', as: 'financialYear' });
+      db.FinancialYear.hasMany(db.PartyOpeningBalance, { foreignKey: 'financial_year_id', as: 'partyOpeningBalances' });
+    }
+    if (db.User) {
+      db.PartyOpeningBalance.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
+      db.PartyOpeningBalance.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
+    }
+  }
+
   return db;
 };
