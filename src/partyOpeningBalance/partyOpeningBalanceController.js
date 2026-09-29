@@ -52,6 +52,39 @@ const ensurePartyOpeningBalanceTable = async (sequelize) => {
   }
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const resolveFinancialYear = async (FinancialYear, fyInput) => {
+  if (!FinancialYear || !fyInput) return null;
+  if (UUID_REGEX.test(fyInput)) {
+    const found = await FinancialYear.findByPk(fyInput);
+    if (found) return found;
+  }
+  
+  let nameMatch = String(fyInput).match(/(\d{4}-\d{2,4})/);
+  let searchName = nameMatch ? nameMatch[1] : String(fyInput);
+  if (searchName && searchName.length === 9) {
+    searchName = searchName.slice(0, 4) + '-' + searchName.slice(7);
+  }
+  
+  let fy = await FinancialYear.findOne({ where: { name: searchName } });
+  if (!fy) {
+    fy = await FinancialYear.findOne({ where: { is_active: true } });
+  }
+  if (!fy) {
+    fy = await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
+  }
+  if (!fy) {
+    fy = await FinancialYear.create({
+      name: '2026-27',
+      start_date: '2026-04-01',
+      end_date: '2027-03-31',
+      is_active: true
+    });
+  }
+  return fy;
+};
+
 // 1. Get Opening Balances for a specific FY
 exports.getOpeningBalances = async (req, res) => {
   try {
@@ -65,8 +98,13 @@ exports.getOpeningBalances = async (req, res) => {
       return res.status(400).json({ success: false, message: 'financial_year_id is required' });
     }
 
+    const fy = await resolveFinancialYear(FinancialYear, financial_year_id);
+    if (!fy) {
+      return res.status(404).json({ success: false, message: 'Financial year not found' });
+    }
+
     const records = await PartyOpeningBalance.findAll({
-      where: { financial_year_id },
+      where: { financial_year_id: fy.id },
       order: [['created_at', 'ASC']]
     });
 
@@ -86,7 +124,7 @@ exports.getPartyOpeningBalance = async (req, res) => {
   try {
     const { models, sequelize } = getModels(req);
     await ensurePartyOpeningBalanceTable(sequelize);
-    const { PartyOpeningBalance } = models;
+    const { PartyOpeningBalance, FinancialYear } = models;
     const { stockistId } = req.params;
     const { financial_year_id } = req.query;
 
@@ -97,10 +135,15 @@ exports.getPartyOpeningBalance = async (req, res) => {
       });
     }
 
+    const fy = await resolveFinancialYear(FinancialYear, financial_year_id);
+    if (!fy) {
+      return res.status(404).json({ success: false, message: 'Financial year not found' });
+    }
+
     const record = await PartyOpeningBalance.findOne({
       where: {
         stockist_id: stockistId,
-        financial_year_id
+        financial_year_id: fy.id
       }
     });
 
@@ -127,6 +170,11 @@ exports.upsertOpeningBalance = async (req, res) => {
       return res.status(400).json({ success: false, message: 'financial_year_id is required' });
     }
 
+    const fy = await resolveFinancialYear(FinancialYear, financial_year_id);
+    if (!fy) {
+      return res.status(404).json({ success: false, message: 'Financial year not found' });
+    }
+
     // Bulk Mode
     if (Array.isArray(items) && items.length > 0) {
       const results = [];
@@ -139,7 +187,7 @@ exports.upsertOpeningBalance = async (req, res) => {
         const [rec, created] = await PartyOpeningBalance.findOrCreate({
           where: {
             stockist_id: item.stockist_id,
-            financial_year_id
+            financial_year_id: fy.id
           },
           defaults: {
             amount: numAmt,
@@ -182,7 +230,7 @@ exports.upsertOpeningBalance = async (req, res) => {
     const [record, created] = await PartyOpeningBalance.findOrCreate({
       where: {
         stockist_id,
-        financial_year_id
+        financial_year_id: fy.id
       },
       defaults: {
         amount: numAmt,
@@ -232,8 +280,8 @@ exports.checkDiscrepancies = async (req, res) => {
     }
 
     const [prevFY, currFY, stockists] = await Promise.all([
-      FinancialYear.findByPk(previous_financial_year_id),
-      FinancialYear.findByPk(current_financial_year_id),
+      resolveFinancialYear(FinancialYear, previous_financial_year_id),
+      resolveFinancialYear(FinancialYear, current_financial_year_id),
       Stockist.findAll({ order: [['firm_name', 'ASC']] })
     ]);
 
@@ -243,8 +291,8 @@ exports.checkDiscrepancies = async (req, res) => {
 
     // Get all opening balances for previous FY and current FY
     const [prevOpenings, currOpenings] = await Promise.all([
-      PartyOpeningBalance.findAll({ where: { financial_year_id: previous_financial_year_id } }),
-      PartyOpeningBalance.findAll({ where: { financial_year_id: current_financial_year_id } })
+      PartyOpeningBalance.findAll({ where: { financial_year_id: prevFY.id } }),
+      PartyOpeningBalance.findAll({ where: { financial_year_id: currFY.id } })
     ]);
 
     const prevOpeningMap = {};
@@ -360,8 +408,8 @@ exports.carryForwardBalances = async (req, res) => {
     }
 
     const [prevFY, targetFY] = await Promise.all([
-      FinancialYear.findByPk(from_financial_year_id),
-      FinancialYear.findByPk(to_financial_year_id)
+      resolveFinancialYear(FinancialYear, from_financial_year_id),
+      resolveFinancialYear(FinancialYear, to_financial_year_id)
     ]);
 
     if (!prevFY || !targetFY) {
@@ -376,7 +424,7 @@ exports.carryForwardBalances = async (req, res) => {
     const stockists = await Stockist.findAll({ where: targetStockistsWhere });
 
     const prevOpenings = await PartyOpeningBalance.findAll({
-      where: { financial_year_id: from_financial_year_id }
+      where: { financial_year_id: prevFY.id }
     });
     const prevOpeningMap = {};
     prevOpenings.forEach(p => {

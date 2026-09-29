@@ -1,9 +1,30 @@
 const defaultDb = require('../config/database');
 const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
 
+const ensureDefaultFinancialYears = async (FinancialYear) => {
+  if (!FinancialYear) return;
+  try {
+    const count = await FinancialYear.count();
+    if (count === 0) {
+      const defaults = [
+        { name: '2024-25', start_date: '2024-04-01', end_date: '2025-03-31', is_active: false },
+        { name: '2025-26', start_date: '2025-04-01', end_date: '2026-03-31', is_active: false },
+        { name: '2026-27', start_date: '2026-04-01', end_date: '2027-03-31', is_active: true },
+        { name: '2027-28', start_date: '2027-04-01', end_date: '2028-03-31', is_active: false }
+      ];
+      for (const d of defaults) {
+        await FinancialYear.create(d);
+      }
+    }
+  } catch (err) {
+    console.warn('ensureDefaultFinancialYears warning:', err.message);
+  }
+};
+
 const getAllFinancialYears = async (req, res) => {
   try {
     const { FinancialYear } = getModels(req);
+    await ensureDefaultFinancialYears(FinancialYear);
     const financialYears = await FinancialYear.findAll({
       order: [['start_date', 'DESC']]
     });
@@ -23,9 +44,15 @@ const getAllFinancialYears = async (req, res) => {
 const getActiveFinancialYear = async (req, res) => {
   try {
     const { FinancialYear } = getModels(req);
-    const activeFY = await FinancialYear.findOne({
+    await ensureDefaultFinancialYears(FinancialYear);
+    let activeFY = await FinancialYear.findOne({
       where: { is_active: true }
     });
+    if (!activeFY) {
+      activeFY = await FinancialYear.findOne({
+        order: [['start_date', 'DESC']]
+      });
+    }
     
     if (!activeFY) {
       return res.status(404).json({

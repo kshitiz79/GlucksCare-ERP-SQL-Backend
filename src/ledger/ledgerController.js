@@ -22,6 +22,32 @@ const getModels = (req) => {
   return { models, sequelize };
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const resolveFinancialYear = async (FinancialYear, fyInput) => {
+  if (!FinancialYear) return null;
+  if (fyInput && UUID_REGEX.test(fyInput)) {
+    const found = await FinancialYear.findByPk(fyInput);
+    if (found) return found;
+  }
+  
+  if (fyInput) {
+    let nameMatch = String(fyInput).match(/(\d{4}-\d{2,4})/);
+    let searchName = nameMatch ? nameMatch[1] : String(fyInput);
+    if (searchName && searchName.length === 9) {
+      searchName = searchName.slice(0, 4) + '-' + searchName.slice(7);
+    }
+    const fyByName = await FinancialYear.findOne({ where: { name: searchName } });
+    if (fyByName) return fyByName;
+  }
+  
+  let fy = await FinancialYear.findOne({ where: { is_active: true } });
+  if (!fy) {
+    fy = await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
+  }
+  return fy;
+};
+
 // 1. Get Party / Customer Account Ledger Statement with Running Balance
 exports.getPartyLedger = async (req, res) => {
   try {
@@ -39,15 +65,8 @@ exports.getPartyLedger = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Stockist not found' });
     }
 
-    // Resolve FY
-    let fy = null;
-    if (financial_year_id) {
-      fy = await FinancialYear.findByPk(financial_year_id);
-    }
-    if (!fy) {
-      fy = await FinancialYear.findOne({ where: { is_active: true } }) ||
-           await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
-    }
+    // Resolve FY safely
+    const fy = await resolveFinancialYear(FinancialYear, financial_year_id);
 
     const queryStartDate = start_date || fy?.start_date || '2026-04-01';
     const queryEndDate = end_date || fy?.end_date || '2027-03-31';
