@@ -1,6 +1,9 @@
+const defaultDb = require('../config/database');
+const getModels = (req) => req?.db || (req?.app && req?.app.get('models')) || defaultDb;
+
 const getAllFinancialYears = async (req, res) => {
   try {
-    const { FinancialYear } = req.app.get('models');
+    const { FinancialYear } = getModels(req);
     const financialYears = await FinancialYear.findAll({
       order: [['start_date', 'DESC']]
     });
@@ -19,7 +22,7 @@ const getAllFinancialYears = async (req, res) => {
 
 const getActiveFinancialYear = async (req, res) => {
   try {
-    const { FinancialYear } = req.app.get('models');
+    const { FinancialYear } = getModels(req);
     const activeFY = await FinancialYear.findOne({
       where: { is_active: true }
     });
@@ -45,7 +48,7 @@ const getActiveFinancialYear = async (req, res) => {
 
 const createFinancialYear = async (req, res) => {
   try {
-    const { FinancialYear } = req.app.get('models');
+    const { FinancialYear } = getModels(req);
     const { name, start_date, end_date, is_active } = req.body;
 
     const isActiveBool = is_active === true || is_active === 'true';
@@ -79,7 +82,7 @@ const createFinancialYear = async (req, res) => {
 
 const updateFinancialYear = async (req, res) => {
   try {
-    const { FinancialYear } = req.app.get('models');
+    const { FinancialYear } = getModels(req);
     const { id } = req.params;
     const { name, start_date, end_date, is_active } = req.body;
 
@@ -122,7 +125,7 @@ const updateFinancialYear = async (req, res) => {
 
 const deleteFinancialYear = async (req, res) => {
   try {
-    const { FinancialYear } = req.app.get('models');
+    const { FinancialYear } = getModels(req);
     const { id } = req.params;
 
     const financialYear = await FinancialYear.findByPk(id);
