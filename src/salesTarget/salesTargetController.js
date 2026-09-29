@@ -318,12 +318,22 @@ const getAllSalesTargets = async (req, res) => {
     });
 
     // Fetch all head office targets for this period with live invoice billing deduction/achievement
-    const hoTargetQuery = monthInt
-      ? `SELECT 
-          st.*,
-          COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount
-        FROM sales_targets st
-        LEFT JOIN (
+    const targetJoin = monthInt
+      ? `LEFT JOIN (
+          SELECT DISTINCT ON (head_office_id, target_month, target_year) *
+          FROM sales_targets
+          WHERE head_office_id IS NOT NULL
+          ORDER BY head_office_id, target_month, target_year, (user_id IS NULL) DESC, created_at DESC
+        ) st ON st.head_office_id = ho.id AND st.target_month = :month AND st.target_year = :year`
+      : `LEFT JOIN (
+          SELECT DISTINCT ON (head_office_id, target_year) *
+          FROM sales_targets
+          WHERE head_office_id IS NOT NULL
+          ORDER BY head_office_id, target_year, (user_id IS NULL) DESC, created_at DESC
+        ) st ON st.head_office_id = ho.id AND st.target_year = :year`;
+
+    const invoiceJoin = monthInt
+      ? `LEFT JOIN (
           SELECT 
             s.head_office_id,
             SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
@@ -333,13 +343,8 @@ const getAllSalesTargets = async (req, res) => {
             AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
             AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
           GROUP BY s.head_office_id
-        ) inv ON inv.head_office_id = st.head_office_id
-        WHERE st.head_office_id IS NOT NULL AND st.target_month = :month AND st.target_year = :year`
-      : `SELECT 
-          st.*,
-          COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount
-        FROM sales_targets st
-        LEFT JOIN (
+        ) inv ON inv.head_office_id = ho.id`
+      : `LEFT JOIN (
           SELECT 
             s.head_office_id,
             SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
@@ -348,18 +353,40 @@ const getAllSalesTargets = async (req, res) => {
           WHERE it.status != 'cancelled'
             AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
           GROUP BY s.head_office_id
-        ) inv ON inv.head_office_id = st.head_office_id
-        WHERE st.head_office_id IS NOT NULL AND st.target_year = :year`;
+        ) inv ON inv.head_office_id = ho.id`;
 
-    const hoTargets = await sequelize.query(hoTargetQuery, {
+    const hoTargets = await sequelize.query(`
+      SELECT 
+        ho.id as head_office_id,
+        st.id,
+        st.id as target_id,
+        COALESCE(st.target_amount, 0) as target_amount,
+        COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0) as achieved_amount,
+        st.completion_deadline,
+        st.status,
+        st.notes
+      FROM head_offices ho
+      ${targetJoin}
+      ${invoiceJoin}
+      WHERE ho.is_active = true
+    `, {
       replacements: userReplacements,
       type: sequelize.QueryTypes.SELECT
     });
 
     const hoTargetMap = {};
+    let totalHoTargetSum = 0;
+    let totalHoAchievedSum = 0;
+
     hoTargets.forEach(st => {
       hoTargetMap[st.head_office_id] = st;
+      if (st.id && parseFloat(st.target_amount || 0) > 0) {
+        totalHoTargetSum += parseFloat(st.target_amount || 0);
+        totalHoAchievedSum += parseFloat(st.achieved_amount || 0);
+      }
     });
+
+    const hoOverallPercentage = totalHoTargetSum > 0 ? Math.round((totalHoAchievedSum / totalHoTargetSum) * 100) : 0;
 
     // Fetch all head offices with state mapping for hierarchy aggregation
     const allHeadOffices = await sequelize.query(`
@@ -468,9 +495,6 @@ const getAllSalesTargets = async (req, res) => {
     });
 
     const allAssignedUsers = transformedUserTargets.filter(u => u.hasTarget && (u.targetAmount > 0 || u.aggregatedTargetAmount > 0));
-    const totalTargetSum = allAssignedUsers.reduce((sum, u) => sum + u.aggregatedTargetAmount, 0);
-    const totalAchievedSum = allAssignedUsers.reduce((sum, u) => sum + u.aggregatedAchievedAmount, 0);
-    const overallPercentage = totalTargetSum > 0 ? Math.round((totalAchievedSum / totalTargetSum) * 100) : 0;
     const completedCount = allAssignedUsers.filter(u => u.status === 'Completed').length;
     const activeCount = allAssignedUsers.filter(u => u.status === 'Active').length;
     const overdueCount = allAssignedUsers.filter(u => u.status === 'Overdue').length;
@@ -489,9 +513,9 @@ const getAllSalesTargets = async (req, res) => {
       summary: {
         totalUsers: filteredUsers.length,
         totalAssignedUsers: allAssignedUsers.length,
-        totalTargetAmount: totalTargetSum,
-        totalAchievedAmount: totalAchievedSum,
-        overallAchievementPercentage: overallPercentage,
+        totalTargetAmount: totalHoTargetSum,
+        totalAchievedAmount: totalHoAchievedSum,
+        overallAchievementPercentage: hoOverallPercentage,
         completedTargets: completedCount,
         activeTargets: activeCount,
         overdueTargets: overdueCount
