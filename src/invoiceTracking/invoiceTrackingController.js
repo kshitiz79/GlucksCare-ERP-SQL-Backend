@@ -134,13 +134,13 @@ const getAllInvoiceTracking = async (req, res) => {
         { party_name: { [searchOp]: `%${searchTerm}%` } },
         { courier_company_name: { [searchOp]: `%${searchTerm}%` } },
         { awb_number: { [searchOp]: `%${searchTerm}%` } },
-        { remarks: { [searchOp]: `%${searchTerm}%` } },
-        { '$Stockist.firm_name$': { [searchOp]: `%${searchTerm}%` } }
+        { remarks: { [searchOp]: `%${searchTerm}%` } }
       ];
     }
 
     const options = {
       where: whereClause,
+      distinct: true,
       include: [
         {
           model: Stockist,
