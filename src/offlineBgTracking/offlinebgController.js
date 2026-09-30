@@ -566,12 +566,12 @@ const getUsersWithLocation = async (req, res) => {
             start_date: { [require('sequelize').Op.lte]: todayStr },
             end_date: { [require('sequelize').Op.gte]: todayStr }
           },
-          attributes: ['user_id'],
+          attributes: ['employee_id'],
           raw: true
         });
       }
     } catch (e) {}
-    const onLeaveUserIds = new Set(activeLeaves.map(l => String(l.user_id)));
+    const onLeaveUserIds = new Set(activeLeaves.map(l => String(l.employee_id || l.user_id)));
 
     // 2. Fetch today's visits count per user
     const [docVisits, chemVisits, stVisits] = await Promise.all([
@@ -873,7 +873,7 @@ const getUserDayTimeline = async (req, res) => {
     if (Leave) {
       leaveRecord = await Leave.findOne({
         where: {
-          user_id: userId,
+          employee_id: userId,
           status: 'Approved',
           start_date: { [require('sequelize').Op.lte]: queryDate },
           end_date: { [require('sequelize').Op.gte]: queryDate }
