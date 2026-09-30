@@ -10,11 +10,11 @@ const getModels = (req) => {
     models = req.tenantDb.models;
   }
   const sequelize = req.tenantDb || req.app?.get('sequelize');
-  
+
   if (!models) {
     models = {};
   }
-  
+
   // Ensure Voucher models exist on models object
   if (!models.Voucher && sequelize) {
     models.Voucher = require('./Voucher')(sequelize);
@@ -28,14 +28,14 @@ const getModels = (req) => {
   if (!models.PartyOpeningBalance && sequelize) {
     try {
       models.PartyOpeningBalance = require('../partyOpeningBalance/PartyOpeningBalance')(sequelize);
-    } catch (e) {}
+    } catch (e) { }
   }
   if (!models.FinancialYear && sequelize) {
     try {
       models.FinancialYear = require('../financialYear/FinancialYear')(sequelize);
-    } catch (e) {}
+    } catch (e) { }
   }
-  
+
   return { models, sequelize };
 };
 
@@ -60,7 +60,7 @@ const ensureVoucherTables = async (sequelize) => {
   try {
     try {
       await sequelize.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
-    } catch (e) {}
+    } catch (e) { }
 
     try {
       await sequelize.query(`
@@ -116,7 +116,7 @@ const ensureVoucherTables = async (sequelize) => {
     // Ensure columns are updated if table already existed
     try {
       await sequelize.query(`ALTER TABLE voucher_payment_allocations ALTER COLUMN invoice_id DROP NOT NULL;`);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await sequelize.query(`
         ALTER TABLE voucher_payment_allocations 
@@ -124,7 +124,7 @@ const ensureVoucherTables = async (sequelize) => {
           ADD COLUMN IF NOT EXISTS allocation_type VARCHAR(50) DEFAULT 'invoice';
       `);
       await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_opening_balance_id ON voucher_payment_allocations (opening_balance_id);`);
-    } catch (e) {}
+    } catch (e) { }
 
     try {
       await sequelize.query(`
@@ -170,29 +170,64 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Stockist not found' });
     }
 
+    // 1. Resolve Financial Year safely from query or active FY
+    let fy = null;
+    const fyParam = req.query.financial_year_id;
+    if (FinancialYear) {
+      if (fyParam) {
+        if (UUID_REGEX.test(fyParam)) {
+          fy = await FinancialYear.findByPk(fyParam);
+        } else {
+          let nameMatch = String(fyParam).match(/(\d{4}-\d{2,4})/);
+          let searchName = nameMatch ? nameMatch[1] : String(fyParam);
+          if (searchName && searchName.length === 9) {
+            searchName = searchName.slice(0, 4) + '-' + searchName.slice(7);
+          }
+          fy = await FinancialYear.findOne({ where: { name: searchName } });
+        }
+      }
+      if (!fy) {
+        fy = await FinancialYear.findOne({ where: { is_active: true } });
+      }
+      if (!fy) {
+        fy = await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
+      }
+    }
+
     // Build flexible where clause matching either stockist_id or party_name
     const cleanFirmName = (stockist.firm_name || '').trim();
-    const whereClause = {
-      [Op.and]: [
-        {
-          [Op.or]: [
-            { stockist_id: stockistId },
-            ...(cleanFirmName ? [
-              { party_name: { [Op.iLike]: `%${cleanFirmName}%` } },
-              { party_name: cleanFirmName }
-            ] : [])
-          ]
-        },
-        {
-          [Op.or]: [
-            { status: { [Op.ne]: 'cancelled' } },
-            { status: null }
-          ]
+    const whereConditions = [
+      {
+        [Op.or]: [
+          { stockist_id: stockistId },
+          ...(cleanFirmName ? [
+            { party_name: { [Op.iLike]: `%${cleanFirmName}%` } },
+            { party_name: cleanFirmName }
+          ] : [])
+        ]
+      },
+      {
+        [Op.or]: [
+          { status: { [Op.ne]: 'cancelled' } },
+          { status: null }
+        ]
+      }
+    ];
+
+    // Strictly isolate to the selected Financial Year so previous FY invoices don't bleed into current FY
+    if (fy?.start_date && fy?.end_date) {
+      whereConditions.push({
+        invoice_date: {
+          [Op.between]: [fy.start_date, fy.end_date]
         }
-      ]
+      });
+    }
+
+    const whereClause = {
+      [Op.and]: whereConditions
     };
 
-    console.log(`🔍 [Voucher] Fetching invoices for stockist: "${cleanFirmName}" (ID: ${stockistId})`);
+    console.log(`🔍 [Voucher] Fetching invoices for stockist: "${cleanFirmName}" (ID: ${stockistId}) in FY ${fy?.name || 'ALL'}`);
 
     // Fetch all active invoices for this stockist
     const invoices = await InvoiceTracking.findAll({
@@ -262,29 +297,6 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
     let openingBalanceInfo = null;
     if (PartyOpeningBalance) {
       try {
-        let fy = null;
-        const fyParam = req.query.financial_year_id;
-        if (FinancialYear) {
-          if (fyParam) {
-            if (UUID_REGEX.test(fyParam)) {
-              fy = await FinancialYear.findByPk(fyParam);
-            } else {
-              let nameMatch = String(fyParam).match(/(\d{4}-\d{2,4})/);
-              let searchName = nameMatch ? nameMatch[1] : String(fyParam);
-              if (searchName && searchName.length === 9) {
-                searchName = searchName.slice(0, 4) + '-' + searchName.slice(7);
-              }
-              fy = await FinancialYear.findOne({ where: { name: searchName } });
-            }
-          }
-          if (!fy) {
-            fy = await FinancialYear.findOne({ where: { is_active: true } });
-          }
-          if (!fy) {
-            fy = await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
-          }
-        }
-
         const pobWhere = { stockist_id: stockistId };
         if (fy) {
           pobWhere.financial_year_id = fy.id;
@@ -562,9 +574,9 @@ exports.createVoucher = async (req, res) => {
         );
 
         if (isOpeningBal) {
-          const rawPobId = item.opening_balance_id || 
-            (typeof item.invoice_id === 'string' && item.invoice_id.startsWith('opening-bal-') 
-              ? item.invoice_id.replace('opening-bal-', '') 
+          const rawPobId = item.opening_balance_id ||
+            (typeof item.invoice_id === 'string' && item.invoice_id.startsWith('opening-bal-')
+              ? item.invoice_id.replace('opening-bal-', '')
               : null);
 
           let pob = null;
@@ -1120,7 +1132,7 @@ exports.deleteVoucher = async (req, res) => {
   }
 };
 
-// 7. Cancel Voucher (Soft-cancel, reverting allocations, advance & bank balance)
+
 exports.cancelVoucher = async (req, res) => {
   const { models, sequelize } = getModels(req);
   await ensureVoucherTables(sequelize);
@@ -1186,7 +1198,7 @@ exports.cancelVoucher = async (req, res) => {
           ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE,
           ADD COLUMN IF NOT EXISTS cancelled_by UUID;
       `);
-    } catch (e) {}
+    } catch (e) { }
 
     await voucher.update({
       status: 'cancelled',
