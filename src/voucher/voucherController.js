@@ -1,6 +1,8 @@
 // src/voucher/voucherController.js
 const { Op, fn, col } = require('sequelize');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // Helper to resolve models dynamically across single or multi-tenant context
 const getModels = (req) => {
   let models = req.app?.get('models');
@@ -22,6 +24,16 @@ const getModels = (req) => {
     models.Stockist = require('../stockist/Stockist')(sequelize);
     models.Bank = require('../bankMaster/Bank')(sequelize);
     models.User = require('../user/User').User ? require('../user/User').User(sequelize) : null;
+  }
+  if (!models.PartyOpeningBalance && sequelize) {
+    try {
+      models.PartyOpeningBalance = require('../partyOpeningBalance/PartyOpeningBalance')(sequelize);
+    } catch (e) {}
+  }
+  if (!models.FinancialYear && sequelize) {
+    try {
+      models.FinancialYear = require('../financialYear/FinancialYear')(sequelize);
+    } catch (e) {}
   }
   
   return { models, sequelize };
@@ -85,7 +97,9 @@ const ensureVoucherTables = async (sequelize) => {
         CREATE TABLE IF NOT EXISTS voucher_payment_allocations (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           voucher_id UUID NOT NULL,
-          invoice_id UUID NOT NULL,
+          invoice_id UUID,
+          opening_balance_id UUID,
+          allocation_type VARCHAR(50) DEFAULT 'invoice',
           allocated_amount DECIMAL(15, 2) NOT NULL,
           notes VARCHAR(255),
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -94,9 +108,23 @@ const ensureVoucherTables = async (sequelize) => {
       `);
       await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_voucher_id ON voucher_payment_allocations (voucher_id);`);
       await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_invoice_id ON voucher_payment_allocations (invoice_id);`);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_opening_balance_id ON voucher_payment_allocations (opening_balance_id);`);
     } catch (err) {
       console.warn('VoucherPaymentAllocation table create warning:', err.message);
     }
+
+    // Ensure columns are updated if table already existed
+    try {
+      await sequelize.query(`ALTER TABLE voucher_payment_allocations ALTER COLUMN invoice_id DROP NOT NULL;`);
+    } catch (e) {}
+    try {
+      await sequelize.query(`
+        ALTER TABLE voucher_payment_allocations 
+          ADD COLUMN IF NOT EXISTS opening_balance_id UUID,
+          ADD COLUMN IF NOT EXISTS allocation_type VARCHAR(50) DEFAULT 'invoice';
+      `);
+      await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vpa_opening_balance_id ON voucher_payment_allocations (opening_balance_id);`);
+    } catch (e) {}
 
     try {
       await sequelize.query(`
@@ -130,7 +158,7 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
     const { models, sequelize } = getModels(req);
     await ensureVoucherTables(sequelize);
 
-    const { InvoiceTracking, VoucherPaymentAllocation, Stockist } = models;
+    const { InvoiceTracking, VoucherPaymentAllocation, Stockist, PartyOpeningBalance, FinancialYear } = models;
     const { stockistId } = req.params;
 
     if (!stockistId) {
@@ -177,7 +205,7 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
 
     console.log(`✅ [Voucher] Found ${invoices.length} invoices matching criteria for "${cleanFirmName}"`);
 
-    // Safely collect payment allocations
+    // Safely collect payment allocations for invoices
     const allocationMap = {};
     if (invoices.length > 0 && VoucherPaymentAllocation) {
       try {
@@ -230,6 +258,102 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
       }
     }
 
+    // Fetch and calculate Party Opening Balance for the relevant FY
+    let openingBalanceInfo = null;
+    if (PartyOpeningBalance) {
+      try {
+        let fy = null;
+        const fyParam = req.query.financial_year_id;
+        if (FinancialYear) {
+          if (fyParam) {
+            if (UUID_REGEX.test(fyParam)) {
+              fy = await FinancialYear.findByPk(fyParam);
+            } else {
+              let nameMatch = String(fyParam).match(/(\d{4}-\d{2,4})/);
+              let searchName = nameMatch ? nameMatch[1] : String(fyParam);
+              if (searchName && searchName.length === 9) {
+                searchName = searchName.slice(0, 4) + '-' + searchName.slice(7);
+              }
+              fy = await FinancialYear.findOne({ where: { name: searchName } });
+            }
+          }
+          if (!fy) {
+            fy = await FinancialYear.findOne({ where: { is_active: true } });
+          }
+          if (!fy) {
+            fy = await FinancialYear.findOne({ order: [['start_date', 'DESC']] });
+          }
+        }
+
+        const pobWhere = { stockist_id: stockistId };
+        if (fy) {
+          pobWhere.financial_year_id = fy.id;
+        }
+
+        const pob = await PartyOpeningBalance.findOne({
+          where: pobWhere,
+          order: [['created_at', 'DESC']]
+        });
+
+        if (pob) {
+          const pobAmt = parseFloat(pob.amount || 0);
+          const pobDir = pob.direction || 'Dr';
+
+          // Calculate total allocated towards this opening balance
+          let paidPob = 0;
+          if (VoucherPaymentAllocation) {
+            const pobAllocWhere = {
+              [Op.or]: [
+                { opening_balance_id: pob.id },
+                {
+                  invoice_id: null,
+                  notes: { [Op.like]: '%Opening Balance%' }
+                }
+              ]
+            };
+            paidPob = await VoucherPaymentAllocation.sum('allocated_amount', {
+              where: pobAllocWhere
+            }) || 0;
+          }
+
+          const remPob = Math.max(0, parseFloat((pobAmt - paidPob).toFixed(2)));
+
+          openingBalanceInfo = {
+            id: pob.id,
+            financial_year_id: pob.financial_year_id,
+            start_date: fy?.start_date || '2026-04-01',
+            total_amount: pobAmt,
+            paid_amount: parseFloat(Number(paidPob).toFixed(2)),
+            remaining_balance: remPob,
+            direction: pobDir,
+            source: pob.source
+          };
+        }
+      } catch (pobErr) {
+        console.warn('Could not query party opening balance in getUnpaidInvoicesByStockist:', pobErr.message);
+      }
+    }
+
+    // Prepend Opening Balance (B/F) if Dr with remaining balance > 0
+    if (openingBalanceInfo && openingBalanceInfo.direction === 'Dr' && openingBalanceInfo.remaining_balance > 0) {
+      unpaidInvoices.unshift({
+        id: `opening-bal-${openingBalanceInfo.id}`,
+        opening_balance_id: openingBalanceInfo.id,
+        is_opening_balance: true,
+        invoice_number: 'Opening Balance (B/F)',
+        invoice_date: openingBalanceInfo.start_date || '2026-04-01',
+        party_name: cleanFirmName,
+        stockist_id: stockist.id,
+        total_amount: openingBalanceInfo.total_amount,
+        taxable_amount: 0,
+        discount_amount: 0,
+        paid_amount: openingBalanceInfo.paid_amount,
+        remaining_balance: openingBalanceInfo.remaining_balance,
+        status: 'unpaid',
+        remarks: 'Opening Balance Brought Forward'
+      });
+    }
+
     // Also get current available advance for this stockist
     let advanceBalance = 0;
     try {
@@ -252,6 +376,7 @@ exports.getUnpaidInvoicesByStockist = async (req, res) => {
         mobile_number: stockist.mobile_number,
         gst_number: stockist.gst_number
       },
+      opening_balance: openingBalanceInfo,
       advance_balance: advanceBalance,
       count: unpaidInvoices.length,
       data: unpaidInvoices
@@ -332,7 +457,8 @@ exports.createVoucher = async (req, res) => {
     StockistAdvanceTransaction,
     InvoiceTracking,
     Stockist,
-    Bank
+    Bank,
+    PartyOpeningBalance
   } = models;
 
   const dbTransaction = await sequelize.transaction();
@@ -419,7 +545,7 @@ exports.createVoucher = async (req, res) => {
       }
     }
 
-    // Validation 5: Process and validate invoice allocations
+    // Validation 5: Process and validate invoice & opening balance allocations
     let totalAllocated = 0;
     const validatedAllocations = [];
 
@@ -428,6 +554,88 @@ exports.createVoucher = async (req, res) => {
         const allocAmount = parseFloat(item.allocated_amount || 0);
         if (allocAmount <= 0) continue;
 
+        // Check if allocation is for Opening Balance
+        const isOpeningBal = Boolean(
+          item.is_opening_balance ||
+          (typeof item.invoice_id === 'string' && item.invoice_id.startsWith('opening-bal-')) ||
+          item.opening_balance_id
+        );
+
+        if (isOpeningBal) {
+          const rawPobId = item.opening_balance_id || 
+            (typeof item.invoice_id === 'string' && item.invoice_id.startsWith('opening-bal-') 
+              ? item.invoice_id.replace('opening-bal-', '') 
+              : null);
+
+          let pob = null;
+          if (rawPobId && PartyOpeningBalance) {
+            pob = await PartyOpeningBalance.findByPk(rawPobId, {
+              transaction: dbTransaction,
+              lock: dbTransaction.LOCK.UPDATE
+            });
+          }
+
+          if (!pob && PartyOpeningBalance) {
+            pob = await PartyOpeningBalance.findOne({
+              where: { stockist_id },
+              transaction: dbTransaction,
+              lock: dbTransaction.LOCK.UPDATE
+            });
+          }
+
+          if (!pob) {
+            await dbTransaction.rollback();
+            return res.status(404).json({
+              success: false,
+              message: 'Party Opening Balance record not found'
+            });
+          }
+
+          if (pob.stockist_id !== stockist_id) {
+            await dbTransaction.rollback();
+            return res.status(400).json({
+              success: false,
+              message: 'Opening balance record does not belong to the selected Stockist'
+            });
+          }
+
+          // Check existing allocations sum towards opening balance
+          const existingAllocationsSum = await VoucherPaymentAllocation.sum('allocated_amount', {
+            where: {
+              [Op.or]: [
+                { opening_balance_id: pob.id },
+                {
+                  invoice_id: null,
+                  notes: { [Op.like]: '%Opening Balance%' }
+                }
+              ]
+            },
+            transaction: dbTransaction
+          }) || 0;
+
+          const pobTotal = parseFloat(pob.amount || 0);
+          const remainingPob = parseFloat((pobTotal - existingAllocationsSum).toFixed(2));
+
+          if (allocAmount > remainingPob + 0.009) {
+            await dbTransaction.rollback();
+            return res.status(400).json({
+              success: false,
+              message: `Allocation amount ₹${allocAmount.toFixed(2)} exceeds remaining Opening Balance of ₹${remainingPob.toFixed(2)}`
+            });
+          }
+
+          totalAllocated = parseFloat((totalAllocated + allocAmount).toFixed(2));
+          validatedAllocations.push({
+            invoice_id: null,
+            opening_balance_id: pob.id,
+            allocation_type: 'opening_balance',
+            allocated_amount: allocAmount,
+            notes: item.notes || 'Opening Balance (B/F)'
+          });
+          continue;
+        }
+
+        // Standard Invoice Allocation
         const invoice = await InvoiceTracking.findByPk(item.invoice_id, {
           transaction: dbTransaction,
           lock: dbTransaction.LOCK.UPDATE
@@ -477,6 +685,8 @@ exports.createVoucher = async (req, res) => {
         totalAllocated = parseFloat((totalAllocated + allocAmount).toFixed(2));
         validatedAllocations.push({
           invoice_id: invoice.id,
+          opening_balance_id: null,
+          allocation_type: 'invoice',
           invoice_number: invoice.invoice_number,
           allocated_amount: allocAmount,
           notes: item.notes || null
@@ -536,7 +746,9 @@ exports.createVoucher = async (req, res) => {
     for (const alloc of validatedAllocations) {
       await VoucherPaymentAllocation.create({
         voucher_id: voucher.id,
-        invoice_id: alloc.invoice_id,
+        invoice_id: alloc.invoice_id || null,
+        opening_balance_id: alloc.opening_balance_id || null,
+        allocation_type: alloc.allocation_type || 'invoice',
         allocated_amount: alloc.allocated_amount,
         notes: alloc.notes
       }, { transaction: dbTransaction });
@@ -609,8 +821,15 @@ exports.createVoucher = async (req, res) => {
             {
               model: InvoiceTracking,
               as: 'invoice',
+              required: false,
               attributes: ['id', 'invoice_number', 'invoice_date', 'amount']
-            }
+            },
+            ...(models.PartyOpeningBalance ? [{
+              model: models.PartyOpeningBalance,
+              as: 'openingBalance',
+              required: false,
+              attributes: ['id', 'amount', 'direction']
+            }] : [])
           ]
         }
       ]
@@ -703,8 +922,15 @@ exports.getVouchers = async (req, res) => {
             {
               model: InvoiceTracking,
               as: 'invoice',
+              required: false,
               attributes: ['id', 'invoice_number', 'invoice_date', 'amount']
-            }
+            },
+            ...(models.PartyOpeningBalance ? [{
+              model: models.PartyOpeningBalance,
+              as: 'openingBalance',
+              required: false,
+              attributes: ['id', 'amount', 'direction']
+            }] : [])
           ]
         }
       ],
@@ -783,8 +1009,15 @@ exports.getVoucherById = async (req, res) => {
             {
               model: InvoiceTracking,
               as: 'invoice',
+              required: false,
               attributes: ['id', 'invoice_number', 'invoice_date', 'amount', 'taxable_amount', 'discount_amount', 'status']
-            }
+            },
+            ...(models.PartyOpeningBalance ? [{
+              model: models.PartyOpeningBalance,
+              as: 'openingBalance',
+              required: false,
+              attributes: ['id', 'amount', 'direction']
+            }] : [])
           ]
         },
         {
@@ -882,6 +1115,100 @@ exports.deleteVoucher = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete voucher',
+      error: error.message
+    });
+  }
+};
+
+// 7. Cancel Voucher (Soft-cancel, reverting allocations, advance & bank balance)
+exports.cancelVoucher = async (req, res) => {
+  const { models, sequelize } = getModels(req);
+  await ensureVoucherTables(sequelize);
+  const {
+    Voucher,
+    VoucherPaymentAllocation,
+    StockistAdvanceTransaction,
+    Bank
+  } = models;
+
+  const dbTransaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { cancellation_reason } = req.body;
+
+    const voucher = await Voucher.findByPk(id, { transaction: dbTransaction });
+    if (!voucher) {
+      await dbTransaction.rollback();
+      return res.status(404).json({ success: false, message: 'Voucher not found' });
+    }
+
+    if (voucher.status === 'cancelled') {
+      await dbTransaction.rollback();
+      return res.status(400).json({ success: false, message: 'Voucher is already cancelled' });
+    }
+
+    // Revert bank balance if bank was credited
+    if (voucher.bank_id && parseFloat(voucher.amount || 0) > 0 && Bank) {
+      try {
+        const bank = await Bank.findByPk(voucher.bank_id, { transaction: dbTransaction });
+        if (bank) {
+          const currentBal = parseFloat(bank.current_balance || 0);
+          const newBal = Math.max(0, currentBal - parseFloat(voucher.amount));
+          await bank.update({ current_balance: newBal }, { transaction: dbTransaction });
+        }
+      } catch (bankErr) {
+        console.warn('Bank balance revert warning:', bankErr.message);
+      }
+    }
+
+    // Delete payment allocations so invoices/opening balance are unpaid again
+    if (VoucherPaymentAllocation) {
+      await VoucherPaymentAllocation.destroy({
+        where: { voucher_id: id },
+        transaction: dbTransaction
+      });
+    }
+
+    // Delete advance transactions linked to this voucher
+    if (StockistAdvanceTransaction) {
+      await StockistAdvanceTransaction.destroy({
+        where: { voucher_id: id },
+        transaction: dbTransaction
+      });
+    }
+
+    // Ensure cancellation columns exist
+    try {
+      await sequelize.query(`
+        ALTER TABLE vouchers 
+          ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
+          ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE,
+          ADD COLUMN IF NOT EXISTS cancelled_by UUID;
+      `);
+    } catch (e) {}
+
+    await voucher.update({
+      status: 'cancelled',
+      cancellation_reason: cancellation_reason || 'Cancelled by user',
+      cancelled_at: new Date(),
+      cancelled_by: req.user?.id || null,
+      allocated_amount: 0,
+      advance_amount: 0
+    }, { transaction: dbTransaction });
+
+    await dbTransaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Voucher ${voucher.voucher_number} cancelled successfully`
+    });
+  } catch (error) {
+    await dbTransaction.rollback();
+    console.error('Error cancelling voucher:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to cancel voucher',
       error: error.message
     });
   }

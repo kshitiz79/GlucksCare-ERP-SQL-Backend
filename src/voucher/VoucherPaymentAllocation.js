@@ -21,14 +21,31 @@ const VoucherPaymentAllocation = (sequelize) => {
     },
     invoice_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'invoice_tracking',
         key: 'id'
       },
       onDelete: 'RESTRICT',
       onUpdate: 'CASCADE',
-      comment: 'Target invoice ID being paid'
+      comment: 'Target invoice ID being paid (null if opening_balance)'
+    },
+    opening_balance_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'party_opening_balances',
+        key: 'id'
+      },
+      onDelete: 'RESTRICT',
+      onUpdate: 'CASCADE',
+      comment: 'Target party opening balance ID being paid'
+    },
+    allocation_type: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: 'invoice',
+      comment: 'invoice | opening_balance'
     },
     allocated_amount: {
       type: DataTypes.DECIMAL(15, 2),
@@ -45,7 +62,8 @@ const VoucherPaymentAllocation = (sequelize) => {
     underscored: true,
     indexes: [
       { fields: ['voucher_id'] },
-      { fields: ['invoice_id'] }
+      { fields: ['invoice_id'] },
+      { fields: ['opening_balance_id'] }
     ]
   });
 };

@@ -423,6 +423,10 @@ module.exports = (db) => {
         db.VoucherPaymentAllocation.belongsTo(db.InvoiceTracking, { foreignKey: 'invoice_id', as: 'invoice' });
         db.InvoiceTracking.hasMany(db.VoucherPaymentAllocation, { foreignKey: 'invoice_id', as: 'paymentAllocations' });
       }
+      if (db.PartyOpeningBalance) {
+        db.VoucherPaymentAllocation.belongsTo(db.PartyOpeningBalance, { foreignKey: 'opening_balance_id', as: 'openingBalance' });
+        db.PartyOpeningBalance.hasMany(db.VoucherPaymentAllocation, { foreignKey: 'opening_balance_id', as: 'paymentAllocations' });
+      }
     }
     if (db.StockistAdvanceTransaction) {
       db.Voucher.hasMany(db.StockistAdvanceTransaction, { foreignKey: 'voucher_id', as: 'advanceTransactions' });

@@ -21,7 +21,10 @@ router.get('/:id', voucherController.getVoucherById);
 // 5. Create a new payment voucher
 router.post('/', voucherController.createVoucher);
 
-// 6. Delete voucher
+// 6. Cancel voucher (soft cancel with rollback)
+router.post('/:id/cancel', voucherController.cancelVoucher);
+
+// 7. Delete voucher (hard delete)
 router.delete('/:id', voucherController.deleteVoucher);
 
 module.exports = router;
