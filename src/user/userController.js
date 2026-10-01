@@ -235,42 +235,69 @@ const getUsersByRole = async (req, res) => {
 
     let managersMap = {};
     let areaManagersMap = {};
+    let subordinatesMap = {};
 
     if (userIds.length > 0) {
       try {
         const { UserManager } = req.app.get('models');
         const { Op } = require('sequelize');
         const userManagersData = await UserManager.findAll({
-          where: { user_id: { [Op.in]: userIds } },
+          where: {
+            [Op.or]: [
+              { user_id: { [Op.in]: userIds } },
+              { manager_id: { [Op.in]: userIds } }
+            ]
+          },
           include: [
             {
               model: User,
               as: 'userManagerManager',
-              attributes: ['id', 'name', 'email', 'role']
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
+            },
+            {
+              model: User,
+              as: 'userManagerUser',
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
             }
           ]
         });
 
         userManagersData.forEach(um => {
-          if (!um.userManagerManager) return;
-          const managerObj = {
-            _id: um.userManagerManager.id,
-            id: um.userManagerManager.id,
-            name: um.userManagerManager.name,
-            email: um.userManagerManager.email,
-            role: um.userManagerManager.role
-          };
-          
-          if (um.manager_type === 'manager') {
+          if (um.userManagerManager && userIds.includes(um.user_id)) {
+            const managerObj = {
+              _id: um.userManagerManager.id,
+              id: um.userManagerManager.id,
+              name: um.userManagerManager.name,
+              email: um.userManagerManager.email,
+              role: um.userManagerManager.role,
+              employeeCode: um.userManagerManager.employee_code
+            };
             if (!managersMap[um.user_id]) {
               managersMap[um.user_id] = [];
             }
             managersMap[um.user_id].push(managerObj);
-          } else if (um.manager_type === 'area_manager') {
-            if (!areaManagersMap[um.user_id]) {
-              areaManagersMap[um.user_id] = [];
+
+            if (um.manager_type === 'area_manager') {
+              if (!areaManagersMap[um.user_id]) {
+                areaManagersMap[um.user_id] = [];
+              }
+              areaManagersMap[um.user_id].push(managerObj);
             }
-            areaManagersMap[um.user_id].push(managerObj);
+          }
+
+          if (um.userManagerUser && userIds.includes(um.manager_id)) {
+            const subObj = {
+              _id: um.userManagerUser.id,
+              id: um.userManagerUser.id,
+              name: um.userManagerUser.name,
+              email: um.userManagerUser.email,
+              role: um.userManagerUser.role,
+              employeeCode: um.userManagerUser.employee_code
+            };
+            if (!subordinatesMap[um.manager_id]) {
+              subordinatesMap[um.manager_id] = [];
+            }
+            subordinatesMap[um.manager_id].push(subObj);
           }
         });
       } catch (umError) {
@@ -330,9 +357,10 @@ const getUsersByRole = async (req, res) => {
       // Add headOffices array from map
       transformedUser.headOffices = headOfficesMap[user.id] || [];
 
-      // Add managers/areaManagers
+      // Add managers/areaManagers/subordinates
       transformedUser.managers = managersMap[user.id] || [];
       transformedUser.areaManagers = areaManagersMap[user.id] || [];
+      transformedUser.subordinates = subordinatesMap[user.id] || [];
       transformedUser.manager = (managersMap[user.id] && managersMap[user.id].length > 0) ? managersMap[user.id][0] : null;
 
       return transformedUser;
@@ -511,41 +539,69 @@ const getAllUsers = async (req, res) => {
 
     let managersMap = {};
     let areaManagersMap = {};
+    let subordinatesMap = {};
 
     if (users.length > 0) {
       try {
         const { UserManager } = models;
+        const allUserIds = users.map(u => u.id);
         const userManagersData = await UserManager.findAll({
-          where: { user_id: { [Op.in]: users.map(u => u.id) } },
+          where: {
+            [Op.or]: [
+              { user_id: { [Op.in]: allUserIds } },
+              { manager_id: { [Op.in]: allUserIds } }
+            ]
+          },
           include: [
             {
               model: User,
               as: 'userManagerManager',
-              attributes: ['id', 'name', 'email', 'role']
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
+            },
+            {
+              model: User,
+              as: 'userManagerUser',
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
             }
           ]
         });
 
         userManagersData.forEach(um => {
-          if (!um.userManagerManager) return;
-          const managerObj = {
-            _id: um.userManagerManager.id,
-            id: um.userManagerManager.id,
-            name: um.userManagerManager.name,
-            email: um.userManagerManager.email,
-            role: um.userManagerManager.role
-          };
-          
-          if (um.manager_type === 'manager') {
+          if (um.userManagerManager && allUserIds.includes(um.user_id)) {
+            const managerObj = {
+              _id: um.userManagerManager.id,
+              id: um.userManagerManager.id,
+              name: um.userManagerManager.name,
+              email: um.userManagerManager.email,
+              role: um.userManagerManager.role,
+              employeeCode: um.userManagerManager.employee_code
+            };
             if (!managersMap[um.user_id]) {
               managersMap[um.user_id] = [];
             }
             managersMap[um.user_id].push(managerObj);
-          } else if (um.manager_type === 'area_manager') {
-            if (!areaManagersMap[um.user_id]) {
-              areaManagersMap[um.user_id] = [];
+
+            if (um.manager_type === 'area_manager') {
+              if (!areaManagersMap[um.user_id]) {
+                areaManagersMap[um.user_id] = [];
+              }
+              areaManagersMap[um.user_id].push(managerObj);
             }
-            areaManagersMap[um.user_id].push(managerObj);
+          }
+
+          if (um.userManagerUser && allUserIds.includes(um.manager_id)) {
+            const subObj = {
+              _id: um.userManagerUser.id,
+              id: um.userManagerUser.id,
+              name: um.userManagerUser.name,
+              email: um.userManagerUser.email,
+              role: um.userManagerUser.role,
+              employeeCode: um.userManagerUser.employee_code
+            };
+            if (!subordinatesMap[um.manager_id]) {
+              subordinatesMap[um.manager_id] = [];
+            }
+            subordinatesMap[um.manager_id].push(subObj);
           }
         });
       } catch (umError) {
@@ -617,9 +673,10 @@ const getAllUsers = async (req, res) => {
         }));
       }
 
-      // Add managers/areaManagers
+      // Add managers/areaManagers/subordinates
       transformedUser.managers = managersMap[user.id] || [];
       transformedUser.areaManagers = areaManagersMap[user.id] || [];
+      transformedUser.subordinates = subordinatesMap[user.id] || [];
       transformedUser.manager = (managersMap[user.id] && managersMap[user.id].length > 0) ? managersMap[user.id][0] : null;
 
       return transformedUser;
@@ -761,7 +818,7 @@ const getUserById = async (req, res) => {
       }));
     }
 
-    // Fetch managers and areaManagers
+    // Fetch managers, areaManagers, and subordinates
     try {
       const { UserManager, User: UserModel } = req.app.get('models');
       const userManagers = await UserManager.findAll({
@@ -770,7 +827,18 @@ const getUserById = async (req, res) => {
           {
             model: UserModel,
             as: 'userManagerManager',
-            attributes: ['id', 'name', 'email', 'role']
+            attributes: ['id', 'name', 'email', 'role', 'employee_code']
+          }
+        ]
+      });
+
+      const userSubordinates = await UserManager.findAll({
+        where: { manager_id: user.id },
+        include: [
+          {
+            model: UserModel,
+            as: 'userManagerUser',
+            attributes: ['id', 'name', 'email', 'role', 'employee_code']
           }
         ]
       });
@@ -784,11 +852,11 @@ const getUserById = async (req, res) => {
           id: um.userManagerManager.id,
           name: um.userManagerManager.name,
           email: um.userManagerManager.email,
-          role: um.userManagerManager.role
+          role: um.userManagerManager.role,
+          employeeCode: um.userManagerManager.employee_code
         };
-        if (um.manager_type === 'manager') {
-          responseManagers.push(managerObj);
-        } else if (um.manager_type === 'area_manager') {
+        responseManagers.push(managerObj);
+        if (um.manager_type === 'area_manager') {
           responseAreaManagers.push(managerObj);
         }
       });
@@ -796,11 +864,22 @@ const getUserById = async (req, res) => {
       transformedUser.managers = responseManagers;
       transformedUser.areaManagers = responseAreaManagers;
       transformedUser.manager = responseManagers.length > 0 ? responseManagers[0] : null;
+      transformedUser.subordinates = userSubordinates
+        .filter(us => us.userManagerUser)
+        .map(us => ({
+          _id: us.userManagerUser.id,
+          id: us.userManagerUser.id,
+          name: us.userManagerUser.name,
+          email: us.userManagerUser.email,
+          role: us.userManagerUser.role,
+          employeeCode: us.userManagerUser.employee_code
+        }));
     } catch (umError) {
       console.error('Error fetching managers for user detail:', umError);
       transformedUser.managers = [];
       transformedUser.areaManagers = [];
       transformedUser.manager = null;
+      transformedUser.subordinates = [];
     }
 
     res.json({
@@ -1121,12 +1200,44 @@ const updateUser = async (req, res) => {
         }
       }
 
+      // Handle subordinates update (users who report directly to this user)
+      if (req.body.subordinates !== undefined) {
+        try {
+          const { UserManager } = req.app.get('models');
+          // 1. Delete existing subordinates where this user was the manager
+          await UserManager.destroy({
+            where: {
+              manager_id: user.id
+            },
+            transaction
+          });
+
+          // 2. Create new records for assigned subordinates
+          if (Array.isArray(req.body.subordinates) && req.body.subordinates.length > 0) {
+            const subordinateRecords = req.body.subordinates
+              .filter(sId => sId && isUUID(sId))
+              .map(subId => ({
+                user_id: subId,
+                manager_id: user.id,
+                manager_type: 'manager'
+              }));
+            if (subordinateRecords.length > 0) {
+              await UserManager.bulkCreate(subordinateRecords, { transaction });
+            }
+          }
+          console.log(`✅ Updated subordinates for user ${user.id}: ${req.body.subordinates.length} subordinates`);
+        } catch (subError) {
+          console.error('Error updating subordinates:', subError);
+          throw subError;
+        }
+      }
+
       // Commit transaction
       await transaction.commit();
 
-      // Fetch the updated managers and areaManagers for the response
       let responseManagers = [];
       let responseAreaManagers = [];
+      let responseSubordinates = [];
       try {
         const { UserManager, User: UserModel } = req.app.get('models');
         const userManagers = await UserManager.findAll({
@@ -1135,7 +1246,18 @@ const updateUser = async (req, res) => {
             {
               model: UserModel,
               as: 'userManagerManager',
-              attributes: ['id', 'name', 'email', 'role']
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
+            }
+          ]
+        });
+
+        const userSubordinates = await UserManager.findAll({
+          where: { manager_id: user.id },
+          include: [
+            {
+              model: UserModel,
+              as: 'userManagerUser',
+              attributes: ['id', 'name', 'email', 'role', 'employee_code']
             }
           ]
         });
@@ -1147,14 +1269,25 @@ const updateUser = async (req, res) => {
             id: um.userManagerManager.id,
             name: um.userManagerManager.name,
             email: um.userManagerManager.email,
-            role: um.userManagerManager.role
+            role: um.userManagerManager.role,
+            employeeCode: um.userManagerManager.employee_code
           };
-          if (um.manager_type === 'manager') {
-            responseManagers.push(managerObj);
-          } else if (um.manager_type === 'area_manager') {
+          responseManagers.push(managerObj);
+          if (um.manager_type === 'area_manager') {
             responseAreaManagers.push(managerObj);
           }
         });
+
+        responseSubordinates = userSubordinates
+          .filter(us => us.userManagerUser)
+          .map(us => ({
+            _id: us.userManagerUser.id,
+            id: us.userManagerUser.id,
+            name: us.userManagerUser.name,
+            email: us.userManagerUser.email,
+            role: us.userManagerUser.role,
+            employeeCode: us.userManagerUser.employee_code
+          }));
       } catch (respError) {
         console.error('Error loading updated managers for response:', respError);
       }
@@ -1190,6 +1323,7 @@ const updateUser = async (req, res) => {
         employmentType: user.employment_type_id,
         managers: responseManagers,
         areaManagers: responseAreaManagers,
+        subordinates: responseSubordinates,
         manager: responseManagers.length > 0 ? responseManagers[0] : null
       };
 

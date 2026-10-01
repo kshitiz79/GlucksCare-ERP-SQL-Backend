@@ -19,7 +19,7 @@ const UserManager = (sequelize) => {
       type: DataTypes.STRING(50),
       defaultValue: 'manager',
       validate: {
-        isIn: [['manager', 'area_manager']]
+        isIn: [['manager', 'area_manager', 'zonal_manager', 'state_head', 'national_head', 'subordinate', 'direct_report']]
       }
     }
   }, {

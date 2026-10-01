@@ -391,6 +391,25 @@ class AuthService {
                 }
             }
 
+            // Handle Subordinates if provided (for Manager, AM, State Head, National Head)
+            let parsedSubordinates = body.subordinates;
+            if (typeof parsedSubordinates === 'string') {
+                try { parsedSubordinates = JSON.parse(parsedSubordinates); } catch (e) { parsedSubordinates = []; }
+            }
+            if (parsedSubordinates && Array.isArray(parsedSubordinates) && parsedSubordinates.length > 0 && models.UserManager) {
+                const validUuids = parsedSubordinates.filter(sId => sId && isUUID(sId));
+                if (validUuids.length > 0) {
+                    const subordinateRecords = validUuids.map(subId => ({
+                        user_id: subId,
+                        manager_id: user.id,
+                        manager_type: 'manager'
+                    }));
+                    if (subordinateRecords.length > 0) {
+                        await models.UserManager.bulkCreate(subordinateRecords, txOption);
+                    }
+                }
+            }
+
             if (transaction && typeof transaction.commit === 'function') {
                 await transaction.commit();
                 console.log('✅ Transaction committed successfully');

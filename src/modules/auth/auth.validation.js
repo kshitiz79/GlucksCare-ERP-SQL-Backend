@@ -28,6 +28,7 @@ const registerSchema = Joi.object({
     employmentType: Joi.string().optional().allow(null, ''),
     managers: Joi.any().optional(),
     areaManagers: Joi.any().optional(),
+    subordinates: Joi.any().optional(),
     addressLine1: Joi.string().optional().allow(''),
     addressLine2: Joi.string().optional().allow(''),
     landmark: Joi.string().optional().allow(''),
