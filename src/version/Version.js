@@ -22,7 +22,7 @@ const Version = (sequelize) => {
       }
     },
     user_id: {
-      type: DataTypes.UUID,
+      type: DataTypes.UUID,  
       allowNull: false,
       references: {
         model: 'users',

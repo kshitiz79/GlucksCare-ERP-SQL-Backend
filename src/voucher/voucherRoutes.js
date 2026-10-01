@@ -6,25 +6,25 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 // Mount routes with authentication
 router.use(authMiddleware);
 
-// 1. Get unpaid invoices for a specific stockist
-router.get('/unpaid-invoices/:stockistId', voucherController.getUnpaidInvoicesByStockist);
+// // 1. Get unpaid invoices for a specific stockist
+// router.get('/unpaid-invoices/:stockistId', voucherController.getUnpaidInvoicesByStockist);
 
-// 2. Get advance balance and history for a stockist
-router.get('/stockist-advance/:stockistId', voucherController.getStockistAdvanceDetails);
+// // 2. Get advance balance and history for a stockist
+// router.get('/stockist-advance/:stockistId', voucherController.getStockistAdvanceDetails);
 
-// 3. Get all vouchers (paginated, filtered)
-router.get('/', voucherController.getVouchers);
+// // 3. Get all vouchers (paginated, filtered)
+// router.get('/', voucherController.getVouchers);
 
-// 4. Get single voucher by ID
-router.get('/:id', voucherController.getVoucherById);
+// // 4. Get single voucher by ID
+// router.get('/:id', voucherController.getVoucherById);
 
-// 5. Create a new payment voucher
-router.post('/', voucherController.createVoucher);
+// // 5. Create a new payment voucher
+// router.post('/', voucherController.createVoucher);
 
-// 6. Cancel voucher (soft cancel with rollback)
-router.post('/:id/cancel', voucherController.cancelVoucher);
+// // 6. Cancel voucher (soft cancel with rollback)
+// router.post('/:id/cancel', voucherController.cancelVoucher);
 
-// 7. Delete voucher (hard delete)
-router.delete('/:id', voucherController.deleteVoucher);
+// // 7. Delete voucher (hard delete)
+// router.delete('/:id', voucherController.deleteVoucher);
 
 module.exports = router;

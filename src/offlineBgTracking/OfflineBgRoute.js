@@ -15,7 +15,7 @@ const {
   getUserDailyDistances,      // Returns daily GPS-tracked distance in KM for a user
   getUserDayTimeline,
   getDevicesList,
-  bindDeviceToUser             // Assigns a device to a particular user
+  bindDeviceToUser
 } = require('./offlinebgController');
 
 // Batch telemetry ingestion from mobile foreground service / outbox queue

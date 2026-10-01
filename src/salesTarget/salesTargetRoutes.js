@@ -9,7 +9,8 @@ const {
   getTargetsByUser,
   getMyTargets,
   updateTargetAchievement,
-  getDashboardData
+  getDashboardData,
+  getSalesTargetHierarchy
 } = require('./salesTargetController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
@@ -18,6 +19,9 @@ router.get('/dashboard', authMiddleware, getDashboardData);
 
 // Get current user's targets
 router.get('/my-targets', authMiddleware, getMyTargets);
+
+// Get hierarchy tree
+router.get('/hierarchy', authMiddleware, getSalesTargetHierarchy);
 
 // Get all sales targets (with filtering)
 router.get('/', authMiddleware, getAllSalesTargets);

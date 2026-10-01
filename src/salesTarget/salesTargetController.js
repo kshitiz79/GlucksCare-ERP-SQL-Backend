@@ -1107,6 +1107,199 @@ const getTargetsByUser = async (req, res) => {
   }
 };
 
+/**
+ * GET Sales Targets Hierarchy Tree
+ * Returns a tree: State Head -> Area Managers -> MSR/MRs
+ * with target/achievement data per user aggregated from their HOs
+ */
+const getSalesTargetHierarchy = async (req, res) => {
+  try {
+    const sequelize = getSequelize(req);
+    const {
+      targetMonth,
+      targetYear = new Date().getFullYear(),
+      stateId,
+    } = req.query;
+
+    const monthInt = targetMonth ? parseInt(targetMonth) : null;
+    const yearInt = parseInt(targetYear) || new Date().getFullYear();
+
+    // 1. Fetch all active users with state info
+    let userWhere = 'WHERE u.is_active = true';
+    const reps = { year: yearInt };
+    if (stateId) {
+      userWhere += ' AND u.state_id = :stateId';
+      reps.stateId = stateId;
+    }
+    if (monthInt) reps.month = monthInt;
+
+    const allUsers = await sequelize.query(`
+      SELECT 
+        u.id, u.name, u.employee_code, u.role, u.state_id, u.head_office_id,
+        s.name as state_name
+      FROM users u
+      LEFT JOIN states s ON u.state_id = s.id
+      ${userWhere}
+        AND u.role IN ('State Head','Area Manager','Zonal Manager','Manager','MSR','MR','User')
+      ORDER BY u.name ASC
+    `, { replacements: reps, type: sequelize.QueryTypes.SELECT });
+
+    // 2. Fetch manager relationships
+    const managerLinks = await sequelize.query(`
+      SELECT user_id, manager_id, manager_type FROM user_managers
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    // user_id -> array of manager_ids
+    const userToManagers = {};
+    // manager_id -> array of user_ids (subordinates)
+    const managerToUsers = {};
+    managerLinks.forEach(({ user_id, manager_id }) => {
+      if (!userToManagers[user_id]) userToManagers[user_id] = [];
+      userToManagers[user_id].push(manager_id);
+      if (!managerToUsers[manager_id]) managerToUsers[manager_id] = [];
+      managerToUsers[manager_id].push(user_id);
+    });
+
+    // 3. Fetch all HO targets for the period
+    const targetJoin = monthInt
+      ? `LEFT JOIN (
+          SELECT DISTINCT ON (head_office_id, target_month, target_year) *
+          FROM sales_targets WHERE head_office_id IS NOT NULL
+          ORDER BY head_office_id, target_month, target_year, (user_id IS NULL) DESC, created_at DESC
+        ) st ON st.head_office_id = ho.id AND st.target_month = :month AND st.target_year = :year`
+      : `LEFT JOIN (
+          SELECT DISTINCT ON (head_office_id, target_year) *
+          FROM sales_targets WHERE head_office_id IS NOT NULL
+          ORDER BY head_office_id, target_year, (user_id IS NULL) DESC, created_at DESC
+        ) st ON st.head_office_id = ho.id AND st.target_year = :year`;
+
+    const invoiceJoin = monthInt
+      ? `LEFT JOIN (
+          SELECT s.head_office_id,
+            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as achieved
+          FROM invoice_tracking it
+          JOIN stockists s ON it.stockist_id = s.id
+          WHERE it.status != 'cancelled'
+            AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
+            AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+          GROUP BY s.head_office_id
+        ) inv ON inv.head_office_id = ho.id`
+      : `LEFT JOIN (
+          SELECT s.head_office_id,
+            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as achieved
+          FROM invoice_tracking it
+          JOIN stockists s ON it.stockist_id = s.id
+          WHERE it.status != 'cancelled'
+            AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+          GROUP BY s.head_office_id
+        ) inv ON inv.head_office_id = ho.id`;
+
+    const hoTargetRows = await sequelize.query(`
+      SELECT
+        ho.id as head_office_id,
+        ho.name as head_office_name,
+        ho.state_id,
+        COALESCE(st.target_amount, 0) as target_amount,
+        COALESCE(inv.achieved, st.achieved_amount, 0) as achieved_amount,
+        st.id as target_id,
+        st.status,
+        st.completion_deadline
+      FROM head_offices ho
+      ${targetJoin}
+      ${invoiceJoin}
+      WHERE ho.is_active = true
+    `, { replacements: reps, type: sequelize.QueryTypes.SELECT });
+
+    // ho_id -> target info
+    const hoTargetMap = {};
+    hoTargetRows.forEach(r => {
+      hoTargetMap[r.head_office_id] = {
+        headOfficeId: r.head_office_id,
+        headOfficeName: r.head_office_name,
+        stateId: r.state_id,
+        targetAmount: parseFloat(r.target_amount) || 0,
+        achievedAmount: parseFloat(r.achieved_amount) || 0,
+        targetId: r.target_id,
+        status: r.status,
+        completionDeadline: r.completion_deadline,
+        hasTarget: !!r.target_id && parseFloat(r.target_amount) > 0
+      };
+    });
+
+    // 4. Fetch user HO assignments
+    const uhoRows = await sequelize.query(`
+      SELECT uho.user_id, uho.head_office_id FROM user_head_offices uho
+      JOIN head_offices ho ON uho.head_office_id = ho.id WHERE ho.is_active = true
+      UNION
+      SELECT u.id as user_id, u.head_office_id
+      FROM users u WHERE u.head_office_id IS NOT NULL AND u.is_active = true
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    const userHoMap = {};
+    uhoRows.forEach(r => {
+      if (!userHoMap[r.user_id]) userHoMap[r.user_id] = [];
+      if (!userHoMap[r.user_id].includes(r.head_office_id)) {
+        userHoMap[r.user_id].push(r.head_office_id);
+      }
+    });
+
+    // 5. Helper: compute target/achieved for a user from their HOs
+    const computeUserTarget = (userId) => {
+      const hoIds = userHoMap[userId] || [];
+      let target = 0, achieved = 0, hoList = [];
+      hoIds.forEach(hid => {
+        const h = hoTargetMap[hid];
+        if (h) {
+          target += h.targetAmount;
+          achieved += h.achievedAmount;
+          hoList.push({ headOfficeId: hid, headOfficeName: h.headOfficeName });
+        }
+      });
+      return { targetAmount: target, achievedAmount: achieved, hoCount: hoIds.length, headOffices: hoList };
+    };
+
+    // 6. Build indexed user map
+    const userMap = {};
+    allUsers.forEach(u => { userMap[u.id] = u; });
+
+    // 7. Build tree nodes
+    const makeNode = (u) => {
+      const { targetAmount, achievedAmount, hoCount, headOffices } = computeUserTarget(u.id);
+      const pct = targetAmount > 0 ? Math.round((achievedAmount / targetAmount) * 100) : 0;
+      const children = (managerToUsers[u.id] || [])
+        .map(subId => userMap[subId])
+        .filter(Boolean)
+        .map(makeNode);
+
+      return {
+        id: u.id,
+        name: u.name,
+        employeeCode: u.employee_code,
+        role: u.role,
+        stateId: u.state_id,
+        stateName: u.state_name || '',
+        targetAmount,
+        achievedAmount,
+        achievementPercentage: pct,
+        hoCount,
+        headOffices,
+        children,
+        status: targetAmount > 0 ? (pct >= 100 ? 'Completed' : 'Active') : 'Unassigned',
+      };
+    };
+
+    // 8. Find root nodes (users who are NOT a subordinate of anyone in the set, or are State Heads)
+    const allSubordinateIds = new Set(Object.values(managerToUsers).flat());
+    const rootUsers = allUsers.filter(u => !allSubordinateIds.has(u.id));
+    const tree = rootUsers.map(makeNode).filter(n => n.children.length > 0 || n.targetAmount > 0);
+
+    res.json({ success: true, data: tree });
+  } catch (error) {
+    console.error('Get sales target hierarchy error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
 module.exports = {
   getAllSalesTargets,
   getSalesTargetById,
@@ -1116,5 +1309,6 @@ module.exports = {
   getTargetsByUser,
   getMyTargets,
   updateTargetAchievement,
-  getDashboardData
+  getDashboardData,
+  getSalesTargetHierarchy
 };
