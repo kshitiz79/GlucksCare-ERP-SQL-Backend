@@ -54,9 +54,15 @@ const calculateStockistAdvanceBalance = async (StockistAdvanceTransaction, stock
   return Math.max(0, parseFloat((credits - debits).toFixed(2)));
 };
 
+// In-memory cache of ensured voucher tables to avoid running DDL queries on every request
+const ensuredVoucherDbs = new Set();
+
 // Helper to ensure voucher tables exist dynamically on the active database connection
 const ensureVoucherTables = async (sequelize) => {
   if (!sequelize) return;
+  const dbKey = sequelize.config?.database || 'default';
+  if (ensuredVoucherDbs.has(dbKey)) return;
+  ensuredVoucherDbs.add(dbKey);
   try {
     try {
       await sequelize.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');

@@ -33,10 +33,11 @@ function getTenantDb(dbName) {
     dialect: 'postgres',
     logging: false,
     pool: {
-      max: 10,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
+      max: parseInt(process.env.DB_POOL_MAX || '35', 10),
+      min: parseInt(process.env.DB_POOL_MIN || '2', 10),
+      acquire: 60000,
+      idle: 10000,
+      evict: 1000
     },
     define: {
       underscored: true,

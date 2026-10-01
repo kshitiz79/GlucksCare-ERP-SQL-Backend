@@ -2,19 +2,19 @@ const express = require('express');
 const router = express.Router();
 
 const {
-  processTelemetryBatch,      // Handles batch GPS/telemetry ingestion
+  processTelemetryBatch,
   createOfflineBgTracking,    // Stores offline/background tracking records
-  getAllOfflineBgTracking,    // Returns all offline tracking records
+  getAllOfflineBgTracking,
   getOfflineBgTrackingById,   // Returns one tracking record by ID
 
   getUsersWithLocation,       // Returns active users along with latest location
-  getUserLocationHistory,     // Returns location history of a particular user
+  getUserLocationHistory,
 
-  getUserRouteData,           // Returns route/path data for one user
-  getAllUsersRouteData,       // Returns route/path data for all users
+  getUserRouteData,
+  getAllUsersRouteData,
   getUserDailyDistances,      // Returns daily GPS-tracked distance in KM for a user
-  getUserDayTimeline,         // Returns full day timeline, GPS track, visits, stops, rollups
-  getDevicesList,             // Returns all devices and their latest coordinates
+  getUserDayTimeline,
+  getDevicesList,
   bindDeviceToUser             // Assigns a device to a particular user
 } = require('./offlinebgController');
 

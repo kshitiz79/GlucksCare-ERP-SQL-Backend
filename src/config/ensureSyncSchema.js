@@ -1,8 +1,15 @@
 // src/config/ensureSyncSchema.js
 // Auto-ensures doctor change tracking table, sequence, and indexes across all tenant databases
 
+// In-memory cache to guarantee DDL runs at most once per tenant DB per process
+const ensuredTenantDbs = new Set();
+
 async function ensureTenantSyncSchema(sequelize) {
   if (!sequelize) return;
+  const dbKey = sequelize.config?.database || 'default';
+  if (ensuredTenantDbs.has(dbKey)) return;
+  ensuredTenantDbs.add(dbKey);
+
   try {
     // 1. Ensure uuid-ossp or pgcrypto extension for gen_random_uuid()
     try {
