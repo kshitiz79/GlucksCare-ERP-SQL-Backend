@@ -94,6 +94,12 @@ const ensureVoucherTables = async (sequelize) => {
       `);
       await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vouchers_stockist ON vouchers (stockist_id);`);
       await sequelize.query(`CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers (voucher_date);`);
+      await sequelize.query(`
+        ALTER TABLE vouchers 
+          ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
+          ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE,
+          ADD COLUMN IF NOT EXISTS cancelled_by UUID;
+      `);
     } catch (err) {
       console.warn('Vouchers table create warning:', err.message);
     }
@@ -1195,16 +1201,6 @@ exports.cancelVoucher = async (req, res) => {
         transaction: dbTransaction
       });
     }
-
-    // Ensure cancellation columns exist
-    try {
-      await sequelize.query(`
-        ALTER TABLE vouchers 
-          ADD COLUMN IF NOT EXISTS cancellation_reason TEXT,
-          ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE,
-          ADD COLUMN IF NOT EXISTS cancelled_by UUID;
-      `);
-    } catch (e) { }
 
     await voucher.update({
       status: 'cancelled',

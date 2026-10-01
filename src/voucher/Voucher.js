@@ -97,6 +97,26 @@ const Voucher = (sequelize) => {
       allowNull: true,
       comment: 'Notes / remarks'
     },
+    cancellation_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Reason for cancellation if cancelled'
+    },
+    cancelled_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Timestamp when voucher was cancelled'
+    },
+    cancelled_by: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: 'User who cancelled the voucher'
+    },
     created_by: {
       type: DataTypes.UUID,
       allowNull: true,
