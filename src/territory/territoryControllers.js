@@ -175,8 +175,7 @@ const getTerritoryMaster = async (req, res) => {
           outerBoundary: boundary.outerCoordinates,
           geoJSON: boundary.geoJSON
         };
-      })
-      .filter(area => area.doctorCount > 0 || area.chemistCount > 0 || area.stockistCount > 0);
+      });
 
     // 4. Format Doctors response
     const formattedDoctors = doctors.map(doctor => {
