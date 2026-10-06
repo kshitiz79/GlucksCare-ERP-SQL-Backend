@@ -2,12 +2,13 @@
 
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getAllHeadOffices,
   getHeadOfficeById,
   getHeadOfficesByStateForStateHead,
   createHeadOffice,
+  createBulkHeadOffices,
   updateHeadOffice,
   deleteHeadOffice
 } = require('./headOfficeController');
@@ -20,6 +21,9 @@ router.get('/by-state', authMiddleware, getHeadOfficesByStateForStateHead);
 
 // GET head office by ID
 router.get('/:id', getHeadOfficeById);
+
+// BULK CREATE head offices (supports nested areas)
+router.post('/bulk', optionalAuth, createBulkHeadOffices);
 
 // CREATE a new head office
 router.post('/', createHeadOffice);

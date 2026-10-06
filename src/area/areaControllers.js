@@ -431,10 +431,142 @@ const getMyAreas = async (req, res) => {
   }
 };
 
+// BULK CREATE areas (with optional root head_office_id or per-item head_office_id)
+const createBulkAreas = async (req, res) => {
+  const sequelize = req.app.get('sequelize');
+  const t = await sequelize.transaction();
+
+  try {
+    const { Area, HeadOffice } = req.app.get('models');
+
+    const items = Array.isArray(req.body)
+      ? req.body
+      : (req.body.areas || req.body.areaList || req.body.data || []);
+
+    const defaultHeadOfficeId = req.body.head_office_id || req.body.headOfficeId || null;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must be an array of areas or contain an "areas" array'
+      });
+    }
+
+    if (items.length > 1000) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot upload more than 1000 areas at once'
+      });
+    }
+
+    const results = [];
+    const errors = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const rowNum = i + 1;
+
+      if (!item || typeof item !== 'object') {
+        errors.push(`Row ${rowNum}: Invalid area data`);
+        continue;
+      }
+
+      const name = item.name ? String(item.name).trim() : '';
+      const pincode = item.pincode ? String(item.pincode).trim() : '';
+      const postOffice = item.post_office ? String(item.post_office).trim() : (item.postOffice ? String(item.postOffice).trim() : name);
+      const headOfficeId = item.head_office_id || item.headOfficeId || defaultHeadOfficeId;
+
+      if (!name) {
+        errors.push(`Row ${rowNum}: Area name is required`);
+        continue;
+      }
+      if (!pincode) {
+        errors.push(`Row ${rowNum} (${name}): Pincode is required`);
+        continue;
+      }
+      if (!headOfficeId) {
+        errors.push(`Row ${rowNum} (${name}): Head office ID is required`);
+        continue;
+      }
+
+      const latitude = (item.latitude !== undefined && item.latitude !== '' && !isNaN(parseFloat(item.latitude))) ? parseFloat(item.latitude) : 0;
+      const longitude = (item.longitude !== undefined && item.longitude !== '' && !isNaN(parseFloat(item.longitude))) ? parseFloat(item.longitude) : 0;
+      const radius = (item.radius !== undefined && item.radius !== '' && !isNaN(parseInt(item.radius, 10))) ? parseInt(item.radius, 10) : 700;
+
+      // Upsert: check if area already exists
+      let existingArea = await Area.findOne({
+        where: { pincode, name },
+        transaction: t
+      });
+
+      if (existingArea) {
+        await existingArea.update({
+          head_office_id: headOfficeId,
+          post_office: postOffice || existingArea.post_office,
+          latitude: latitude !== 0 ? latitude : existingArea.latitude,
+          longitude: longitude !== 0 ? longitude : existingArea.longitude,
+          radius
+        }, { transaction: t });
+        updatedCount++;
+        results.push(existingArea);
+      } else {
+        const newArea = await Area.create({
+          name,
+          pincode,
+          post_office: postOffice || name,
+          head_office_id: headOfficeId,
+          latitude,
+          longitude,
+          radius,
+          is_active: item.is_active !== undefined ? Boolean(item.is_active) : true
+        }, { transaction: t });
+        createdCount++;
+        results.push(newArea);
+      }
+    }
+
+    if (errors.length > 0 && results.length === 0) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'All areas failed validation',
+        errors
+      });
+    }
+
+    await t.commit();
+
+    res.status(201).json({
+      success: true,
+      message: `Processed ${results.length} areas (${createdCount} created, ${updatedCount} updated)`,
+      summary: {
+        total: results.length,
+        created: createdCount,
+        updated: updatedCount,
+        errorsCount: errors.length
+      },
+      data: results,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    await t.rollback();
+    console.error('Error in createBulkAreas:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during bulk area creation'
+    });
+  }
+};
+
 module.exports = {
   getAllAreas,
   getAreaById,
   createArea,
+  createBulkAreas,
   updateArea,
   deleteArea,
   getAreasByHeadOffice,

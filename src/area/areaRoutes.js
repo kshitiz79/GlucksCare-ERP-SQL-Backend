@@ -5,6 +5,7 @@ const {
   getAllAreas,
   getAreaById,
   createArea,
+  createBulkAreas,
   updateArea,
   deleteArea,
   getAreasByHeadOffice,
@@ -19,6 +20,7 @@ router.get('/my-areas', getMyAreas);
 router.get('/assigned', getMyAreas);
 router.get('/by-head-office/:headOfficeId', getAreasByHeadOffice);
 router.get('/:id', getAreaById);
+router.post('/bulk', createBulkAreas);
 router.post('/', createArea);
 router.put('/:id', updateArea);
 router.delete('/:id', deleteArea);
