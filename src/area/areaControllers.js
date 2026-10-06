@@ -302,11 +302,141 @@ const getAreasByHeadOffice = async (req, res) => {
   }
 };
 
+const getMyAreas = async (req, res) => {
+  try {
+    const { Area, HeadOffice, User, UserHeadOffice } = req.app.get('models');
+    const { Op } = require('sequelize');
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: User authentication required'
+      });
+    }
+
+    // Fetch user details with head offices
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          model: HeadOffice,
+          as: 'headOffices',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Collect all head office IDs for the user
+    const officeIds = new Set();
+
+    // 1. Direct head_office_id on User
+    if (user.head_office_id) {
+      officeIds.add(user.head_office_id);
+    }
+
+    // 2. Many-to-many relationship user.headOffices
+    if (user.headOffices && user.headOffices.length > 0) {
+      user.headOffices.forEach(ho => {
+        if (ho.id) officeIds.add(ho.id);
+      });
+    }
+
+    // 3. UserHeadOffice junction table fallback
+    if (UserHeadOffice) {
+      const userOffices = await UserHeadOffice.findAll({
+        where: { user_id: user.id },
+        attributes: ['head_office_id'],
+        raw: true
+      }).catch(() => []);
+      userOffices.forEach(uo => {
+        if (uo.head_office_id) officeIds.add(uo.head_office_id);
+      });
+    }
+
+    // 4. Role: State Head (include all active head offices in their assigned state)
+    if (user.role === 'State Head' && user.state_id) {
+      const stateHeadOffices = await HeadOffice.findAll({
+        where: { stateId: user.state_id, is_active: true },
+        attributes: ['id'],
+        raw: true
+      }).catch(() => []);
+      stateHeadOffices.forEach(ho => {
+        if (ho.id) officeIds.add(ho.id);
+      });
+    }
+
+    let headOfficeIds = Array.from(officeIds).filter(Boolean);
+
+    // Support optional query filter by specific head_office_id / headOfficeId
+    const requestedHeadOfficeId = req.query.head_office_id || req.query.headOfficeId;
+    if (requestedHeadOfficeId) {
+      const isAdmin = user.role === 'Admin' || user.role === 'Super Admin';
+      if (isAdmin || headOfficeIds.includes(requestedHeadOfficeId)) {
+        headOfficeIds = [requestedHeadOfficeId];
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to the specified head office'
+        });
+      }
+    }
+
+    // Build query condition
+    let whereCondition = {};
+    if (headOfficeIds.length > 0) {
+      whereCondition.head_office_id = { [Op.in]: headOfficeIds };
+    } else {
+      // If user is Admin/Super Admin and has no head office assigned, allow viewing all areas
+      if (user.role === 'Admin' || user.role === 'Super Admin') {
+        whereCondition = {};
+      } else {
+        return res.json({
+          success: true,
+          count: 0,
+          head_offices: [],
+          data: [],
+          message: 'No head office assigned to your account'
+        });
+      }
+    }
+
+    // Optional is_active filter
+    if (req.query.is_active !== undefined) {
+      whereCondition.is_active = req.query.is_active === 'true' || req.query.is_active === true;
+    }
+
+    const areas = await Area.findAll({
+      where: whereCondition,
+      order: [['name', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      count: areas.length,
+      head_offices: headOfficeIds,
+      data: areas
+    });
+  } catch (error) {
+    console.error('Error fetching my areas:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error fetching assigned areas'
+    });
+  }
+};
+
 module.exports = {
   getAllAreas,
   getAreaById,
   createArea,
   updateArea,
   deleteArea,
-  getAreasByHeadOffice
+  getAreasByHeadOffice,
+  getMyAreas
 };
