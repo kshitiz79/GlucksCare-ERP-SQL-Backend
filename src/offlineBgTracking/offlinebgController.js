@@ -1304,7 +1304,7 @@ const getUserLocationHistory = async (req, res) => {
 const getUserRouteData = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { hours = 12 } = req.query;
+    const { hours = 12, date } = req.query;
 
     const models = req.app.get('models');
     const { User } = models;
@@ -1321,8 +1321,14 @@ const getUserRouteData = async (req, res) => {
       });
     }
 
-    const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
+    let startTime, endTime;
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      startTime = new Date(`${date}T00:00:00+05:30`);
+      endTime = new Date(`${date}T23:59:59.999+05:30`);
+    } else {
+      endTime = new Date();
+      startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
+    }
 
     const users = await User.findAll({
       where: { is_active: true },
@@ -1382,7 +1388,7 @@ const getUserRouteData = async (req, res) => {
       }
     );
 
-    if (rawPoints.length === 0) {
+    if (rawPoints.length === 0 && !date) {
       rawPoints = await sequelize.query(
         `
         SELECT 
@@ -1553,7 +1559,7 @@ const getUserRouteData = async (req, res) => {
 
 const getAllUsersRouteData = async (req, res) => {
   try {
-    const { hours = 12 } = req.query;
+    const { hours = 12, date } = req.query;
     const models = req.app.get('models');
     const { User } = models;
     const sequelize = req.app.get('sequelize');
@@ -1571,8 +1577,14 @@ const getAllUsersRouteData = async (req, res) => {
       });
     }
 
-    const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
+    let startTime, endTime;
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      startTime = new Date(`${date}T00:00:00+05:30`);
+      endTime = new Date(`${date}T23:59:59.999+05:30`);
+    } else {
+      endTime = new Date();
+      startTime = new Date(endTime.getTime() - (Number(hours) * 60 * 60 * 1000));
+    }
 
     // Primary Query: Fetch route points from offline_bg_tracking within time window (joining user_devices)
     let routeData = await sequelize.query(
@@ -1609,8 +1621,8 @@ const getAllUsersRouteData = async (req, res) => {
       }
     );
 
-    // Fallback: If 0 points found in last N hours, fetch historical location points with limit
-    if (routeData.length === 0) {
+    // Fallback: If 0 points found in last N hours and NOT filtering by specific date, fetch historical location points with limit
+    if (routeData.length === 0 && !date) {
       routeData = await sequelize.query(
         `
         SELECT 
