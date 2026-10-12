@@ -17,6 +17,163 @@ const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+// Filter out low-quality satellite drift points (accuracy > 75m)
+const filterGPSAccuracy = (points, maxAccuracyMeters = 75) => {
+  if (!points || points.length === 0) return [];
+  const valid = points.filter(p => {
+    const lat = parseFloat(p.lat ?? p.latitude);
+    const lng = parseFloat(p.lng ?? p.longitude);
+    if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return false;
+    const acc = p.accuracy !== undefined && p.accuracy !== null ? parseFloat(p.accuracy) : 10;
+    return acc <= maxAccuracyMeters;
+  });
+
+  // Fallback: If ALL points were discarded because of indoor/poor signal (e.g. all were 80-90m),
+  // fallback to <= 120m so we don't completely lose the route
+  if (valid.length === 0 && points.length > 0) {
+    return points.filter(p => {
+      const lat = parseFloat(p.lat ?? p.latitude);
+      const lng = parseFloat(p.lng ?? p.longitude);
+      if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return false;
+      const acc = p.accuracy !== undefined && p.accuracy !== null ? parseFloat(p.accuracy) : 10;
+      return acc <= 120;
+    });
+  }
+  return valid;
+};
+
+// Calculate median value of an array of numbers to eliminate outlier skew
+const getMedian = (values) => {
+  if (!values || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+// Detect stationary clusters (>= 15 mins or >= 5 mins for visits) and collapse 50+ drift dots into a single median stop
+const detectStopsAndCollapseJitter = (points, nearbyVisits = [], clusterRadiusMeters = 75, minStopDurationMins = 15) => {
+  if (!points || points.length === 0) return { stops: [], collapsedRoute: [] };
+
+  const stops = [];
+  const collapsedRoute = [];
+  let currentCluster = [points[0]];
+  let anchorPoint = points[0];
+
+  const processCluster = (cluster) => {
+    if (!cluster || cluster.length === 0) return;
+
+    const startTime = new Date(cluster[0].timestamp).getTime();
+    const endTime = new Date(cluster[cluster.length - 1].timestamp).getTime();
+    const durationMins = Math.round((endTime - startTime) / (1000 * 60));
+
+    if (cluster.length >= 2) {
+      const lats = cluster.map(p => parseFloat(p.lat ?? p.latitude));
+      const lngs = cluster.map(p => parseFloat(p.lng ?? p.longitude));
+      const medianLat = getMedian(lats);
+      const medianLng = getMedian(lngs);
+
+      // Check if any visit check-in matches this stop (within 250m and within +- 40 min)
+      let matchedVisit = null;
+      for (const v of nearbyVisits) {
+        const vLat = parseFloat(v.latitude || v.lat);
+        const vLng = parseFloat(v.longitude || v.lng);
+        if (isNaN(vLat) || isNaN(vLng)) continue;
+        const dist = getDistanceMeters(medianLat, medianLng, vLat, vLng);
+        const vTime = new Date(v.created_at || v.timestamp).getTime();
+        const timeDiffMins = Math.abs(vTime - startTime) / (1000 * 60);
+
+        if (dist <= 250 && timeDiffMins <= 40) {
+          matchedVisit = v;
+          break;
+        }
+      }
+
+      // Check-ins count at >= 5 mins, generic halts require >= minStopDurationMins (15 mins)
+      const requiredDuration = matchedVisit ? 5 : minStopDurationMins;
+
+      if (durationMins >= requiredDuration) {
+        // Prevent stacking: check if previous stop is within 150m
+        const prevStop = stops.length > 0 ? stops[stops.length - 1] : null;
+        if (prevStop && getDistanceMeters(prevStop.lat, prevStop.lng, medianLat, medianLng) <= 150) {
+          prevStop.end_time = cluster[cluster.length - 1].timestamp;
+          const mergedDuration = Math.round((new Date(prevStop.end_time).getTime() - new Date(prevStop.start_time).getTime()) / (1000 * 60));
+          prevStop.duration_mins = Math.max(mergedDuration, prevStop.duration_mins + durationMins);
+          prevStop.label = `${prevStop.duration_mins}m`;
+          prevStop.points_count += cluster.length;
+          if (matchedVisit && prevStop.type === 'STATIONARY') {
+            prevStop.type = matchedVisit.type || 'DOCTOR_VISIT';
+            prevStop.title = matchedVisit.name || 'Doctor Visit';
+          }
+          prevStop.lat = (prevStop.lat + medianLat) / 2;
+          prevStop.lng = (prevStop.lng + medianLng) / 2;
+          return;
+        }
+
+        let type = 'STATIONARY';
+        let title = 'Stationary';
+        if (matchedVisit) {
+          type = matchedVisit.type || 'DOCTOR_VISIT';
+          title = matchedVisit.name || 'Doctor Visit';
+        }
+
+        const stopObj = {
+          id: `stop_${stops.length + 1}_${startTime}`,
+          type,
+          title,
+          label: `${durationMins}m`,
+          lat: medianLat,
+          lng: medianLng,
+          start_time: cluster[0].timestamp,
+          end_time: cluster[cluster.length - 1].timestamp,
+          duration_mins: durationMins,
+          points_count: cluster.length,
+          is_major: durationMins >= 15
+        };
+
+        stops.push(stopObj);
+
+        // Collapse drift dots into single median coordinate
+        collapsedRoute.push({
+          lat: medianLat,
+          lng: medianLng,
+          timestamp: cluster[0].timestamp,
+          accuracy: 10,
+          battery_level: cluster[0].battery_level,
+          network_type: cluster[0].network_type,
+          is_stop: true,
+          stop_id: stopObj.id
+        });
+        return;
+      }
+    }
+
+    // Normal movement or short transit pause (< 15 min) -> keep points as is
+    cluster.forEach(p => collapsedRoute.push(p));
+  };
+
+  for (let i = 1; i < points.length; i++) {
+    const curr = points[i];
+    const anchorLat = parseFloat(anchorPoint.lat ?? anchorPoint.latitude);
+    const anchorLng = parseFloat(anchorPoint.lng ?? anchorPoint.longitude);
+    const currLat = parseFloat(curr.lat ?? curr.latitude);
+    const currLng = parseFloat(curr.lng ?? curr.longitude);
+
+    const dist = getDistanceMeters(anchorLat, anchorLng, currLat, currLng);
+
+    if (dist <= clusterRadiusMeters) {
+      currentCluster.push(curr);
+    } else {
+      processCluster(currentCluster);
+      currentCluster = [curr];
+      anchorPoint = curr;
+    }
+  }
+
+  processCluster(currentCluster);
+
+  return { stops, collapsedRoute };
+};
+
 // Spatial filter: Removes stationary GPS jitter/drift (< 15 meters)
 const filterGPSJitter = (points, minDistanceMeters = 15) => {
   if (!points || points.length === 0) return [];
@@ -1517,10 +1674,78 @@ const getUserRouteData = async (req, res) => {
       formattedRoute.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
 
-    // 1. Spatial filter to remove stationary GPS drift/jitter (< 15 meters)
-    const cleanedPoints = filterGPSJitter(formattedRoute, 15);
+    // 1. Fetch any Doctor/Chemist/Stockist visits logged by this user in this time window
+    let userVisits = [];
+    try {
+      userVisits = await sequelize.query(
+        `
+        SELECT 
+          v.id,
+          v.name,
+          v.type,
+          v.latitude,
+          v.longitude,
+          v.created_at
+        FROM (
+          SELECT 
+            dv.id, 
+            COALESCE(doc.name, 'Doctor Visit') as name, 
+            'DOCTOR_VISIT' as type, 
+            dv.latitude, 
+            dv.longitude, 
+            dv.created_at
+          FROM doctor_visits dv
+          LEFT JOIN doctors doc ON doc.id = dv.doctor_id
+          WHERE dv.user_id = :userId AND dv.created_at >= :startTime AND dv.created_at <= :endTime
 
-    // 2. Snap to Roads (Map Matching via OSRM with automatic fallback)
+          UNION ALL
+
+          SELECT 
+            cv.id, 
+            COALESCE(chm.name, 'Chemist Visit') as name, 
+            'CHEMIST_VISIT' as type, 
+            cv.latitude, 
+            cv.longitude, 
+            cv.created_at
+          FROM chemist_visits cv
+          LEFT JOIN chemists chm ON chm.id = cv.chemist_id
+          WHERE cv.user_id = :userId AND cv.created_at >= :startTime AND cv.created_at <= :endTime
+
+          UNION ALL
+
+          SELECT 
+            sv.id, 
+            COALESCE(stk.name, 'Stockist Visit') as name, 
+            'STOCKIST_VISIT' as type, 
+            sv.latitude, 
+            sv.longitude, 
+            sv.created_at
+          FROM stockist_visits sv
+          LEFT JOIN stockists stk ON stk.id = sv.stockist_id
+          WHERE sv.user_id = :userId AND sv.created_at >= :startTime AND sv.created_at <= :endTime
+        ) v
+        WHERE v.latitude IS NOT NULL AND v.longitude IS NOT NULL
+        ORDER BY v.created_at ASC
+        `,
+        {
+          replacements: { userId, startTime, endTime },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+    } catch (visitErr) {
+      console.warn('userVisits query notice:', visitErr.message);
+    }
+
+    // 2. Accuracy quality cutoff: discard satellite drift readings > 75 meters
+    const accuratePoints = filterGPSAccuracy(formattedRoute, 75);
+
+    // 3. Detect stationary stops (>= 15 mins) & collapse 50+ drift dots into single median stop badge
+    const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accuratePoints, userVisits, 75, 15);
+
+    // 4. Remove micro-drift between moving points (< 15 meters)
+    const cleanedPoints = filterGPSJitter(collapsedRoute, 15);
+
+    // 5. Snap to Roads (Map Matching via OSRM with automatic fallback)
     const snapResult = await snapRouteToRoads(cleanedPoints);
 
     res.json({
@@ -1534,11 +1759,14 @@ const getUserRouteData = async (req, res) => {
           employee_code: user.employee_code
         },
         route: snapResult.route,
+        stops: stops,
         source: snapResult.source,
         confidence: snapResult.confidence || null,
         metadata: {
           raw_points: formattedRoute.length,
+          accurate_points: accuratePoints.length,
           cleaned_points: cleanedPoints.length,
+          stops_count: stops.length,
           total_points: snapResult.route.length,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
@@ -1738,27 +1966,36 @@ const getAllUsersRouteData = async (req, res) => {
       }
     });
 
-    // Spatial filtering & sort each user's route points to optimize payload and eliminate stationary drift
+    // Spatial filtering, accuracy cutoff (75m), and stop detection for each user
     const MAX_POINTS_PER_USER = 200;
+    const userStopsMap = {};
+
     Object.keys(userRouteMap).forEach(uid => {
       if (userRouteMap[uid]) {
         let pts = userRouteMap[uid];
         pts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-        // Filter out stationary jitter (< 15 meters)
-        pts = filterGPSJitter(pts, 15);
+        // 1. Accuracy cutoff: discard satellite drift readings > 75 meters
+        const accurate = filterGPSAccuracy(pts, 75);
 
-        if (pts.length > MAX_POINTS_PER_USER) {
-          const sampled = [pts[0]];
-          const step = (pts.length - 2) / (MAX_POINTS_PER_USER - 2);
+        // 2. Detect stationary stops (>= 15 mins) & collapse 50+ drift dots into single median stop badge
+        const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accurate, [], 75, 15);
+        userStopsMap[uid] = stops;
+
+        // 3. Remove micro-drift (< 15 meters)
+        let cleaned = filterGPSJitter(collapsedRoute, 15);
+
+        if (cleaned.length > MAX_POINTS_PER_USER) {
+          const sampled = [cleaned[0]];
+          const step = (cleaned.length - 2) / (MAX_POINTS_PER_USER - 2);
           for (let i = 1; i < MAX_POINTS_PER_USER - 1; i++) {
             const index = Math.floor(i * step);
-            if (pts[index]) sampled.push(pts[index]);
+            if (cleaned[index]) sampled.push(cleaned[index]);
           }
-          sampled.push(pts[pts.length - 1]);
+          sampled.push(cleaned[cleaned.length - 1]);
           userRouteMap[uid] = sampled;
         } else {
-          userRouteMap[uid] = pts;
+          userRouteMap[uid] = cleaned;
         }
       }
     });
@@ -1787,6 +2024,7 @@ const getAllUsersRouteData = async (req, res) => {
           device_id: deviceMap[user.id] || null
         },
         route: userRouteMap[user.id],
+        stops: userStopsMap[user.id] || [],
         total_points: userRouteMap[user.id].length
       }));
 
@@ -1973,6 +2211,155 @@ const bindDeviceToUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in bindDeviceToUser:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteDevice = async (req, res) => {
+  try {
+    const sequelize = req.app.get('sequelize');
+    const models = req.app.get('models');
+    const { UserDevice } = models || {};
+
+    const rawDeviceId = req.params.deviceId || req.body.device_id || req.query.device_id;
+    if (!rawDeviceId) {
+      return res.status(400).json({ success: false, message: 'device_id is required' });
+    }
+
+    const deviceId = String(rawDeviceId).trim();
+
+    let deletedTelemetryCount = 0;
+    let deletedPingsCount = 0;
+    let deletedUserDevicesCount = 0;
+
+    // Handle special case where deviceId is 'unknown' or empty/null
+    let obtWhereClause = `device_id = :deviceId OR (payload->>'device_id') = :deviceId`;
+    if (deviceId.toLowerCase() === 'unknown') {
+      obtWhereClause = `device_id = 'unknown' OR (payload->>'device_id') = 'unknown' OR device_id IS NULL OR device_id = '' OR (payload->>'device_id') IS NULL OR (payload->>'device_id') = ''`;
+    }
+
+    // 1. Delete from offline_bg_tracking
+    const [obtResult] = await sequelize.query(
+      `DELETE FROM offline_bg_tracking WHERE ${obtWhereClause}`,
+      { replacements: { deviceId } }
+    );
+    deletedTelemetryCount = obtResult?.rowCount ?? (typeof obtResult === 'number' ? obtResult : 0);
+
+    // 2. Delete from location_pings if exists
+    try {
+      let lpWhere = `device_id = :deviceId`;
+      if (deviceId.toLowerCase() === 'unknown') {
+        lpWhere = `device_id = 'unknown' OR device_id IS NULL OR device_id = ''`;
+      }
+      const [lpResult] = await sequelize.query(
+        `DELETE FROM location_pings WHERE ${lpWhere}`,
+        { replacements: { deviceId } }
+      );
+      deletedPingsCount = lpResult?.rowCount ?? (typeof lpResult === 'number' ? lpResult : 0);
+    } catch (e) {
+      // location_pings may not have this device or table
+    }
+
+    // 3. Delete from user_devices if exists
+    try {
+      if (UserDevice) {
+        deletedUserDevicesCount = await UserDevice.destroy({
+          where: sequelize.or(
+            { device_id: deviceId },
+            { android_id: deviceId }
+          )
+        });
+      }
+    } catch (e) {
+      console.warn('user_devices delete warning:', e.message);
+    }
+
+    // 4. Detach company_devices
+    try {
+      await sequelize.query(
+        `UPDATE company_devices SET android_id = NULL WHERE android_id = :deviceId`,
+        { replacements: { deviceId } }
+      );
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      message: `Device ID "${deviceId}" and its data have been permanently deleted`,
+      data: {
+        device_id: deviceId,
+        deleted_telemetry: deletedTelemetryCount,
+        deleted_pings: deletedPingsCount,
+        deleted_user_devices: deletedUserDevicesCount
+      }
+    });
+  } catch (error) {
+    console.error('Error in deleteDevice:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const bulkDeleteDevices = async (req, res) => {
+  try {
+    const sequelize = req.app.get('sequelize');
+    const models = req.app.get('models');
+    const { UserDevice } = models || {};
+
+    const rawIds = req.body.device_ids;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'device_ids array is required' });
+    }
+
+    const deviceIds = rawIds.map(id => String(id).trim()).filter(Boolean);
+    if (deviceIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid device IDs provided' });
+    }
+
+    const hasUnknown = deviceIds.some(id => id.toLowerCase() === 'unknown');
+
+    let obtCondition = `device_id IN (:deviceIds) OR (payload->>'device_id') IN (:deviceIds)`;
+    if (hasUnknown) {
+      obtCondition += ` OR device_id IS NULL OR device_id = '' OR (payload->>'device_id') IS NULL OR (payload->>'device_id') = ''`;
+    }
+
+    await sequelize.query(
+      `DELETE FROM offline_bg_tracking WHERE ${obtCondition}`,
+      { replacements: { deviceIds } }
+    );
+
+    try {
+      let lpCondition = `device_id IN (:deviceIds)`;
+      if (hasUnknown) {
+        lpCondition += ` OR device_id IS NULL OR device_id = ''`;
+      }
+      await sequelize.query(
+        `DELETE FROM location_pings WHERE ${lpCondition}`,
+        { replacements: { deviceIds } }
+      );
+    } catch (e) {}
+
+    try {
+      if (UserDevice) {
+        await sequelize.query(
+          `DELETE FROM user_devices WHERE device_id IN (:deviceIds) OR android_id IN (:deviceIds)`,
+          { replacements: { deviceIds } }
+        );
+      }
+    } catch (e) {}
+
+    try {
+      await sequelize.query(
+        `UPDATE company_devices SET android_id = NULL WHERE android_id IN (:deviceIds)`,
+        { replacements: { deviceIds } }
+      );
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${deviceIds.length} device IDs`,
+      deleted_count: deviceIds.length
+    });
+  } catch (error) {
+    console.error('Error in bulkDeleteDevices:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -2224,5 +2611,7 @@ module.exports = {
   getUserDailyDistances,
   getUserDayTimeline,
   getDevicesList,
-  bindDeviceToUser
+  bindDeviceToUser,
+  deleteDevice,
+  bulkDeleteDevices
 };

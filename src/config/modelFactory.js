@@ -83,6 +83,7 @@ const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
 const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
 const PartyOpeningBalance = require('../partyOpeningBalance/PartyOpeningBalance');
 const ThemeColor = require('../themeSetting/ThemeColor');
+const Polygon = require('../polygon/Polygon');
 
 const applyAssociations = require('./associations');
 
@@ -91,6 +92,7 @@ function initTenantModels(targetSequelize) {
     User: User(targetSequelize),
     State: State(targetSequelize),
     HeadOffice: HeadOffice(targetSequelize),
+    Polygon: Polygon(targetSequelize),
     Attendance: Attendance(targetSequelize),
     Leave: Leave(targetSequelize),
     LeaveType: LeaveType(targetSequelize),

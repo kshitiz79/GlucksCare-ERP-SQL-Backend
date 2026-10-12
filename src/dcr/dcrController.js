@@ -546,9 +546,18 @@ const getUserWiseVisits = async (req, res) => {
         user: uJson,
         stats: {
           total_visits: 0,
+          confirmed_visits: 0,
+          scheduled_visits: 0,
           doctor_visits_count: 0,
+          doctor_confirmed_count: 0,
+          doctor_scheduled_count: 0,
           chemist_visits_count: 0,
-          stockist_visits_count: 0
+          chemist_confirmed_count: 0,
+          chemist_scheduled_count: 0,
+          stockist_visits_count: 0,
+          stockist_confirmed_count: 0,
+          stockist_scheduled_count: 0,
+          total_all_visits: 0
         },
         visits: []
       });
@@ -561,9 +570,18 @@ const getUserWiseVisits = async (req, res) => {
           user: v.User || { id: v.user_id },
           stats: {
             total_visits: 0,
+            confirmed_visits: 0,
+            scheduled_visits: 0,
             doctor_visits_count: 0,
+            doctor_confirmed_count: 0,
+            doctor_scheduled_count: 0,
             chemist_visits_count: 0,
-            stockist_visits_count: 0
+            chemist_confirmed_count: 0,
+            chemist_scheduled_count: 0,
+            stockist_visits_count: 0,
+            stockist_confirmed_count: 0,
+            stockist_scheduled_count: 0,
+            total_all_visits: 0
           },
           visits: []
         };
@@ -571,14 +589,39 @@ const getUserWiseVisits = async (req, res) => {
       }
 
       userEntry.visits.push(v);
-      userEntry.stats.total_visits += 1;
-      if (v.visit_type === 'doctor') userEntry.stats.doctor_visits_count += 1;
-      if (v.visit_type === 'chemist') userEntry.stats.chemist_visits_count += 1;
-      if (v.visit_type === 'stockist') userEntry.stats.stockist_visits_count += 1;
+      const isConfirmed = Boolean(v.confirmed || v.visit_confirmed);
+      userEntry.stats.total_all_visits += 1;
+
+      if (isConfirmed) {
+        userEntry.stats.confirmed_visits += 1;
+        userEntry.stats.total_visits += 1; // Prioritize confirmed calls done as primary total_visits
+        if (v.visit_type === 'doctor') {
+          userEntry.stats.doctor_confirmed_count += 1;
+          userEntry.stats.doctor_visits_count += 1;
+        }
+        if (v.visit_type === 'chemist') {
+          userEntry.stats.chemist_confirmed_count += 1;
+          userEntry.stats.chemist_visits_count += 1;
+        }
+        if (v.visit_type === 'stockist') {
+          userEntry.stats.stockist_confirmed_count += 1;
+          userEntry.stats.stockist_visits_count += 1;
+        }
+      } else {
+        userEntry.stats.scheduled_visits += 1;
+        if (v.visit_type === 'doctor') userEntry.stats.doctor_scheduled_count += 1;
+        if (v.visit_type === 'chemist') userEntry.stats.chemist_scheduled_count += 1;
+        if (v.visit_type === 'stockist') userEntry.stats.stockist_scheduled_count += 1;
+      }
     });
 
     const userWiseList = Array.from(userVisitMap.values());
-    userWiseList.sort((a, b) => b.stats.total_visits - a.stats.total_visits);
+    userWiseList.sort((a, b) => {
+      if (b.stats.confirmed_visits !== a.stats.confirmed_visits) {
+        return b.stats.confirmed_visits - a.stats.confirmed_visits;
+      }
+      return b.stats.total_all_visits - a.stats.total_all_visits;
+    });
 
     userWiseList.forEach(item => {
       item.visits.sort((a, b) => {
@@ -593,7 +636,12 @@ const getUserWiseVisits = async (req, res) => {
     const startIndex = (pageNum - 1) * limitNum;
     const paginatedUserList = userWiseList.slice(startIndex, startIndex + limitNum);
 
-    const activeUsersCount = userWiseList.filter(u => u.stats.total_visits > 0).length;
+    const activeUsersCount = userWiseList.filter(u => u.stats.confirmed_visits > 0).length;
+
+    const confirmedDocCount = doctorVisits.filter(v => v.confirmed || v.visit_confirmed).length;
+    const confirmedChemCount = chemistVisits.filter(v => v.confirmed || v.visit_confirmed).length;
+    const confirmedStkCount = stockistVisits.filter(v => v.confirmed || v.visit_confirmed).length;
+    const totalConfirmedVisits = confirmedDocCount + confirmedChemCount + confirmedStkCount;
 
     res.json({
       success: true,
@@ -607,10 +655,19 @@ const getUserWiseVisits = async (req, res) => {
       summary: {
         total_users: userWiseList.length,
         active_users_with_visits: activeUsersCount,
-        total_visits: combinedVisits.length,
-        total_doctor_visits: doctorVisits.length,
-        total_chemist_visits: chemistVisits.length,
-        total_stockist_visits: stockistVisits.length
+        total_visits: totalConfirmedVisits,
+        total_confirmed_visits: totalConfirmedVisits,
+        total_scheduled_visits: combinedVisits.length - totalConfirmedVisits,
+        total_all_visits: combinedVisits.length,
+        total_doctor_visits: confirmedDocCount,
+        total_doctor_confirmed: confirmedDocCount,
+        total_doctor_scheduled: doctorVisits.length - confirmedDocCount,
+        total_chemist_visits: confirmedChemCount,
+        total_chemist_confirmed: confirmedChemCount,
+        total_chemist_scheduled: chemistVisits.length - confirmedChemCount,
+        total_stockist_visits: confirmedStkCount,
+        total_stockist_confirmed: confirmedStkCount,
+        total_stockist_scheduled: stockistVisits.length - confirmedStkCount
       },
       pagination: {
         total_users: userWiseList.length,
@@ -789,10 +846,19 @@ const getUserDcrById = async (req, res) => {
         visit_type: visit_type
       },
       stats: {
-        total_visits: combinedVisits.length,
-        doctor_visits_count: doctorVisits.length,
-        chemist_visits_count: chemistVisits.length,
-        stockist_visits_count: stockistVisits.length
+        total_visits: doctorVisits.filter(v => v.confirmed || v.visit_confirmed).length + chemistVisits.filter(v => v.confirmed || v.visit_confirmed).length + stockistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        confirmed_visits: doctorVisits.filter(v => v.confirmed || v.visit_confirmed).length + chemistVisits.filter(v => v.confirmed || v.visit_confirmed).length + stockistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        scheduled_visits: combinedVisits.filter(v => !v.confirmed && !v.visit_confirmed).length,
+        total_all_visits: combinedVisits.length,
+        doctor_visits_count: doctorVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        doctor_confirmed_count: doctorVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        doctor_scheduled_count: doctorVisits.filter(v => !v.confirmed && !v.visit_confirmed).length,
+        chemist_visits_count: chemistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        chemist_confirmed_count: chemistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        chemist_scheduled_count: chemistVisits.filter(v => !v.confirmed && !v.visit_confirmed).length,
+        stockist_visits_count: stockistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        stockist_confirmed_count: stockistVisits.filter(v => v.confirmed || v.visit_confirmed).length,
+        stockist_scheduled_count: stockistVisits.filter(v => !v.confirmed && !v.visit_confirmed).length
       },
       pagination: {
         total: combinedVisits.length,

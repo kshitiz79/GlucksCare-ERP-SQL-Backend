@@ -41,12 +41,17 @@ const TourPlanDay = (sequelize) => {
       allowNull: true,
       defaultValue: []
     },
+    collaboration_statuses: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: {}
+    },
     collaboration_status: {
       type: DataTypes.STRING(50),
       allowNull: false,
       defaultValue: 'None',
       validate: {
-        isIn: [['None', 'Pending', 'Accepted', 'Rejected']]
+        isIn: [['None', 'Pending', 'Accepted', 'Rejected', 'Partially Accepted']]
       }
     },
     handshake_status: {

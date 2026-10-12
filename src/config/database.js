@@ -126,12 +126,15 @@ const Voucher = require('../voucher/Voucher');
 const VoucherPaymentAllocation = require('../voucher/VoucherPaymentAllocation');
 const StockistAdvanceTransaction = require('../voucher/StockistAdvanceTransaction');
 const ThemeColor = require('../themeSetting/ThemeColor');
+const PartnerMrAssignment = require('../partnerBridge/PartnerMrAssignment');
+const Polygon = require('../polygon/Polygon');
 
 // Initialize models
 const models = {
   User: User(sequelize),
   State: State(sequelize),
   HeadOffice: HeadOffice(sequelize),
+  Polygon: Polygon(sequelize),
   Attendance: Attendance(sequelize),
   Leave: Leave(sequelize),
   LeaveType: LeaveType(sequelize),
@@ -217,7 +220,8 @@ const models = {
   Voucher: Voucher(sequelize),
   VoucherPaymentAllocation: VoucherPaymentAllocation(sequelize),
   StockistAdvanceTransaction: StockistAdvanceTransaction(sequelize),
-  ThemeColor: ThemeColor(sequelize)
+  ThemeColor: ThemeColor(sequelize),
+  PartnerMrAssignment: PartnerMrAssignment(sequelize)
 };
 
 // Set up hooks
@@ -357,6 +361,24 @@ async function ensurePerformanceIndexes() {
       CREATE INDEX IF NOT EXISTS idx_doctor_visits_user_confirmed_date ON doctor_visits (user_id, confirmed, date DESC);
       CREATE INDEX IF NOT EXISTS idx_chemist_visits_user_confirmed_date ON chemist_visits (user_id, confirmed, date DESC);
       CREATE INDEX IF NOT EXISTS idx_stockist_visits_user_confirmed_date ON stockist_visits (user_id, confirmed, date DESC);
+
+      CREATE TABLE IF NOT EXISTS partner_mr_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        partner_type VARCHAR(50) NOT NULL,
+        partner_id UUID NOT NULL,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        head_office_id UUID REFERENCES head_offices(id) ON DELETE CASCADE,
+        linked_stockist_id UUID REFERENCES stockists(id) ON DELETE SET NULL,
+        assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        CONSTRAINT uq_partner_type_id UNIQUE (partner_type, partner_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_pma_user_id ON partner_mr_assignments (user_id);
+      CREATE INDEX IF NOT EXISTS idx_pma_ho_id ON partner_mr_assignments (head_office_id);
+      CREATE INDEX IF NOT EXISTS idx_pma_partner ON partner_mr_assignments (partner_type, partner_id);
+      CREATE INDEX IF NOT EXISTS idx_pma_linked_stk ON partner_mr_assignments (linked_stockist_id);
     `);
     console.log('✅ Performance indexes checked/created successfully');
   } catch (err) {

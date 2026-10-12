@@ -15,7 +15,9 @@ const {
   getUserDailyDistances,      // Returns daily GPS-tracked distance in KM for a user
   getUserDayTimeline,
   getDevicesList,
-  bindDeviceToUser
+  bindDeviceToUser,
+  deleteDevice,
+  bulkDeleteDevices
 } = require('./offlinebgController');
 
 // Batch telemetry ingestion from mobile foreground service / outbox queue
@@ -32,6 +34,9 @@ router.get('/day-timeline/:userId', getUserDayTimeline);
 router.get('/devices', getDevicesList);
 router.get('/device-last-coordinates', getDevicesList);
 router.post('/bind-device', bindDeviceToUser);
+router.delete('/devices/:deviceId', deleteDevice);
+router.post('/delete-device', deleteDevice);
+router.post('/devices/bulk-delete', bulkDeleteDevices);
 router.get('/admin/user-history/:userId', getUserLocationHistory);
 router.get('/route/all', getAllUsersRouteData);
 router.get('/route/:userId', getUserRouteData);

@@ -56,19 +56,25 @@ const enrichTourPlanDaysWithJointUsers = async (daysOrDay, User) => {
         ? day.joint_work_user_ids
         : (day.joint_work_with_user_id ? [day.joint_work_with_user_id] : []);
 
+      const statuses = day.collaboration_statuses || {};
+
       const jointUsers = ids.map(id => {
-        if (userMap.has(id)) {
-          return userMap.get(id);
-        }
-        if (day.jointWorkWith && day.jointWorkWith.id === id) {
-          return {
+        let baseObj = userMap.has(id) ? userMap.get(id) : null;
+        if (!baseObj && day.jointWorkWith && day.jointWorkWith.id === id) {
+          baseObj = {
             id: day.jointWorkWith.id,
             name: day.jointWorkWith.name,
             role: day.jointWorkWith.role,
             employee_code: day.jointWorkWith.employee_code || null
           };
         }
-        return { id, name: 'Colleague', role: '-' };
+        if (!baseObj) {
+          baseObj = { id, name: 'Colleague', role: '-' };
+        }
+        return {
+          ...baseObj,
+          status: statuses[id] || (day.collaboration_status === 'Accepted' && ids.length === 1 ? 'Accepted' : 'Pending')
+        };
       });
 
       day.joint_work_users = jointUsers;
@@ -267,6 +273,11 @@ const saveDraft = async (req, res) => {
             : (d.joint_work_with_user_id ? [d.joint_work_with_user_id] : []))
           : [];
 
+        const statuses = {};
+        userIds.forEach(id => {
+          statuses[id] = (d.collaboration_statuses && d.collaboration_statuses[id]) || 'Pending';
+        });
+
         return {
           tour_plan_id: plan.id,
           date: d.date,
@@ -275,6 +286,7 @@ const saveDraft = async (req, res) => {
           beat_id_2: d.beat_id_2 || null,
           joint_work_with_user_id: userIds[0] || null,
           joint_work_user_ids: userIds,
+          collaboration_statuses: d.day_type === 'Joint work' ? statuses : {},
           collaboration_status: d.day_type === 'Joint work' && userIds.length > 0 ? (d.collaboration_status && d.collaboration_status !== 'None' ? d.collaboration_status : 'Pending') : 'None',
           notes: d.notes || null
         };
@@ -632,10 +644,10 @@ const getUsersAvailability = async (req, res) => {
     const { User, TourPlan, TourPlanDay } = models;
     const { Op } = require('sequelize');
 
-    // 1. Fetch all active users who can participate in joint work
+    // 1. Fetch all active users across all levels who can participate in joint work
     const users = await User.findAll({
       where: {
-        role: ['State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User'],
+        role: ['Super Admin', 'Admin', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager', 'User', 'MR'],
         id: { [Op.ne]: req.user.id },
         is_active: true
       },
@@ -680,11 +692,34 @@ const getUsersAvailability = async (req, res) => {
     // Determine busy user IDs
     const busyUserIds = new Set();
     busyDays.forEach(day => {
-      if (day.tourPlan && day.tourPlan.status === 'Approved') {
+      if (day.tourPlan && day.tourPlan.status === 'Approved' && day.tourPlan.user_id) {
         busyUserIds.add(day.tourPlan.user_id);
       }
       if (day.collaboration_status === 'Accepted' && day.joint_work_with_user_id) {
         busyUserIds.add(day.joint_work_with_user_id);
+      }
+    });
+
+    // Also check joint_work_user_ids and collaboration_statuses for any accepted collaborations on that date
+    const jsonbAcceptedDays = await TourPlanDay.findAll({
+      where: {
+        date,
+        [Op.or]: [
+          { collaboration_status: 'Accepted' },
+          { collaboration_status: 'Partially Accepted' }
+        ]
+      },
+      attributes: ['joint_work_user_ids', 'collaboration_statuses', 'collaboration_status']
+    });
+
+    jsonbAcceptedDays.forEach(day => {
+      const statuses = day.collaboration_statuses || {};
+      if (Array.isArray(day.joint_work_user_ids)) {
+        day.joint_work_user_ids.forEach(id => {
+          if (id && (statuses[id] === 'Accepted' || (day.collaboration_status === 'Accepted' && !statuses[id]))) {
+            busyUserIds.add(id);
+          }
+        });
       }
     });
 
@@ -720,10 +755,13 @@ const getIncomingCollaborations = async (req, res) => {
 
     const incoming = await TourPlanDay.findAll({
       where: {
-        collaboration_status: 'Pending',
+        day_type: 'Joint work',
         [Op.or]: [
           { joint_work_with_user_id: req.user.id },
-          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+          sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${req.user.id}"'::jsonb`)
+        ],
+        [Op.and]: [
+          sequelize.literal(`COALESCE(collaboration_statuses->>'${req.user.id}', collaboration_status) = 'Pending'`)
         ]
       },
       include: [
@@ -767,10 +805,13 @@ const getAcceptedCollaborations = async (req, res) => {
 
     const accepted = await TourPlanDay.findAll({
       where: {
-        collaboration_status: 'Accepted',
+        day_type: 'Joint work',
         [Op.or]: [
           { joint_work_with_user_id: req.user.id },
-          sequelize.literal(`joint_work_user_ids::jsonb @> '"${req.user.id}"'::jsonb`)
+          sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${req.user.id}"'::jsonb`)
+        ],
+        [Op.and]: [
+          sequelize.literal(`COALESCE(collaboration_statuses->>'${req.user.id}', collaboration_status) = 'Accepted'`)
         ]
       },
       include: [
@@ -886,9 +927,14 @@ const sendCollaborationRequest = async (req, res) => {
     });
 
     // 3. Update day record with joint work details
+    const initialStatuses = {};
+    validUserIds.forEach(id => {
+      initialStatuses[id] = 'Pending';
+    });
     planDay.day_type = 'Joint work';
     planDay.joint_work_with_user_id = validUserIds[0];
     planDay.joint_work_user_ids = validUserIds;
+    planDay.collaboration_statuses = initialStatuses;
     planDay.collaboration_status = 'Pending';
     planDay.handshake_status = 'None';
     if (notes !== undefined) {
@@ -937,6 +983,7 @@ const sendCollaborationRequest = async (req, res) => {
 };
 
 // POST respond to a collaboration request (accept/reject)
+// In multi-coworker joint work, only the responding user's status is updated!
 const respondToCollaboration = async (req, res) => {
   try {
     const { dayId } = req.params;
@@ -951,13 +998,13 @@ const respondToCollaboration = async (req, res) => {
 
     const models = req.app.get('models');
     const sequelize = req.app.get('sequelize');
-    const { TourPlanDay, TourPlan } = models;
+    const { TourPlanDay, TourPlan, User } = models;
     const { Op } = require('sequelize');
 
     const day = await TourPlanDay.findOne({
       where: {
         id: dayId,
-        collaboration_status: 'Pending',
+        day_type: 'Joint work',
         [Op.or]: [
           { joint_work_with_user_id: req.user.id },
           sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${req.user.id}"'::jsonb`)
@@ -974,87 +1021,45 @@ const respondToCollaboration = async (req, res) => {
     if (!day) {
       return res.status(404).json({
         success: false,
-        message: 'Pending collaboration request not found for this day'
+        message: 'Collaboration request not found for this day'
       });
     }
 
-    if (action === 'accept') {
-      const targetDate = day.date;
-      const senderUserId = day.tourPlan.user_id;
-      const acceptorUserId = req.user.id;
+    const targetDate = day.date;
+    const senderUserId = day.tourPlan.user_id;
+    const acceptorUserId = req.user.id;
 
-      // 1. Replace existing accepted collaborations for Sender (User A) on targetDate with anyone else
-      const senderOtherDays = await TourPlanDay.findAll({
-        where: {
-          id: { [Op.ne]: day.id },
-          date: targetDate,
-          collaboration_status: 'Accepted'
-        },
-        include: [{
-          model: TourPlan,
-          as: 'tourPlan',
-          where: { user_id: senderUserId }
-        }]
-      });
-      for (const d of senderOtherDays) {
-        d.collaboration_status = 'Rejected';
-        await d.save();
-      }
+    // 1. Update ONLY this responding user's status in collaboration_statuses
+    const currentStatuses = { ...(day.collaboration_statuses || {}) };
+    currentStatuses[acceptorUserId] = action === 'accept' ? 'Accepted' : 'Rejected';
+    day.collaboration_statuses = currentStatuses;
 
-      await TourPlanDay.update(
-        { collaboration_status: 'Rejected' },
-        {
-          where: {
-            id: { [Op.ne]: day.id },
-            date: targetDate,
-            collaboration_status: 'Accepted',
-            [Op.or]: [
-              { joint_work_with_user_id: senderUserId },
-              sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${senderUserId}"'::jsonb`)
-            ]
-          }
-        }
-      );
+    // 2. Compute overall collaboration_status for the day based on all participants
+    const userIds = Array.isArray(day.joint_work_user_ids) && day.joint_work_user_ids.length > 0
+      ? day.joint_work_user_ids
+      : (day.joint_work_with_user_id ? [day.joint_work_with_user_id] : []);
 
-      // 2. Replace existing accepted collaborations for Acceptor (User B) on targetDate with anyone else
-      const acceptorOtherDays = await TourPlanDay.findAll({
-        where: {
-          id: { [Op.ne]: day.id },
-          date: targetDate,
-          collaboration_status: 'Accepted'
-        },
-        include: [{
-          model: TourPlan,
-          as: 'tourPlan',
-          where: { user_id: acceptorUserId }
-        }]
-      });
-      for (const d of acceptorOtherDays) {
-        d.collaboration_status = 'Rejected';
-        await d.save();
-      }
+    const totalCount = userIds.length;
+    const acceptedCount = userIds.filter(id => currentStatuses[id] === 'Accepted').length;
+    const rejectedCount = userIds.filter(id => currentStatuses[id] === 'Rejected').length;
 
-      await TourPlanDay.update(
-        { collaboration_status: 'Rejected' },
-        {
-          where: {
-            id: { [Op.ne]: day.id },
-            date: targetDate,
-            collaboration_status: 'Accepted',
-            [Op.or]: [
-              { joint_work_with_user_id: acceptorUserId },
-              sequelize.literal(`COALESCE(joint_work_user_ids, '[]'::jsonb)::jsonb @> '"${acceptorUserId}"'::jsonb`)
-            ]
-          }
-        }
-      );
-
-      // 3. Mark current request as Accepted
+    if (totalCount === 0) {
+      day.collaboration_status = 'None';
+    } else if (acceptedCount === totalCount) {
       day.collaboration_status = 'Accepted';
-      day.handshake_status = 'None';
-      await day.save();
+    } else if (acceptedCount > 0) {
+      day.collaboration_status = 'Partially Accepted';
+    } else if (rejectedCount === totalCount) {
+      day.collaboration_status = 'Rejected';
+    } else {
+      day.collaboration_status = 'Pending';
+    }
 
-      // 4. Synchronize Acceptor's (User B's) own TourPlanDay on targetDate if present
+    day.handshake_status = 'None';
+    await day.save();
+
+    // 3. If accepted, synchronize ONLY this acceptor's (User B) own TourPlanDay on targetDate
+    if (action === 'accept') {
       const [yearStr, monthStr] = targetDate.split('-');
       const year = parseInt(yearStr, 10);
       const month = parseInt(monthStr, 10);
@@ -1072,19 +1077,19 @@ const respondToCollaboration = async (req, res) => {
           acceptorDay.joint_work_with_user_id = senderUserId;
           acceptorDay.joint_work_user_ids = [senderUserId];
           acceptorDay.collaboration_status = 'Accepted';
+          acceptorDay.collaboration_statuses = { [senderUserId]: 'Accepted' };
           acceptorDay.handshake_status = 'None';
           await acceptorDay.save();
         }
       }
-    } else {
-      day.collaboration_status = 'Rejected';
-      await day.save();
     }
+
+    const enrichedDay = await enrichTourPlanDaysWithJointUsers(day, User);
 
     res.json({
       success: true,
-      message: `Collaboration request successfully ${action}ed. Any previous collaboration for this date has been replaced.`,
-      data: day
+      message: `Collaboration request successfully ${action}ed for your schedule!`,
+      data: enrichedDay
     });
   } catch (error) {
     console.error('Respond to collaboration error:', error);
@@ -1095,14 +1100,16 @@ const respondToCollaboration = async (req, res) => {
   }
 };
 
-// POST send/update joint work collaboration request for a day directly
+// POST send/update day schedule and joint work collaboration request directly
+// Users can edit anything except beat on any day, and add operation of co-work with available colleagues
 const updateDayCollaboration = async (req, res) => {
   try {
     const { dayId } = req.params;
-    const { joint_work_user_ids, notes } = req.body;
+    const { joint_work_user_ids, notes, day_type } = req.body;
 
     const models = req.app.get('models');
-    const { TourPlanDay, TourPlan } = models;
+    const { TourPlanDay, TourPlan, User } = models;
+    const { Op } = require('sequelize');
 
     const day = await TourPlanDay.findByPk(dayId, {
       include: [{
@@ -1118,33 +1125,140 @@ const updateDayCollaboration = async (req, res) => {
       });
     }
 
-    if (day.tourPlan.user_id !== req.user.id) {
+    const isOwner = day.tourPlan && day.tourPlan.user_id === req.user.id;
+    const isAdmin = req.user && ['Super Admin', 'Admin', 'Opps Team'].includes(req.user.role);
+
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Permission denied. You can only manage joint work for your own tour plan.'
+        message: 'Permission denied. You can only manage your own tour plan.'
       });
     }
 
-    const userIds = Array.isArray(joint_work_user_ids) ? joint_work_user_ids : [];
+    const userIds = Array.isArray(joint_work_user_ids) ? joint_work_user_ids.filter(Boolean) : [];
 
-    day.joint_work_user_ids = userIds;
-    day.joint_work_with_user_id = userIds[0] || null;
+    // If joint work colleagues are selected, verify they are actually available on this date
     if (userIds.length > 0) {
+      const busyDays = await TourPlanDay.findAll({
+        where: {
+          date: day.date,
+          [Op.or]: [
+            {
+              day_type: ['Leave', 'Weekly off', 'Holiday', 'Meeting'],
+              '$tourPlan.status$': 'Approved',
+              '$tourPlan.user_id$': { [Op.in]: userIds }
+            },
+            {
+              day_type: 'Joint work',
+              collaboration_status: 'Accepted',
+              '$tourPlan.status$': 'Approved',
+              '$tourPlan.user_id$': { [Op.in]: userIds }
+            },
+            {
+              joint_work_with_user_id: { [Op.in]: userIds },
+              collaboration_status: 'Accepted'
+            }
+          ]
+        },
+        include: [{ model: TourPlan, as: 'tourPlan', attributes: ['user_id', 'status'] }]
+      });
+
+      const busyUserIds = new Set();
+      busyDays.forEach(b => {
+        if (b.tourPlan && userIds.includes(b.tourPlan.user_id)) {
+          busyUserIds.add(b.tourPlan.user_id);
+        }
+        if (b.joint_work_with_user_id && userIds.includes(b.joint_work_with_user_id)) {
+          busyUserIds.add(b.joint_work_with_user_id);
+        }
+      });
+
+      const jsonbAccepted = await TourPlanDay.findAll({
+        where: {
+          date: day.date,
+          collaboration_status: 'Accepted'
+        },
+        attributes: ['joint_work_user_ids']
+      });
+      jsonbAccepted.forEach(j => {
+        if (Array.isArray(j.joint_work_user_ids)) {
+          j.joint_work_user_ids.forEach(id => {
+            if (userIds.includes(id)) busyUserIds.add(id);
+          });
+        }
+      });
+
+      if (busyUserIds.size > 0) {
+        const busyUsers = await User.findAll({
+          where: { id: Array.from(busyUserIds) },
+          attributes: ['name']
+        });
+        const busyNames = busyUsers.map(u => u.name).join(', ');
+        return res.status(400).json({
+          success: false,
+          message: `Cannot add coworker(s): ${busyNames} is not available on ${day.date}. Only available coworkers can be added.`
+        });
+      }
+    }
+
+    // Update day_type: user can edit day type to any valid type
+    if (day_type) {
+      day.day_type = day_type;
+    } else if (userIds.length > 0) {
       day.day_type = 'Joint work';
-      day.collaboration_status = 'Pending';
+    }
+
+    // Co-work / Joint work handling
+    if (day.day_type === 'Joint work') {
+      day.joint_work_user_ids = userIds;
+      day.joint_work_with_user_id = userIds[0] || null;
+
+      const prevStatuses = day.collaboration_statuses || {};
+      const newStatuses = {};
+      userIds.forEach(id => {
+        newStatuses[id] = prevStatuses[id] || 'Pending';
+      });
+      day.collaboration_statuses = newStatuses;
+
+      const acceptedCount = userIds.filter(id => newStatuses[id] === 'Accepted').length;
+      const rejectedCount = userIds.filter(id => newStatuses[id] === 'Rejected').length;
+
+      if (userIds.length === 0) {
+        day.collaboration_status = 'None';
+      } else if (acceptedCount === userIds.length) {
+        day.collaboration_status = 'Accepted';
+      } else if (acceptedCount > 0) {
+        day.collaboration_status = 'Partially Accepted';
+      } else if (rejectedCount === userIds.length) {
+        day.collaboration_status = 'Rejected';
+      } else {
+        day.collaboration_status = 'Pending';
+      }
     } else {
+      // If switched away from Joint work, clear collaboration
+      day.joint_work_user_ids = [];
+      day.joint_work_with_user_id = null;
+      day.collaboration_statuses = {};
       day.collaboration_status = 'None';
     }
+
+    // Notes can be edited on any day
     if (notes !== undefined) {
       day.notes = notes;
     }
 
+    // NOTE: beat_id_1 and beat_id_2 are intentionally NOT updated! Beat is locked on any day.
+
     await day.save();
+
+    const enrichedDay = await enrichTourPlanDaysWithJointUsers(day, User);
 
     res.json({
       success: true,
-      message: userIds.length > 0 ? 'Collaboration request sent successfully!' : 'Joint work updated.',
-      data: day
+      message: day.day_type === 'Joint work' && userIds.length > 0
+        ? 'Day updated and joint work collaboration request sent!'
+        : 'Day schedule updated successfully!',
+      data: enrichedDay
     });
   } catch (error) {
     console.error('Update day collaboration error:', error);

@@ -313,6 +313,12 @@ module.exports = (db) => {
   db.Area.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'HeadOffice' });
   db.HeadOffice.hasMany(db.Area, { foreignKey: 'head_office_id', as: 'Areas' });
 
+  // Polygon associations
+  if (db.Polygon && db.HeadOffice) {
+    db.Polygon.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'headOffice' });
+    db.HeadOffice.hasMany(db.Polygon, { foreignKey: 'head_office_id', as: 'polygons' });
+  }
+
   // User and Address associations
   db.User.belongsTo(db.Address, { foreignKey: 'address_id', as: 'masterAddress' });
   db.Address.hasMany(db.User, { foreignKey: 'address_id', as: 'users' });
@@ -454,6 +460,20 @@ module.exports = (db) => {
     if (db.User) {
       db.PartyOpeningBalance.belongsTo(db.User, { foreignKey: 'created_by', as: 'creator' });
       db.PartyOpeningBalance.belongsTo(db.User, { foreignKey: 'updated_by', as: 'updater' });
+    }
+  }
+
+  // PartnerMrAssignment associations
+  if (db.PartnerMrAssignment) {
+    if (db.User) {
+      db.PartnerMrAssignment.belongsTo(db.User, { foreignKey: 'user_id', as: 'assignedMr' });
+      db.PartnerMrAssignment.belongsTo(db.User, { foreignKey: 'assigned_by', as: 'assigner' });
+    }
+    if (db.HeadOffice) {
+      db.PartnerMrAssignment.belongsTo(db.HeadOffice, { foreignKey: 'head_office_id', as: 'headOffice' });
+    }
+    if (db.Stockist) {
+      db.PartnerMrAssignment.belongsTo(db.Stockist, { foreignKey: 'linked_stockist_id', as: 'linkedStockist' });
     }
   }
 

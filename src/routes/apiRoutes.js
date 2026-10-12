@@ -42,6 +42,8 @@ const visitProductNotAgreedRoutes = require('../visitProductNotAgreed/visitProdu
 
 // Territory, Area & Tour Plans
 const territoryRoutes = require('../territory/territoryRoutes');
+const polygonRoutes = require('../polygon/polygonRoutes');
+const partnerBridgeRoutes = require('../partnerBridge/partnerBridgeRoutes');
 const areaRoutes = require('../area/areaRoutes');
 const beatRoutes = require('../beat/beatRoutes');
 const tourPlanRoutes = require('../tourPlan/tourPlanRoutes');
@@ -145,6 +147,9 @@ router.use('/visit-products-agreed', visitProductAgreedRoutes);
 router.use('/visit-products-not-agreed', visitProductNotAgreedRoutes);
 
 router.use('/territory', territoryRoutes);
+router.use('/polygons', polygonRoutes);
+router.use('/polygon', polygonRoutes);
+router.use('/partner-bridge', partnerBridgeRoutes);
 router.use('/areas', areaRoutes);
 router.use('/beats', beatRoutes);
 router.use('/tour-plans', tourPlanRoutes);

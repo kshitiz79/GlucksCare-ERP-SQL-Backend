@@ -31,7 +31,7 @@ const ensureToken = async () => {
     return cachedToken;
   }
 
-  const url = process.env.WHATSAPP_API_URL || 'https://whatsapptools.rbshtools.cloud';
+  const url = process.env.WHATSAPP_API_URL || 'https://app.aoneix.com';
   const apiKey = process.env.WHATSAPP_API_KEY;
   const email = process.env.WHATSAPP_EMAIL || 'gluckscarepharmaceuticals@gmail.com';
   const password = process.env.WHATSAPP_PASSWORD || '*Gluckscare9217331252';
@@ -89,8 +89,8 @@ const sendWelcomeMessage = async (mobileNumber) => {
 
   try {
     const token = await ensureToken();
-    const url = process.env.WHATSAPP_API_URL || 'https://whatsapptools.rbshtools.cloud';
-    
+    const url = process.env.WHATSAPP_API_URL || 'https://app.aoneix.com';
+
     const settings = getSettings();
     const campaignName = settings?.userCreation?.campaignName || 'welcome_message_sr';
     const templateId = settings?.userCreation?.templateId || '2c807ad8-584c-477e-905a-46cece539244';
