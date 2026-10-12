@@ -455,7 +455,7 @@ const bulkAssignPartners = async (req, res) => {
 };
 
 // 4. Link a Doctor or Chemist to a Stockist
-const linkPartnerToStockist = async (req, res) => {
+const linkStockistToPartner = async (req, res) => {
   try {
     const { PartnerMrAssignment } = getModels(req);
     const { partner_type, partner_id, stockist_id } = req.body;
@@ -500,9 +500,13 @@ const linkPartnerToStockist = async (req, res) => {
   }
 };
 
+const linkPartnerToStockist = linkStockistToPartner;
+
 module.exports = {
   getPartnerBridgeData,
   assignPartnerToMr,
   bulkAssignPartners,
-  linkStockistToPartner
+  linkStockistToPartner,
+  linkPartnerToStockist
 };
+
