@@ -61,6 +61,7 @@ function cleanDistrict(division) {
  * Main ingestion function
  */
 async function importPolygonData(options = {}) {
+  const targetDb = options.models || db;
   const filePath = options.filePath || path.resolve(__dirname, '../../polygon.md');
   const createAreas = options.createAreas !== false;
 
@@ -80,15 +81,15 @@ async function importPolygonData(options = {}) {
   console.log(`📦 Loaded ${geojson.features.length} GeoJSON features`);
 
   // 1. Sync polygon table if needed
-  if (db.Polygon) {
-    await db.Polygon.sync({ alter: true });
+  if (targetDb.Polygon) {
+    await targetDb.Polygon.sync({ alter: true });
     console.log('✅ polygon table verified/synced');
   } else {
-    throw new Error('db.Polygon model not found');
+    throw new Error('targetDb.Polygon model not found');
   }
 
   // 2. Ensure State "Bihar" exists
-  let biharState = await db.State.findOne({
+  let biharState = await targetDb.State.findOne({
     where: { name: 'Bihar' }
   });
 
@@ -127,7 +128,7 @@ async function importPolygonData(options = {}) {
 
   // 4. Ensure Head Office exists for each district in Bihar
   const headOfficeMap = {}; // districtName -> HeadOffice instance
-  const existingHQs = await db.HeadOffice.findAll({
+  const existingHQs = await targetDb.HeadOffice.findAll({
     where: { stateId: biharState.id }
   });
 
@@ -150,7 +151,7 @@ async function importPolygonData(options = {}) {
         : 85.1;
       const repPin = stats.pincodes[0] || '800001';
 
-      const newHQ = await db.HeadOffice.create({
+      const newHQ = await targetDb.HeadOffice.create({
         name: `${distName} Head Office`,
         stateId: biharState.id,
         pincode: repPin,
@@ -184,7 +185,7 @@ async function importPolygonData(options = {}) {
     const centroid = calculateCentroid(f.geometry);
 
     // Upsert into polygon table
-    const existingPoly = await db.Polygon.findOne({ where: { pincode } });
+    const existingPoly = await targetDb.Polygon.findOne({ where: { pincode } });
     if (existingPoly) {
       await existingPoly.update({
         office_name: officeName,
@@ -202,7 +203,7 @@ async function importPolygonData(options = {}) {
         is_active: true
       });
     } else {
-      await db.Polygon.create({
+      await targetDb.Polygon.create({
         pincode,
         office_name: officeName,
         division,
@@ -222,9 +223,9 @@ async function importPolygonData(options = {}) {
     polygonUpsertCount++;
 
     // 6. Also create/update post office area in `areas` table if requested
-    if (createAreas && db.Area && headOfficeId) {
+    if (createAreas && targetDb.Area && headOfficeId) {
       const areaName = officeName;
-      const existingArea = await db.Area.findOne({
+      const existingArea = await targetDb.Area.findOne({
         where: { pincode, name: areaName }
       });
 
@@ -238,7 +239,7 @@ async function importPolygonData(options = {}) {
           is_active: true
         });
       } else {
-        await db.Area.create({
+        await targetDb.Area.create({
           name: areaName,
           pincode,
           post_office: officeName,
@@ -257,8 +258,8 @@ async function importPolygonData(options = {}) {
     }
   }
 
-  const finalPolygonCount = await db.Polygon.count();
-  const finalAreaCount = db.Area ? await db.Area.count() : 0;
+  const finalPolygonCount = await targetDb.Polygon.count();
+  const finalAreaCount = targetDb.Area ? await targetDb.Area.count() : 0;
 
   console.log('🎉 Polygon ingestion completed successfully!');
   console.log(`📊 Summary:`);

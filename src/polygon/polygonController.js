@@ -3,6 +3,21 @@
 const { Op } = require('sequelize');
 const { importPolygonData } = require('../../scripts/importPolygons');
 
+const ensurePolygonTable = async (models) => {
+  if (!models?.Polygon) return;
+  try {
+    await models.Polygon.sync({ alter: false });
+    const count = await models.Polygon.count().catch(() => 0);
+    if (count === 0) {
+      await importPolygonData({ models }).catch(err => {
+        console.warn('Auto-import error:', err.message);
+      });
+    }
+  } catch (err) {
+    console.warn('ensurePolygonTable error:', err.message);
+  }
+};
+
 /**
  * Get territory polygons and boundary coordinates based on the Headquarter(s) assigned to the user.
  * Supports:
@@ -15,6 +30,8 @@ const getUserTerritoryPolygons = async (req, res) => {
   try {
     const models = req.app.get('models') || require('../config/database');
     const { Polygon, User, HeadOffice, Area } = models;
+
+    await ensurePolygonTable(models);
 
     // 1. Fetch user with assigned head offices
     const user = await User.findByPk(req.user.id, {
@@ -225,6 +242,8 @@ const getAllPolygons = async (req, res) => {
     const models = req.app.get('models') || require('../config/database');
     const { Polygon, HeadOffice } = models;
 
+    await ensurePolygonTable(models);
+
     const {
       pincode,
       district,
@@ -324,6 +343,8 @@ const getPolygonById = async (req, res) => {
     const models = req.app.get('models') || require('../config/database');
     const { Polygon, HeadOffice } = models;
 
+    await ensurePolygonTable(models);
+
     const polygon = await Polygon.findByPk(req.params.id, {
       include: [
         {
@@ -361,6 +382,8 @@ const getPolygonByPincode = async (req, res) => {
     const models = req.app.get('models') || require('../config/database');
     const { Polygon, HeadOffice } = models;
 
+    await ensurePolygonTable(models);
+
     const polygon = await Polygon.findOne({
       where: { pincode: req.params.pincode.trim() },
       include: [
@@ -397,14 +420,18 @@ const getPolygonByPincode = async (req, res) => {
 const getDistricts = async (req, res) => {
   try {
     const models = req.app.get('models') || require('../config/database');
-    const { Polygon, HeadOffice, sequelize } = models;
+    const { Polygon, HeadOffice } = models;
+
+    await ensurePolygonTable(models);
+
+    const sequelizeInstance = Polygon.sequelize || req.app.get('sequelize');
 
     const districts = await Polygon.findAll({
       attributes: [
         'district',
         'division',
         'head_office_id',
-        [sequelize.fn('COUNT', sequelize.col('Polygon.id')), 'polygon_count']
+        [sequelizeInstance.fn('COUNT', sequelizeInstance.col('Polygon.id')), 'polygon_count']
       ],
       include: [
         {

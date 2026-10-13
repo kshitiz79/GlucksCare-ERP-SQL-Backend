@@ -154,6 +154,49 @@ async function ensureTenantSyncSchema(sequelize) {
     } catch (themeErr) {
       console.warn('⚠️ [ensureTenantSyncSchema] Theme table setup warning:', themeErr.message);
     }
+
+    // 9. Ensure polygon table exists in tenant DB
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS polygon (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          pincode VARCHAR(20) NOT NULL UNIQUE,
+          office_name VARCHAR(255) NOT NULL,
+          division VARCHAR(255),
+          region VARCHAR(255),
+          circle VARCHAR(255),
+          district VARCHAR(255),
+          state VARCHAR(255) DEFAULT 'Bihar',
+          head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL,
+          latitude DOUBLE PRECISION DEFAULT 0,
+          longitude DOUBLE PRECISION DEFAULT 0,
+          geometry JSONB NOT NULL,
+          coordinates JSONB,
+          properties JSONB,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_polygon_pincode ON polygon (pincode);
+        CREATE INDEX IF NOT EXISTS idx_polygon_ho_id ON polygon (head_office_id);
+        CREATE INDEX IF NOT EXISTS idx_polygon_district ON polygon (district);
+        CREATE INDEX IF NOT EXISTS idx_polygon_division ON polygon (division);
+        CREATE INDEX IF NOT EXISTS idx_polygon_state ON polygon (state);
+      `);
+    } catch (polyErr) {
+      console.warn('⚠️ [ensureTenantSyncSchema] Polygon table setup warning:', polyErr.message);
+    }
+
+    // 10. Ensure tour_plan_days has collaboration_statuses and handshake_status columns
+    try {
+      await sequelize.query(`
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS collaboration_statuses JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_status VARCHAR(50) DEFAULT 'None';
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS joint_work_user_ids JSONB DEFAULT '[]'::jsonb;
+      `);
+    } catch (tpErr) {
+      console.warn('⚠️ [ensureTenantSyncSchema] Tour plan days setup warning:', tpErr.message);
+    }
   } catch (err) {
     console.warn('⚠️ [ensureTenantSyncSchema] Warning:', err.message);
   }

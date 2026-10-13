@@ -21,7 +21,7 @@ const getPartnerBridgeData = async (req, res) => {
 
     // 1. Fetch all Head Offices
     const headOfficesRaw = await HeadOffice.findAll({
-      attributes: ['id', 'name', 'code', 'stateId'],
+      attributes: ['id', 'name', 'pincode', 'stateId'],
       order: [['name', 'ASC']]
     });
 
