@@ -469,7 +469,11 @@ const runPolygonIngestion = async (req, res) => {
       });
     }
 
+    const models = req.app.get('models') || require('../config/database');
     const result = await importPolygonData({
+      models,
+      geoJson: req.body?.geoJson || req.body?.geojson,
+      filePath: req.body?.filePath,
       createAreas: req.body?.createAreas !== false
     });
 

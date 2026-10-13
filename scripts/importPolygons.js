@@ -62,17 +62,38 @@ function cleanDistrict(division) {
  */
 async function importPolygonData(options = {}) {
   const targetDb = options.models || db;
-  const filePath = options.filePath || path.resolve(__dirname, '../../polygon.md');
+  let geojson = options.geoJson || options.geojson;
+  let resolvedFilePath = options.filePath;
   const createAreas = options.createAreas !== false;
 
-  console.log(`🚀 Starting Polygon ingestion from: ${filePath}`);
+  if (!geojson) {
+    const candidatePaths = [
+      options.filePath,
+      path.resolve(__dirname, '../polygon.md'),
+      path.resolve(__dirname, '../../polygon.md'),
+      path.resolve(process.cwd(), 'polygon.md'),
+      path.resolve(process.cwd(), 'Sql-Backend/polygon.md'),
+      '/var/www/GlucksCare/GlucksCare-ERP-SQL-Backend/polygon.md',
+      '/var/www/GlucksCare/polygon.md'
+    ].filter(Boolean);
 
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`);
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        resolvedFilePath = p;
+        break;
+      }
+    }
+
+    if (!resolvedFilePath || !fs.existsSync(resolvedFilePath)) {
+      throw new Error(`File not found: checked ${candidatePaths.join(', ')}`);
+    }
+
+    console.log(`🚀 Starting Polygon ingestion from: ${resolvedFilePath}`);
+    const raw = fs.readFileSync(resolvedFilePath, 'utf8');
+    geojson = JSON.parse(raw);
+  } else {
+    console.log(`🚀 Starting Polygon ingestion from memory GeoJSON payload`);
   }
-
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const geojson = JSON.parse(raw);
 
   if (!geojson.features || !Array.isArray(geojson.features)) {
     throw new Error('Invalid GeoJSON format: features array missing');
@@ -94,7 +115,7 @@ async function importPolygonData(options = {}) {
   });
 
   if (!biharState) {
-    biharState = await db.State.create({
+    biharState = await targetDb.State.create({
       name: 'Bihar',
       code: 'BR',
       country: 'India',

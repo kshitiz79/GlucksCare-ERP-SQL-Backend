@@ -25,16 +25,19 @@ dist/
 build/
 coverage/
 
-Database / SQL files
+# Database / SQL files
 *.sql
 *.sqlite
 *.db
-
+!database/seed_polygons.sql
+!create_theme_colors.sql
 
 # System files
 .DS_Store
 Thumbs.db
 *.md
+!README.md
+!polygon.md
 
 # IDE/editor configs
 .vscode/

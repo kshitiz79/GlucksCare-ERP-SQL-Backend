@@ -9,6 +9,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "db:indexes": "node database/apply-indexes.js",
     "db:seed": "node seed.js",
+    "seed:polygons": "node scripts/importPolygons.js",
+    "sql:polygons": "node scripts/generatePolygonSql.js",
     "fix:enum": "node scratch/fix_attendance_enum.js"
   },
   "keywords": [
