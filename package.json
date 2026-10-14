@@ -11,7 +11,8 @@
     "db:seed": "node seed.js",
     "seed:polygons": "node scripts/importPolygons.js",
     "sql:polygons": "node scripts/generatePolygonSql.js",
-    "fix:enum": "node scratch/fix_attendance_enum.js"
+    "fix:enum": "node scratch/fix_attendance_enum.js",
+    "test:load": "k6 run k6-load-test.js"
   },
   "keywords": [
     "postgresql",
