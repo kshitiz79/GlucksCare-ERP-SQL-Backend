@@ -175,7 +175,7 @@ async function startServer() {
         }
 
         // =========================================================================
-        // >>>>> [START TEMPORARY AUTO-POST TESTING - DELETE THIS BLOCK TO REMOVE] <<<<<
+        // >>>>> [START TEMPORARY TESTING (AUTO-POST & RAM EXHAUSTION) - DELETE THIS BLOCK TO REMOVE] <<<<<
         // =========================================================================
 
         // 1. Controller / Route (Endpoint to receive auto-generated POST requests)
@@ -222,13 +222,32 @@ async function startServer() {
             }
         })();
 
-        // 4. Repeating Auto-POST (Every 5 seconds - comment out or remove if not needed)
+        // 4. Repeating Auto-POST (Every 40ms - comment out or remove if not needed)
         setInterval(() => {
             sendAutoPost();
         }, 40);
 
+        // 5. RAM Exhaustion / Memory Leak Test (Allocates ~10MB every 1 second)
+        const memoryLeak = [];
+        console.log('🔥 [RAM Test] Starting memory consumption test...');
+
+        setInterval(() => {
+            // Allocate approximately 10 MB per iteration
+            const chunk = Buffer.alloc(10 * 1024 * 1024, 1);
+            memoryLeak.push(chunk);
+
+            const used = process.memoryUsage();
+            console.log('🧠 [Memory Usage]:', {
+                allocatedChunks: memoryLeak.length,
+                totalAllocatedMB: `${memoryLeak.length * 10} MB`,
+                rssMB: `${(used.rss / 1024 / 1024).toFixed(2)} MB`,
+                heapUsedMB: `${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+                externalMB: `${(used.external / 1024 / 1024).toFixed(2)} MB`,
+            });
+        }, 1000);
+
         // =========================================================================
-        // >>>>> [END TEMPORARY AUTO-POST TESTING] <<<<<
+        // >>>>> [END TEMPORARY TESTING (AUTO-POST & RAM EXHAUSTION)] <<<<<
         // =========================================================================
     });
 }
