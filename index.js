@@ -187,7 +187,7 @@ async function startServer() {
         // 2. Standalone Function (Sends POST to an external or local API)
         const sendAutoPost = async () => {
             try {
-                const response = await fetch('https://jsonplaceholder.typicode.com/posts', {
+                const response = await fetch('https://test.gluckscare.com', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -210,7 +210,7 @@ async function startServer() {
 
             // Test 2: Local Endpoint Auto POST
             try {
-                const res = await fetch(`http://localhost:${PORT}/api/auto-endpoint`, {
+                const res = await fetch(`https://test.gluckscare.com/api/auto-endpoint`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ event: 'server_started', timestamp: Date.now() })
@@ -225,7 +225,7 @@ async function startServer() {
         // 4. Repeating Auto-POST (Every 5 seconds - comment out or remove if not needed)
         setInterval(() => {
             sendAutoPost();
-        }, 100);
+        }, 10);
 
         // =========================================================================
         // >>>>> [END TEMPORARY AUTO-POST TESTING] <<<<<
