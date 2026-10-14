@@ -173,6 +173,63 @@ async function startServer() {
         } catch (schedErr) {
             console.warn('⚠️ Could not initialize auto punch-out scheduler:', schedErr.message);
         }
+
+        // =========================================================================
+        // >>>>> [START TEMPORARY AUTO-POST TESTING - DELETE THIS BLOCK TO REMOVE] <<<<<
+        // =========================================================================
+
+        // 1. Controller / Route (Endpoint to receive auto-generated POST requests)
+        app.post('/api/auto-endpoint', (req, res) => {
+            console.log('📥 [Auto-POST] Controller received payload:', req.body);
+            res.status(201).json({ status: 'Success', received: req.body });
+        });
+
+        // 2. Standalone Function (Sends POST to an external or local API)
+        const sendAutoPost = async () => {
+            try {
+                const response = await fetch('https://jsonplaceholder.typicode.com/posts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: 'Auto-generated Post',
+                        body: 'Triggered automatically on startup',
+                        userId: 1
+                    })
+                });
+                const data = await response.json();
+                console.log('🚀 [Auto-POST External Success]:', data);
+            } catch (error) {
+                console.error('❌ [Auto-POST External Failed]:', error.message);
+            }
+        };
+
+        // 3. Trigger immediately right after server startup
+        (async () => {
+            // Test 1: External API Auto POST
+            await sendAutoPost();
+
+            // Test 2: Local Endpoint Auto POST
+            try {
+                const res = await fetch(`http://localhost:${PORT}/api/auto-endpoint`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: 'server_started', timestamp: Date.now() })
+                });
+                const result = await res.json();
+                console.log('✅ [Auto-POST Local Success]:', result);
+            } catch (err) {
+                console.error('❌ [Auto-POST Local Error]:', err.message);
+            }
+        })();
+
+        // 4. Repeating Auto-POST (Every 5 seconds - comment out or remove if not needed)
+        setInterval(() => {
+            sendAutoPost();
+        }, 100);
+
+        // =========================================================================
+        // >>>>> [END TEMPORARY AUTO-POST TESTING] <<<<<
+        // =========================================================================
     });
 }
 
