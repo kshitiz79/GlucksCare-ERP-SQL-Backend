@@ -55,6 +55,11 @@ const TourPlan = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0
+    },
+    plan_level: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: 'Manager'
     }
   }, {
     tableName: 'tour_plans',

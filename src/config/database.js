@@ -298,6 +298,12 @@ async function ensurePerformanceIndexes() {
         ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS chemist_id UUID REFERENCES chemists(id) ON DELETE SET NULL;
         ALTER TABLE doctor_edit_requests ADD COLUMN IF NOT EXISTS stockist_id UUID REFERENCES stockists(id) ON DELETE SET NULL;
         ALTER TABLE doctor_edit_requests ALTER COLUMN doctor_id DROP NOT NULL;
+        ALTER TABLE tour_plans ADD COLUMN IF NOT EXISTS plan_level VARCHAR(50) DEFAULT 'Manager';
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL;
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS co_work_with_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_tour_plan_days_head_office ON tour_plan_days(head_office_id);
+        CREATE INDEX IF NOT EXISTS idx_tour_plan_days_cowork ON tour_plan_days(co_work_with_user_id);
       `);
     } catch (e) { }
 

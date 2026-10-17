@@ -25,7 +25,28 @@ const TourPlanDay = (sequelize) => {
       allowNull: false,
       defaultValue: 'Field',
       validate: {
-        isIn: [['Field', 'Joint work', 'Meeting', 'Office', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
+        isIn: [['Field', 'Joint work', 'Joint Work', 'Meeting', 'Office', 'Office Work', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
+      }
+    },
+    head_office_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'head_offices',
+        key: 'id'
+      }
+    },
+    head_office_ids: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: []
+    },
+    co_work_with_user_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
       }
     },
     joint_work_with_user_id: {
@@ -138,7 +159,7 @@ const TourPlanDay = (sequelize) => {
       type: DataTypes.STRING(50),
       allowNull: true,
       validate: {
-        isIn: [['Field', 'Joint work', 'Meeting', 'Office', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
+        isIn: [['Field', 'Joint work', 'Joint Work', 'Meeting', 'Office', 'Office Work', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
       }
     },
     change_request_comments: {

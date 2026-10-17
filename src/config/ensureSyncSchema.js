@@ -187,12 +187,18 @@ async function ensureTenantSyncSchema(sequelize) {
       console.warn('⚠️ [ensureTenantSyncSchema] Polygon table setup warning:', polyErr.message);
     }
 
-    // 10. Ensure tour_plan_days has collaboration_statuses and handshake_status columns
+    // 10. Ensure tour_plans and tour_plan_days have ASM/Manager level columns and collaboration columns
     try {
       await sequelize.query(`
+        ALTER TABLE tour_plans ADD COLUMN IF NOT EXISTS plan_level VARCHAR(50) DEFAULT 'Manager';
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL;
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS co_work_with_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
         ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS collaboration_statuses JSONB DEFAULT '{}'::jsonb;
         ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_status VARCHAR(50) DEFAULT 'None';
         ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS joint_work_user_ids JSONB DEFAULT '[]'::jsonb;
+        CREATE INDEX IF NOT EXISTS idx_tour_plan_days_head_office ON tour_plan_days(head_office_id);
+        CREATE INDEX IF NOT EXISTS idx_tour_plan_days_cowork ON tour_plan_days(co_work_with_user_id);
       `);
     } catch (tpErr) {
       console.warn('⚠️ [ensureTenantSyncSchema] Tour plan days setup warning:', tpErr.message);

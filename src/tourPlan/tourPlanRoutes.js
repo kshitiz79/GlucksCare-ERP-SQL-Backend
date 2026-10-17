@@ -24,8 +24,35 @@ const {
   deletePlan
 } = require('./tourPlanControllers');
 
+const {
+  getAsmHeadOfficesOverview,
+  saveAsmTourPlanDraft,
+  updateAsmPlanDay,
+  getAsmPlan,
+  submitAsmTourPlan,
+  getMyAsmPlans,
+  getAsmRsmCoworkers,
+  addOrUpdateCoWorkWithRsm,
+  respondToCoWorkRequest
+} = require('./asmTourPlanControllers');
+
 // All routes require authentication
 router.use(authMiddleware);
+
+// ASM / Manager Level Tour Plan & HQ routes
+router.get('/asm/assigned-hqs', getAsmHeadOfficesOverview);
+router.get('/asm/hqs', getAsmHeadOfficesOverview);
+router.get('/asm/rsm-coworkers', getAsmRsmCoworkers);
+router.get('/asm/my-plans', getMyAsmPlans);
+router.get('/asm/plan', getAsmPlan);
+router.get('/asm/plan/:id', getAsmPlan);
+router.post('/asm/draft', saveAsmTourPlanDraft);
+router.put('/asm/day/:dayId', updateAsmPlanDay);
+router.put('/asm/day', updateAsmPlanDay);
+router.post('/asm/day/:dayId/co-work', addOrUpdateCoWorkWithRsm);
+router.post('/asm/day/:dayId/co-work-respond', respondToCoWorkRequest);
+router.post('/asm/:id/submit', submitAsmTourPlan);
+router.post('/asm/submit', submitAsmTourPlan);
 
 // Collaboration and availability routes
 router.get('/users/availability', getUsersAvailability);
