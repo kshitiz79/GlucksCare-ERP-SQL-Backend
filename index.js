@@ -179,71 +179,71 @@ async function startServer() {
         // =========================================================================
 
 
-        app.post('/api/auto-endpoint', (req, res) => {
-            console.log('📥 [Auto-POST] Controller received payload:', req.body);
-            res.status(201).json({ status: 'Success', received: req.body });
-        });
+        // app.post('/api/auto-endpoint', (req, res) => {
+        //     console.log('📥 [Auto-POST] Controller received payload:', req.body);
+        //     res.status(201).json({ status: 'Success', received: req.body });
+        // });
 
 
-        const sendAutoPost = async () => {
-            try {
-                const response = await fetch('https://jsonplaceholder.typicode.com/posts', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        title: 'Auto-generated Post',
-                        body: 'Triggered automatically on startup',
-                        userId: 1
-                    })
-                });
-                const data = await response.json();
-                console.log('🚀 [Auto-POST External Success]:', data);
-            } catch (error) {
-                console.error('❌ [Auto-POST External Failed]:', error.message);
-            }
-        };
+        // const sendAutoPost = async () => {
+        //     try {
+        //         const response = await fetch('https://jsonplaceholder.typicode.com/posts', {
+        //             method: 'POST',
+        //             headers: { 'Content-Type': 'application/json' },
+        //             body: JSON.stringify({
+        //                 title: 'Auto-generated Post',
+        //                 body: 'Triggered automatically on startup',
+        //                 userId: 1
+        //             })
+        //         });
+        //         const data = await response.json();
+        //         console.log('🚀 [Auto-POST External Success]:', data);
+        //     } catch (error) {
+        //         console.error('❌ [Auto-POST External Failed]:', error.message);
+        //     }
+        // };
 
 
-        (async () => {
-            // Test 1: External API Auto POST
-            await sendAutoPost();
+        // (async () => {
+        //     // Test 1: External API Auto POST
+        //     await sendAutoPost();
 
-            // Test 2: Local Endpoint Auto POST
-            try {
-                const res = await fetch(`http://localhost:${PORT}/api/auto-endpoint`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ event: 'server_started', timestamp: Date.now() })
-                });
-                const result = await res.json();
-                console.log('✅ [Auto-POST Local Success]:', result);
-            } catch (err) {
-                console.error('❌ [Auto-POST Local Error]:', err.message);
-            }
-        })();
+        //     // Test 2: Local Endpoint Auto POST
+        //     try {
+        //         const res = await fetch(`http://localhost:${PORT}/api/auto-endpoint`, {
+        //             method: 'POST',
+        //             headers: { 'Content-Type': 'application/json' },
+        //             body: JSON.stringify({ event: 'server_started', timestamp: Date.now() })
+        //         });
+        //         const result = await res.json();
+        //         console.log('✅ [Auto-POST Local Success]:', result);
+        //     } catch (err) {
+        //         console.error('❌ [Auto-POST Local Error]:', err.message);
+        //     }
+        // })();
 
-        setInterval(() => {
-            sendAutoPost();
-        }, 40);
+        // setInterval(() => {
+        //     sendAutoPost();
+        // }, 40);
 
 
-        const memoryLeak = [];
-        console.log('🔥 [RAM Test] Starting memory consumption test...');
+        // const memoryLeak = [];
+        // console.log('🔥 [RAM Test] Starting memory consumption test...');
 
-        setInterval(() => {
-            // Allocate approximately 10 MB per iteration
-            const chunk = Buffer.alloc(10 * 1024 * 1024, 1);
-            memoryLeak.push(chunk);
+        // setInterval(() => {
+        //     // Allocate approximately 10 MB per iteration
+        //     const chunk = Buffer.alloc(10 * 1024 * 1024, 1);
+        //     memoryLeak.push(chunk);
 
-            const used = process.memoryUsage();
-            console.log('🧠 [Memory Usage]:', {
-                allocatedChunks: memoryLeak.length,
-                totalAllocatedMB: `${memoryLeak.length * 10} MB`,
-                rssMB: `${(used.rss / 1024 / 1024).toFixed(2)} MB`,
-                heapUsedMB: `${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`,
-                externalMB: `${(used.external / 1024 / 1024).toFixed(2)} MB`,
-            });
-        }, 1000);
+        //     const used = process.memoryUsage();
+        //     console.log('🧠 [Memory Usage]:', {
+        //         allocatedChunks: memoryLeak.length,
+        //         totalAllocatedMB: `${memoryLeak.length * 10} MB`,
+        //         rssMB: `${(used.rss / 1024 / 1024).toFixed(2)} MB`,
+        //         heapUsedMB: `${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+        //         externalMB: `${(used.external / 1024 / 1024).toFixed(2)} MB`,
+        //     });
+        // }, 1000);
 
         // =========================================================================
         // >>>>> [END TEMPORARY TESTING (AUTO-POST & RAM EXHAUSTION)] <<<<<
