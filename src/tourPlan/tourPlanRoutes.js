@@ -36,8 +36,23 @@ const {
   respondToCoWorkRequest
 } = require('./asmTourPlanControllers');
 
+const { ensureTourPlanSchema } = require('./ensureTourPlanSchema');
+
 // All routes require authentication
 router.use(authMiddleware);
+
+// Automatic schema guarantee for tour plan routes on all databases/tenants
+router.use(async (req, res, next) => {
+  try {
+    const s = req?.tenantSequelize || (req?.app && typeof req.app.get === 'function' && req.app.get('sequelize')) || require('../config/database').sequelize;
+    if (s) {
+      await ensureTourPlanSchema(s);
+    }
+  } catch (e) {
+    // Non-blocking fallback
+  }
+  next();
+});
 
 // ASM / Manager Level Tour Plan & HQ routes
 router.get('/asm/assigned-hqs', getAsmHeadOfficesOverview);
