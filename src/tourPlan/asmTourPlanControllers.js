@@ -34,14 +34,14 @@ const RSM_ROLES = [
   'Manager'
 ];
 
+const { ensureTourPlanSchema } = require('./ensureTourPlanSchema');
+
 const getModels = (req) => {
-  const m = req && req.app && typeof req.app.get === 'function' ? req.app.get('models') : null;
-  return m || require('../config/database');
+  return req?.db || (req?.app && typeof req.app.get === 'function' && req.app.get('models')) || require('../config/database');
 };
 
 const getSequelize = (req) => {
-  const s = req && req.app && typeof req.app.get === 'function' ? req.app.get('sequelize') : null;
-  return s || require('../config/database').sequelize;
+  return req?.tenantSequelize || (req?.app && typeof req.app.get === 'function' && req.app.get('sequelize')) || require('../config/database').sequelize;
 };
 
 /**
@@ -462,6 +462,9 @@ const saveAsmTourPlanDraft = async (req, res) => {
     });
   }
 
+  // Ensure tour_plans and tour_plan_days schema before executing
+  await ensureTourPlanSchema(sequelize);
+
   const { TourPlan, TourPlanDay, User } = models;
   const { month, year, days } = req.body;
 
@@ -610,6 +613,7 @@ const saveAsmTourPlanDraft = async (req, res) => {
  */
 const updateAsmPlanDay = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlanDay || !models.TourPlan || !models.User) {
       return res.status(500).json({
@@ -617,6 +621,8 @@ const updateAsmPlanDay = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlanDay, TourPlan, User } = models;
     const dayId = (req.params && req.params.dayId) || (req.body && (req.body.day_id || req.body.id));
@@ -807,6 +813,7 @@ const getEnrichedAsmPlan = async (planId, models) => {
  */
 const getAsmPlan = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlan) {
       return res.status(500).json({
@@ -814,6 +821,8 @@ const getAsmPlan = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlan } = models;
     let plan = null;
@@ -871,6 +880,7 @@ const getAsmPlan = async (req, res) => {
  */
 const submitAsmTourPlan = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlan || !models.TourPlanDay) {
       return res.status(500).json({
@@ -878,6 +888,8 @@ const submitAsmTourPlan = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlan, TourPlanDay } = models;
     const planId = (req.params && req.params.id) || (req.body && (req.body.plan_id || req.body.id));
@@ -948,6 +960,7 @@ const submitAsmTourPlan = async (req, res) => {
  */
 const getMyAsmPlans = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlan || !models.TourPlanDay) {
       return res.status(500).json({
@@ -955,6 +968,8 @@ const getMyAsmPlans = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlan, TourPlanDay } = models;
     let targetUserId = req.user.id;
@@ -1110,6 +1125,7 @@ const getAsmRsmCoworkers = async (req, res) => {
  */
 const addOrUpdateCoWorkWithRsm = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlanDay || !models.User) {
       return res.status(500).json({
@@ -1117,6 +1133,8 @@ const addOrUpdateCoWorkWithRsm = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlanDay, User } = models;
     const dayId = (req.params && req.params.dayId) || (req.body && (req.body.day_id || req.body.id));
@@ -1204,6 +1222,7 @@ const addOrUpdateCoWorkWithRsm = async (req, res) => {
  */
 const respondToCoWorkRequest = async (req, res) => {
   try {
+    const sequelize = getSequelize(req);
     const models = getModels(req);
     if (!models || !models.TourPlanDay) {
       return res.status(500).json({
@@ -1211,6 +1230,8 @@ const respondToCoWorkRequest = async (req, res) => {
         message: 'Required models are not available'
       });
     }
+
+    await ensureTourPlanSchema(sequelize);
 
     const { TourPlanDay, User } = models;
     const dayId = (req.params && req.params.dayId) || (req.body && (req.body.day_id || req.body.id));

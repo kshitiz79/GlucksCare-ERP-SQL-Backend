@@ -10,6 +10,11 @@ const ROLE_HIERARCHY = {
   'Super Admin': 8
 };
 
+const { ensureTourPlanSchema } = require('./ensureTourPlanSchema');
+
+const getModels = (req) => req?.db || (req?.app && typeof req.app.get === 'function' && req.app.get('models')) || require('../config/database');
+const getSequelize = (req) => req?.tenantSequelize || (req?.app && typeof req.app.get === 'function' && req.app.get('sequelize')) || require('../config/database').sequelize;
+
 /**
  * Helper to enrich tour plan days with full joint work user objects (id, name, role, employee_code)
  */
@@ -110,10 +115,12 @@ const enrichTourPlansWithJointUsers = async (plansOrPlan, User) => {
 // GET my tour plans
 const getMyPlans = async (req, res) => {
   try {
-    const models = req.app.get('models');
+    const sequelize = getSequelize(req);
+    const models = getModels(req);
     if (!models || !models.TourPlan) {
       throw new Error('Required models are not available');
     }
+    await ensureTourPlanSchema(sequelize);
     const { TourPlan, TourPlanDay, Beat, User } = models;
 
     const plans = await TourPlan.findAll({
@@ -206,14 +213,16 @@ const getPlanById = async (req, res) => {
 
 // SAVE draft monthly tour plan
 const saveDraft = async (req, res) => {
-  const sequelize = req.app.get('sequelize');
-  const models = req.app.get('models');
+  const sequelize = getSequelize(req);
+  const models = getModels(req);
   if (!models || !models.TourPlan || !models.TourPlanDay || !sequelize) {
     return res.status(500).json({
       success: false,
       message: 'Database models or instance not initialized'
     });
   }
+
+  await ensureTourPlanSchema(sequelize);
 
   const { TourPlan, TourPlanDay, Beat, User } = models;
   const { month, year, days } = req.body;
