@@ -339,6 +339,50 @@ async function initializeDatabase(sequelize) {
             console.warn('⚠️ Warning: Failed to create party_opening_balances table:', pobErr.message);
         }
 
+        // Dynamically ensure tour_plans and tour_plan_days columns
+        try {
+            await sequelize.query("ALTER TABLE tour_plans ADD COLUMN IF NOT EXISTS plan_level VARCHAR(50) DEFAULT 'Manager';");
+            await sequelize.query("ALTER TABLE tour_plans ADD COLUMN IF NOT EXISTS direct_changes_count INTEGER DEFAULT 0;");
+            try {
+                await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_id UUID REFERENCES head_offices(id) ON DELETE SET NULL;");
+            } catch (e) {
+                try {
+                    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_id UUID;");
+                } catch (e2) {}
+            }
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS head_office_ids JSONB DEFAULT '[]'::jsonb;").catch(() => {});
+            try {
+                await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS co_work_with_user_id UUID REFERENCES users(id) ON DELETE SET NULL;");
+            } catch (e) {
+                try {
+                    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS co_work_with_user_id UUID;");
+                } catch (e2) {}
+            }
+            try {
+                await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS joint_work_with_user_id UUID REFERENCES users(id) ON DELETE SET NULL;");
+            } catch (e) {
+                try {
+                    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS joint_work_with_user_id UUID;");
+                } catch (e2) {}
+            }
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS joint_work_user_ids JSONB DEFAULT '[]'::jsonb;").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS collaboration_statuses JSONB DEFAULT '{}'::jsonb;").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS collaboration_status VARCHAR(50) DEFAULT 'None';").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_status VARCHAR(50) DEFAULT 'None';").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_time TIMESTAMP WITH TIME ZONE;").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_distance_meters DECIMAL(10, 2);").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_user_lat DECIMAL(10, 8);").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_user_lng DECIMAL(11, 8);").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_partner_lat DECIMAL(10, 8);").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_partner_lng DECIMAL(11, 8);").catch(() => {});
+            await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS handshake_verified_by_user_id UUID;").catch(() => {});
+            await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_head_office ON tour_plan_days(head_office_id);").catch(() => {});
+            await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_cowork ON tour_plan_days(co_work_with_user_id);").catch(() => {});
+            console.log('✅ Checked/Created tour_plans and tour_plan_days columns');
+        } catch (tpErr) {
+            console.warn('⚠️ Warning: Failed to alter tour_plans/tour_plan_days table:', tpErr.message);
+        }
+
         return true;
     } catch (error) {
         console.error('❌ Unable to connect to PostgreSQL:', error);

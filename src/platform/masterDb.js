@@ -196,6 +196,19 @@ async function initMasterDatabase() {
       console.log('✅ Seeded default main tenant in master registry');
     }
 
+    // Pre-warm and ensure sync schemas across all active tenants
+    try {
+      const activeTenants = await Tenant.findAll({ where: { status: 'ACTIVE' } });
+      const { getTenantDb } = require('./tenantConnectionManager');
+      for (const t of activeTenants) {
+        try {
+          getTenantDb(t.db_name);
+        } catch (tErr) {
+          console.warn(`[initMasterDatabase] Tenant schema pre-warm warning for ${t.db_name}:`, tErr.message);
+        }
+      }
+    } catch (pwErr) {}
+
     return true;
   } catch (error) {
     console.error('❌ Failed to initialize Master Database:', error.message);
