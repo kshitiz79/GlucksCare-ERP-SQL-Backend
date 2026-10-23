@@ -121,6 +121,36 @@ const getAssignedHeadOfficeIds = async (user, models) => {
     }
   }
 
+  // 6. Resolve duplicate Head Offices by normalized name (e.g. 'Darbhanga' vs 'DARBHANGA', 'Katihar', etc.)
+  if (officeIds.size > 0 && HeadOffice) {
+    try {
+      const knownOffices = await HeadOffice.findAll({
+        where: { id: { [Op.in]: Array.from(officeIds) } },
+        attributes: ['id', 'name'],
+        raw: true
+      });
+      const names = knownOffices.map(o => (o.name || '').trim().toLowerCase()).filter(Boolean);
+      if (names.length > 0) {
+        const seq = m.sequelize || (m.models && m.models.HeadOffice && m.models.HeadOffice.sequelize) || require('../config/database').sequelize;
+        if (seq) {
+          const matchingSisterHqs = await HeadOffice.findAll({
+            where: seq.where(
+              seq.fn('LOWER', seq.fn('TRIM', seq.col('name'))),
+              { [Op.in]: names }
+            ),
+            attributes: ['id'],
+            raw: true
+          });
+          matchingSisterHqs.forEach(ho => {
+            if (ho.id) officeIds.add(ho.id);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[getAssignedHeadOfficeIds] duplicate name resolution warning:', e.message);
+    }
+  }
+
   return Array.from(officeIds).filter(Boolean);
 };
 
@@ -595,6 +625,23 @@ const getAsmDateUsersOverview = async (req, res) => {
       }
     }
 
+    // Direct subordinates mapped in user_managers table
+    const UserManager = models.UserManager || (models.models && models.models.UserManager);
+    if (UserManager) {
+      try {
+        const managedRecords = await UserManager.findAll({
+          where: { manager_id: targetUser.id },
+          attributes: ['user_id'],
+          raw: true
+        });
+        managedRecords.forEach(m => {
+          if (m.user_id) allUserIdsSet.add(m.user_id);
+        });
+      } catch (e) {
+        console.warn('[getAsmDateUsersOverview] UserManager query warning:', e.message);
+      }
+    }
+
     const allUserIds = Array.from(allUserIdsSet).filter(Boolean);
 
     // Fetch complete user details
@@ -638,6 +685,9 @@ const getAsmDateUsersOverview = async (req, res) => {
           const firstHqId = Array.from(mappedHqs)[0];
           primaryHq = hqMap.get(firstHqId);
         }
+      }
+      if (!primaryHq && targetHqIds.length > 0) {
+        primaryHq = hqMap.get(targetHqIds[0]);
       }
 
       // Day beat(s) assigned for dateStr
@@ -787,11 +837,19 @@ const getAsmDateUsersOverview = async (req, res) => {
 
       // Add to HQ grouping
       const userHqs = userHqMapping.get(plainUser.id) || (plainUser.head_office_id ? new Set([plainUser.head_office_id]) : new Set());
+      let addedToHq = false;
       userHqs.forEach(hqId => {
         if (hqUserCardsMap.has(hqId)) {
           hqUserCardsMap.get(hqId).push(userCard);
+          addedToHq = true;
         }
       });
+      if (!addedToHq && targetHqIds.length > 0) {
+        const firstHq = targetHqIds[0];
+        if (hqUserCardsMap.has(firstHq)) {
+          hqUserCardsMap.get(firstHq).push(userCard);
+        }
+      }
     }
 
     // 3. Build Head Office Summaries
