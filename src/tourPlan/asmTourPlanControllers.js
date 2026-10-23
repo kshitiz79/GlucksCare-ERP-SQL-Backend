@@ -628,12 +628,18 @@ const getAsmDateUsersOverview = async (req, res) => {
     const userHqMapping = new Map(); // userId -> Set of head_office_ids
     const allUserIdsSet = new Set();
 
-    // Direct HQ users
+    // MSR is role 'User' / 'MSR'; ASM is manager (exclude targetUser.id)
+    const msrRoleCondition = filterRole
+      ? { role: filterRole }
+      : { role: { [Op.in]: ['User', 'MSR'] } };
+
+    // Direct HQ users (MSRs)
     const directUsers = await User.findAll({
       where: {
         head_office_id: { [Op.in]: targetHqIds },
         is_active: true,
-        ...(filterRole ? { role: filterRole } : {})
+        id: { [Op.ne]: targetUser.id },
+        ...msrRoleCondition
       },
       attributes: ['id', 'head_office_id'],
       raw: true
@@ -653,7 +659,7 @@ const getAsmDateUsersOverview = async (req, res) => {
           raw: true
         });
         junctionRecords.forEach(j => {
-          if (j.user_id) {
+          if (j.user_id && j.user_id !== targetUser.id) {
             allUserIdsSet.add(j.user_id);
             if (!userHqMapping.has(j.user_id)) userHqMapping.set(j.user_id, new Set());
             userHqMapping.get(j.user_id).add(j.head_office_id);
@@ -674,7 +680,7 @@ const getAsmDateUsersOverview = async (req, res) => {
           raw: true
         });
         managedRecords.forEach(m => {
-          if (m.user_id) allUserIdsSet.add(m.user_id);
+          if (m.user_id && m.user_id !== targetUser.id) allUserIdsSet.add(m.user_id);
         });
       } catch (e) {
         console.warn('[getAsmDateUsersOverview] UserManager query warning:', e.message);
@@ -683,14 +689,15 @@ const getAsmDateUsersOverview = async (req, res) => {
 
     const allUserIds = Array.from(allUserIdsSet).filter(Boolean);
 
-    // Fetch complete user details
+    // Fetch complete user details for MSRs
     let teamUsers = [];
     if (allUserIds.length > 0) {
       teamUsers = await User.findAll({
         where: {
           id: { [Op.in]: allUserIds },
           is_active: true,
-          ...(filterRole ? { role: filterRole } : {})
+          id: { [Op.ne]: targetUser.id },
+          ...msrRoleCondition
         },
         attributes: [
           'id', 'name', 'employee_code', 'email', 'mobile_number',
@@ -704,7 +711,7 @@ const getAsmDateUsersOverview = async (req, res) => {
       });
     }
 
-    // 2. For each user, fetch their plan for dateStr and their beat(s) + areas
+    // 2. For each user (MSR), fetch their plan for dateStr and their beat(s) + areas
     const userCards = [];
 
     for (const u of teamUsers) {
@@ -788,19 +795,6 @@ const getAsmDateUsersOverview = async (req, res) => {
         }
       }
 
-      // Extract day assigned areas from day beats
-      const dayAreasMap = new Map();
-      dayBeats.forEach(b => {
-        const bAreas = b.areas || [];
-        bAreas.forEach(a => {
-          const plainArea = a.toJSON ? a.toJSON() : a;
-          if (!dayAreasMap.has(plainArea.id)) {
-            dayAreasMap.set(plainArea.id, plainArea);
-          }
-        });
-      });
-      const dayAssignedAreas = Array.from(dayAreasMap.values());
-
       // Format only the beat(s) assigned to that particular day (Level 3: Inside MSR -> Beats)
       const formattedDayBeats = dayBeats.map(b => {
         const bPlain = b.toJSON ? b.toJSON() : b;
@@ -808,82 +802,36 @@ const getAsmDateUsersOverview = async (req, res) => {
         const formattedAreas = rawAreas.map(a => {
           const aPlain = a.toJSON ? a.toJSON() : a;
           return {
-            id: aPlain.id,
             area_id: aPlain.id,
-            name: aPlain.name,
             area_name: aPlain.name,
-            pincode: aPlain.pincode,
-            post_office: aPlain.post_office,
-            head_office_id: aPlain.head_office_id,
-            latitude: aPlain.latitude,
-            longitude: aPlain.longitude,
-            radius: aPlain.radius
+            id: aPlain.id,
+            name: aPlain.name,
+            pincode: aPlain.pincode
           };
         });
 
         return {
-          id: bPlain.id,
           beat_id: bPlain.id,
-          name: bPlain.name,
           beat_name: bPlain.name,
+          id: bPlain.id,
+          name: bPlain.name,
           color: bPlain.color,
-          is_active: bPlain.is_active,
-          total_areas: formattedAreas.length,
           areas: formattedAreas // (Level 4: Inside Beat -> Areas)
         };
       });
 
-      const primaryDayBeat = formattedDayBeats[0] || null;
-
-      // User card (Level 2: Inside HQ -> MSRs)
+      // MSR Card (Level 2: Inside HQ -> MSRs)
       const userCard = {
-        id: plainUser.id,
-        user_id: plainUser.id,
         msr_id: plainUser.id,
-        name: plainUser.name,
-        user_name: plainUser.name,
         msr_name: plainUser.name,
-        employee_code: plainUser.employee_code,
-        msr_code: plainUser.employee_code,
-        email: plainUser.email,
-        msr_email: plainUser.email,
-        mobile_number: plainUser.mobile_number,
-        phone: plainUser.mobile_number,
-        gender: plainUser.gender,
-        role: plainUser.role,
-        is_self: plainUser.id === targetUser.id,
-        head_office: {
-          id: primaryHq ? primaryHq.id : plainUser.head_office_id,
-          name: primaryHq ? primaryHq.name : 'Common Head Office',
-          pincode: primaryHq ? primaryHq.pincode : null,
-          state: primaryHq?.State?.name || null
-        },
-        head_office_id: primaryHq ? primaryHq.id : plainUser.head_office_id,
-        head_office_name: primaryHq ? primaryHq.name : 'Common Head Office',
-        date: dateStr,
-        has_day_plan: Boolean(tourPlanDayInfo),
+        id: plainUser.id,
+        name: plainUser.name,
         day_type: tourPlanDayInfo ? tourPlanDayInfo.day_type : 'Not Planned',
-        notes: tourPlanDayInfo?.notes || '',
-        tour_plan_status: tourPlanDayInfo?.status || 'No Plan',
-        collaboration_status: tourPlanDayInfo?.collaboration_status || null,
-        handshake_status: tourPlanDayInfo?.handshake_status || null,
-        tour_plan_day: tourPlanDayInfo,
-
-        // ONLY beats assigned to that particular day of this MSR (Level 3)
-        beat: primaryDayBeat,
-        beat_name: primaryDayBeat?.name || null,
-        beat_id: primaryDayBeat?.id || null,
         beats: formattedDayBeats,
-        day_beats: formattedDayBeats,
-        total_beats: formattedDayBeats.length,
-        total_day_beats: formattedDayBeats.length,
-
-        // ONLY areas belonging to that particular day's assigned beat(s)
-        areas: dayAssignedAreas,
-        day_assigned_areas: dayAssignedAreas,
-        assigned_areas: dayAssignedAreas,
-        total_areas: dayAssignedAreas.length,
-        total_day_areas: dayAssignedAreas.length
+        role: plainUser.role,
+        employee_code: plainUser.employee_code,
+        email: plainUser.email,
+        mobile_number: plainUser.mobile_number
       };
 
       userCards.push(userCard);
@@ -926,73 +874,26 @@ const getAsmDateUsersOverview = async (req, res) => {
     for (const group of consolidatedHqMap.values()) {
       const msrs = Array.from(group.msrs_map.values());
 
-      // Collect day areas covered across all MSRs in this HQ on dateStr
-      const hqDayAreasMap = new Map();
-      msrs.forEach(u => {
-        (u.areas || []).forEach(a => {
-          if (!hqDayAreasMap.has(a.id)) {
-            hqDayAreasMap.set(a.id, a);
-          }
-        });
-      });
-
-      // All areas defined under these Head Office IDs in the Area table
-      let allHqAreas = [];
-      if (Area) {
-        try {
-          allHqAreas = await Area.findAll({
-            where: { head_office_id: { [Op.in]: group.all_hq_ids }, is_active: true },
-            attributes: ['id', 'name', 'pincode', 'post_office', 'latitude', 'longitude', 'radius']
-          });
-        } catch (e) {
-          console.warn(`[getAsmDateUsersOverview] allHqAreas query warning for HQ ${group.id}:`, e.message);
-        }
-      }
-
       hqList.push({
-        id: group.id,
         hq_id: group.id,
-        name: group.name,
         hq_name: group.name,
+        id: group.id,
+        name: group.name,
         pincode: group.pincode,
-        latitude: group.latitude,
-        longitude: group.longitude,
-        state: group.state,
         total_msrs: msrs.length,
-        total_users: msrs.length,
-        msrs: msrs, // Inside HQ: MSR LIST
-        users: msrs,
-        day_areas_covered: Array.from(hqDayAreasMap.values()),
-        all_areas: allHqAreas
+        msrs: msrs // Inside HQ: MSR LIST
       });
     }
 
     res.json({
       success: true,
-      date: dateStr,
-      asm: {
-        id: targetUser.id,
-        name: targetUser.name,
-        role: targetUser.role,
-        employee_code: targetUser.employee_code,
-        head_office: targetUser.HeadOffice ? {
-          id: targetUser.HeadOffice.id,
-          name: targetUser.HeadOffice.name,
-          pincode: targetUser.HeadOffice.pincode
-        } : null
+      data: {
+        date: dateStr,
+        head_offices: hqList
       },
-      total_hqs: hqList.length,
-      total_assigned_hqs: hqList.length,
-      total_msrs: userCards.length,
-      total_users: userCards.length,
-      // 4-level nested structure: HQ LIST -> MSR LIST -> BEATS -> AREAS
-      data: hqList,
       head_offices: hqList,
-      hqs: hqList,
-      // Flat MSR array preserved for backwards compatibility
-      msrs: userCards,
-      users: userCards,
-      msr_details: userCards
+      total_hqs: hqList.length,
+      total_msrs: userCards.length
     });
   } catch (error) {
     console.error('getAsmDateUsersOverview error:', error);
