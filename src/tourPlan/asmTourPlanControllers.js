@@ -751,25 +751,6 @@ const getAsmDateUsersOverview = async (req, res) => {
         }
       }
 
-      // All beats of this user
-      let allBeats = [];
-      if (Beat) {
-        try {
-          allBeats = await Beat.findAll({
-            where: { user_id: plainUser.id, is_active: true },
-            attributes: ['id', 'name', 'color', 'is_active'],
-            include: Area ? [{
-              model: Area,
-              as: 'areas',
-              attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
-              through: { attributes: [] }
-            }] : []
-          });
-        } catch (e) {
-          console.warn(`[getAsmDateUsersOverview] allBeats query warning for user ${plainUser.id}:`, e.message);
-        }
-      }
-
       // Extract day assigned areas from day beats
       const dayAreasMap = new Map();
       dayBeats.forEach(b => {
@@ -783,24 +764,45 @@ const getAsmDateUsersOverview = async (req, res) => {
       });
       const dayAssignedAreas = Array.from(dayAreasMap.values());
 
-      // Extract all assigned areas across all beats
-      const allAssignedAreasMap = new Map();
-      allBeats.forEach(b => {
-        const bAreas = b.areas || [];
-        bAreas.forEach(a => {
-          const plainArea = a.toJSON ? a.toJSON() : a;
-          if (!allAssignedAreasMap.has(plainArea.id)) {
-            allAssignedAreasMap.set(plainArea.id, plainArea);
-          }
-        });
+      // Format only the beat(s) assigned to that particular day
+      const formattedDayBeats = dayBeats.map(b => {
+        const bPlain = b.toJSON ? b.toJSON() : b;
+        return {
+          id: bPlain.id,
+          name: bPlain.name,
+          color: bPlain.color,
+          is_active: bPlain.is_active,
+          areas: (bPlain.areas || []).map(a => {
+            const aPlain = a.toJSON ? a.toJSON() : a;
+            return {
+              id: aPlain.id,
+              name: aPlain.name,
+              pincode: aPlain.pincode,
+              post_office: aPlain.post_office,
+              head_office_id: aPlain.head_office_id,
+              latitude: aPlain.latitude,
+              longitude: aPlain.longitude,
+              radius: aPlain.radius
+            };
+          })
+        };
       });
+
+      const primaryDayBeat = formattedDayBeats[0] || null;
 
       const userCard = {
         id: plainUser.id,
+        user_id: plainUser.id,
+        msr_id: plainUser.id,
         name: plainUser.name,
+        user_name: plainUser.name,
+        msr_name: plainUser.name,
         employee_code: plainUser.employee_code,
+        msr_code: plainUser.employee_code,
         email: plainUser.email,
+        msr_email: plainUser.email,
         mobile_number: plainUser.mobile_number,
+        phone: plainUser.mobile_number,
         gender: plainUser.gender,
         role: plainUser.role,
         is_self: plainUser.id === targetUser.id,
@@ -810,6 +812,8 @@ const getAsmDateUsersOverview = async (req, res) => {
           pincode: primaryHq ? primaryHq.pincode : null,
           state: primaryHq?.State?.name || null
         },
+        head_office_id: primaryHq ? primaryHq.id : plainUser.head_office_id,
+        head_office_name: primaryHq ? primaryHq.name : 'Common Head Office',
         date: dateStr,
         has_day_plan: Boolean(tourPlanDayInfo),
         day_type: tourPlanDayInfo ? tourPlanDayInfo.day_type : 'Not Planned',
@@ -818,19 +822,25 @@ const getAsmDateUsersOverview = async (req, res) => {
         collaboration_status: tourPlanDayInfo?.collaboration_status || null,
         handshake_status: tourPlanDayInfo?.handshake_status || null,
         tour_plan_day: tourPlanDayInfo,
-        // Beats scheduled for this day
-        day_beats: dayBeats.map(b => (b.toJSON ? b.toJSON() : b)),
-        // Assigned areas inside the day's beat(s)
+
+        // ONLY beats assigned to that particular day of this MSR
+        beat: primaryDayBeat,
+        beat_name: primaryDayBeat?.name || null,
+        beat_id: primaryDayBeat?.id || null,
+        day_beats: formattedDayBeats,
+        beats: formattedDayBeats,
+        total_day_beats: formattedDayBeats.length,
+        total_beats: formattedDayBeats.length,
+
+        // ONLY areas belonging to that particular day's assigned beat(s)
         day_assigned_areas: dayAssignedAreas,
+        assigned_areas: dayAssignedAreas,
+        areas: dayAssignedAreas,
         day_assigned_area_names: dayAssignedAreas.map(a => a.name),
+        assigned_area_names: dayAssignedAreas.map(a => a.name),
         day_assigned_pincodes: dayAssignedAreas.map(a => a.pincode).filter(Boolean),
-        total_day_beats: dayBeats.length,
         total_day_areas: dayAssignedAreas.length,
-        // All beats and areas mapped to this user
-        all_beats: allBeats.map(b => (b.toJSON ? b.toJSON() : b)),
-        all_assigned_areas: Array.from(allAssignedAreasMap.values()),
-        total_all_beats: allBeats.length,
-        total_all_areas: allAssignedAreasMap.size
+        total_areas: dayAssignedAreas.length
       };
 
       userCards.push(userCard);
@@ -890,7 +900,9 @@ const getAsmDateUsersOverview = async (req, res) => {
         latitude: hq.latitude,
         longitude: hq.longitude,
         state: hq.State ? { id: hq.State.id, name: hq.State.name } : null,
+        total_msrs: hqUsers.length,
         total_users: hqUsers.length,
+        msrs: hqUsers,
         users: hqUsers,
         day_areas_covered: Array.from(hqDayAreasMap.values()),
         all_areas: allHqAreas
@@ -912,8 +924,12 @@ const getAsmDateUsersOverview = async (req, res) => {
         } : null
       },
       total_assigned_hqs: targetHqIds.length,
+      total_msrs: userCards.length,
       total_users: userCards.length,
+      data: userCards,
+      msrs: userCards,
       users: userCards,
+      msr_details: userCards,
       head_offices: hqSummaries
     });
   } catch (error) {
