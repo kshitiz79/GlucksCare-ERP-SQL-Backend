@@ -143,6 +143,25 @@ const normalizeDayType = (type) => {
 };
 
 /**
+ * Normalizes input date to YYYY-MM-DD
+ */
+const normalizeDateStr = (inputDate) => {
+  if (!inputDate) {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
+  if (typeof inputDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(inputDate.trim())) {
+    return inputDate.trim();
+  }
+  const d = new Date(inputDate);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
+
+/**
  * Helper to fetch complete HQ details with active managers/users and their day beats + assigned areas
  */
 const getHqDetailsWithManagersAndDayBeats = async (headOfficeId, dateStr, models) => {
@@ -365,8 +384,8 @@ const getAsmHeadOfficesOverview = async (req, res) => {
 
     // Target ASM/Manager ID (support viewing on behalf by Admin/State Head)
     let targetUserId = req.user.id;
-    const requestedUserId = req.query.user_id || req.query.asm_id || req.query.manager_id;
-    if (requestedUserId && ['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager'].includes(req.user.role)) {
+    const requestedUserId = req.body?.user_id || req.body?.asm_id || req.body?.manager_id || req.query?.user_id || req.query?.asm_id || req.query?.manager_id;
+    if (requestedUserId && MANAGER_LEVEL_ROLES.includes(req.user.role)) {
       targetUserId = requestedUserId;
     }
 
@@ -378,10 +397,9 @@ const getAsmHeadOfficesOverview = async (req, res) => {
       });
     }
 
-    // Target date (defaults to current date YYYY-MM-DD)
-    const today = new Date();
-    const defaultDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const dateStr = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : defaultDateStr;
+    // Target date (POST body or GET query, defaults to current date YYYY-MM-DD)
+    const rawDate = req.body?.date || req.query?.date;
+    const dateStr = normalizeDateStr(rawDate);
 
     // Get all assigned Head Offices for this ASM
     const assignedHqIds = await getAssignedHeadOfficeIds(targetUser, models);
@@ -403,7 +421,7 @@ const getAsmHeadOfficesOverview = async (req, res) => {
     }
 
     // Optional filter by specific head_office_id
-    const filterHqId = req.query.head_office_id || req.query.headOfficeId;
+    const filterHqId = req.body?.head_office_id || req.body?.headOfficeId || req.query?.head_office_id || req.query?.headOfficeId;
     let targetHqIds = assignedHqIds;
     if (filterHqId) {
       if (!assignedHqIds.includes(filterHqId) && !['Super Admin', 'Admin'].includes(req.user.role)) {
@@ -438,6 +456,410 @@ const getAsmHeadOfficesOverview = async (req, res) => {
     });
   } catch (error) {
     console.error('getAsmHeadOfficesOverview error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * ASM Date Users & Beats API:
+ * Dedicated POST endpoint where ASM sends { date: 'YYYY-MM-DD' } (or GET query)
+ * Returns all users working under common Head Office(s) assigned to this ASM,
+ * along with their assigned beats and mapped areas for that specific date.
+ *
+ * POST /api/tour-plans/asm/users-by-date
+ * POST /api/tour-plans/asm/date-areas
+ * POST /api/tour-plans/asm/date-users
+ * GET  /api/tour-plans/asm/users-by-date
+ */
+const getAsmDateUsersOverview = async (req, res) => {
+  try {
+    const models = getModels(req);
+    if (!models || !models.User || !models.HeadOffice) {
+      return res.status(500).json({
+        success: false,
+        message: 'Required models are not available'
+      });
+    }
+
+    const { User, HeadOffice, State, UserHeadOffice, Beat, Area, TourPlan, TourPlanDay } = models;
+
+    // Target ASM/Manager ID (support viewing on behalf by Admin/State Head/RSM)
+    let targetUserId = req.user.id;
+    const requestedUserId = req.body?.user_id || req.body?.asm_id || req.body?.manager_id || req.query?.user_id || req.query?.asm_id || req.query?.manager_id;
+    if (requestedUserId && MANAGER_LEVEL_ROLES.includes(req.user.role)) {
+      targetUserId = requestedUserId;
+    }
+
+    const targetUser = await User.findByPk(targetUserId, {
+      include: HeadOffice ? [{ model: HeadOffice, attributes: ['id', 'name', 'pincode'] }] : []
+    });
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'ASM / Manager user not found'
+      });
+    }
+
+    // Target date from POST body or query param
+    const rawDate = req.body?.date || req.query?.date;
+    const dateStr = normalizeDateStr(rawDate);
+
+    // Get all assigned Head Offices for this ASM
+    const assignedHqIds = await getAssignedHeadOfficeIds(targetUser, models);
+
+    if (!assignedHqIds || assignedHqIds.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No Head Offices currently assigned to this ASM / Manager',
+        date: dateStr,
+        asm: {
+          id: targetUser.id,
+          name: targetUser.name,
+          role: targetUser.role,
+          employee_code: targetUser.employee_code
+        },
+        total_assigned_hqs: 0,
+        total_users: 0,
+        users: [],
+        head_offices: []
+      });
+    }
+
+    // Optional filter by specific head_office_id
+    const filterHqId = req.body?.head_office_id || req.body?.headOfficeId || req.query?.head_office_id || req.query?.headOfficeId;
+    let targetHqIds = assignedHqIds;
+    if (filterHqId) {
+      if (!assignedHqIds.includes(filterHqId) && !['Super Admin', 'Admin'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'The requested Head Office is not assigned to this ASM / Manager'
+        });
+      }
+      targetHqIds = [filterHqId];
+    }
+
+    // Optional role filter (e.g. only "User" / "MSR" or all roles)
+    const filterRole = req.body?.role || req.query?.role;
+
+    // Fetch HQs
+    const headOffices = await HeadOffice.findAll({
+      where: { id: { [Op.in]: targetHqIds } },
+      include: State ? [{ model: State, attributes: ['id', 'name'] }] : []
+    });
+    const hqMap = new Map();
+    headOffices.forEach(h => {
+      const plainH = h.toJSON ? h.toJSON() : h;
+      hqMap.set(plainH.id, plainH);
+    });
+
+    // 1. Gather all users belonging to these common Head Offices
+    const userHqMapping = new Map(); // userId -> Set of head_office_ids
+    const allUserIdsSet = new Set();
+
+    // Direct HQ users
+    const directUsers = await User.findAll({
+      where: {
+        head_office_id: { [Op.in]: targetHqIds },
+        is_active: true,
+        ...(filterRole ? { role: filterRole } : {})
+      },
+      attributes: ['id', 'head_office_id'],
+      raw: true
+    });
+    directUsers.forEach(u => {
+      allUserIdsSet.add(u.id);
+      if (!userHqMapping.has(u.id)) userHqMapping.set(u.id, new Set());
+      userHqMapping.get(u.id).add(u.head_office_id);
+    });
+
+    // Junction table user_head_offices
+    if (UserHeadOffice) {
+      try {
+        const junctionRecords = await UserHeadOffice.findAll({
+          where: { head_office_id: { [Op.in]: targetHqIds } },
+          attributes: ['user_id', 'head_office_id'],
+          raw: true
+        });
+        junctionRecords.forEach(j => {
+          if (j.user_id) {
+            allUserIdsSet.add(j.user_id);
+            if (!userHqMapping.has(j.user_id)) userHqMapping.set(j.user_id, new Set());
+            userHqMapping.get(j.user_id).add(j.head_office_id);
+          }
+        });
+      } catch (e) {
+        console.warn('[getAsmDateUsersOverview] junction query warning:', e.message);
+      }
+    }
+
+    const allUserIds = Array.from(allUserIdsSet).filter(Boolean);
+
+    // Fetch complete user details
+    let teamUsers = [];
+    if (allUserIds.length > 0) {
+      teamUsers = await User.findAll({
+        where: {
+          id: { [Op.in]: allUserIds },
+          is_active: true,
+          ...(filterRole ? { role: filterRole } : {})
+        },
+        attributes: [
+          'id', 'name', 'employee_code', 'email', 'mobile_number',
+          'gender', 'role', 'head_office_id', 'state_id', 'is_active'
+        ],
+        include: [
+          ...(HeadOffice ? [{ model: HeadOffice, attributes: ['id', 'name', 'pincode'] }] : []),
+          ...(State ? [{ model: State, as: 'State', attributes: ['id', 'name'] }] : [])
+        ],
+        order: [['name', 'ASC']]
+      });
+    }
+
+    // 2. For each user, fetch their plan for dateStr and their beat(s) + areas
+    const userCards = [];
+    const hqUserCardsMap = new Map(); // hqId -> array of userCards
+    targetHqIds.forEach(id => hqUserCardsMap.set(id, []));
+
+    for (const u of teamUsers) {
+      const plainUser = u.toJSON ? u.toJSON() : u;
+
+      // Find primary or mapped HQ for this user
+      let primaryHq = null;
+      if (plainUser.head_office_id && hqMap.has(plainUser.head_office_id)) {
+        primaryHq = hqMap.get(plainUser.head_office_id);
+      } else if (plainUser.HeadOffice) {
+        primaryHq = plainUser.HeadOffice;
+      } else {
+        const mappedHqs = userHqMapping.get(plainUser.id);
+        if (mappedHqs && mappedHqs.size > 0) {
+          const firstHqId = Array.from(mappedHqs)[0];
+          primaryHq = hqMap.get(firstHqId);
+        }
+      }
+
+      // Day beat(s) assigned for dateStr
+      let dayBeats = [];
+      let tourPlanDayInfo = null;
+
+      if (TourPlanDay && TourPlan) {
+        try {
+          const planDay = await TourPlanDay.findOne({
+            where: { date: dateStr },
+            include: [
+              {
+                model: TourPlan,
+                as: 'tourPlan',
+                where: { user_id: plainUser.id },
+                attributes: ['id', 'status', 'month', 'year', 'plan_level']
+              },
+              ...(Beat ? [
+                {
+                  model: Beat,
+                  as: 'beat1',
+                  attributes: ['id', 'name', 'color', 'is_active'],
+                  include: Area ? [{
+                    model: Area,
+                    as: 'areas',
+                    attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
+                    through: { attributes: [] }
+                  }] : []
+                },
+                {
+                  model: Beat,
+                  as: 'beat2',
+                  attributes: ['id', 'name', 'color', 'is_active'],
+                  include: Area ? [{
+                    model: Area,
+                    as: 'areas',
+                    attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
+                    through: { attributes: [] }
+                  }] : []
+                }
+              ] : [])
+            ]
+          });
+
+          if (planDay) {
+            tourPlanDayInfo = {
+              id: planDay.id,
+              date: planDay.date,
+              day_type: planDay.day_type,
+              notes: planDay.notes,
+              status: planDay.tourPlan ? planDay.tourPlan.status : 'Draft',
+              collaboration_status: planDay.collaboration_status,
+              handshake_status: planDay.handshake_status
+            };
+
+            if (planDay.beat1) dayBeats.push(planDay.beat1);
+            if (planDay.beat2) dayBeats.push(planDay.beat2);
+          }
+        } catch (e) {
+          console.warn(`[getAsmDateUsersOverview] planDay query warning for user ${plainUser.id}:`, e.message);
+        }
+      }
+
+      // All beats of this user
+      let allBeats = [];
+      if (Beat) {
+        try {
+          allBeats = await Beat.findAll({
+            where: { user_id: plainUser.id, is_active: true },
+            attributes: ['id', 'name', 'color', 'is_active'],
+            include: Area ? [{
+              model: Area,
+              as: 'areas',
+              attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
+              through: { attributes: [] }
+            }] : []
+          });
+        } catch (e) {
+          console.warn(`[getAsmDateUsersOverview] allBeats query warning for user ${plainUser.id}:`, e.message);
+        }
+      }
+
+      // Extract day assigned areas from day beats
+      const dayAreasMap = new Map();
+      dayBeats.forEach(b => {
+        const bAreas = b.areas || [];
+        bAreas.forEach(a => {
+          const plainArea = a.toJSON ? a.toJSON() : a;
+          if (!dayAreasMap.has(plainArea.id)) {
+            dayAreasMap.set(plainArea.id, plainArea);
+          }
+        });
+      });
+      const dayAssignedAreas = Array.from(dayAreasMap.values());
+
+      // Extract all assigned areas across all beats
+      const allAssignedAreasMap = new Map();
+      allBeats.forEach(b => {
+        const bAreas = b.areas || [];
+        bAreas.forEach(a => {
+          const plainArea = a.toJSON ? a.toJSON() : a;
+          if (!allAssignedAreasMap.has(plainArea.id)) {
+            allAssignedAreasMap.set(plainArea.id, plainArea);
+          }
+        });
+      });
+
+      const userCard = {
+        id: plainUser.id,
+        name: plainUser.name,
+        employee_code: plainUser.employee_code,
+        email: plainUser.email,
+        mobile_number: plainUser.mobile_number,
+        gender: plainUser.gender,
+        role: plainUser.role,
+        is_self: plainUser.id === targetUser.id,
+        head_office: {
+          id: primaryHq ? primaryHq.id : plainUser.head_office_id,
+          name: primaryHq ? primaryHq.name : 'Common Head Office',
+          pincode: primaryHq ? primaryHq.pincode : null,
+          state: primaryHq?.State?.name || null
+        },
+        date: dateStr,
+        has_day_plan: Boolean(tourPlanDayInfo),
+        day_type: tourPlanDayInfo ? tourPlanDayInfo.day_type : 'Not Planned',
+        notes: tourPlanDayInfo?.notes || '',
+        tour_plan_status: tourPlanDayInfo?.status || 'No Plan',
+        collaboration_status: tourPlanDayInfo?.collaboration_status || null,
+        handshake_status: tourPlanDayInfo?.handshake_status || null,
+        tour_plan_day: tourPlanDayInfo,
+        // Beats scheduled for this day
+        day_beats: dayBeats.map(b => (b.toJSON ? b.toJSON() : b)),
+        // Assigned areas inside the day's beat(s)
+        day_assigned_areas: dayAssignedAreas,
+        day_assigned_area_names: dayAssignedAreas.map(a => a.name),
+        day_assigned_pincodes: dayAssignedAreas.map(a => a.pincode).filter(Boolean),
+        total_day_beats: dayBeats.length,
+        total_day_areas: dayAssignedAreas.length,
+        // All beats and areas mapped to this user
+        all_beats: allBeats.map(b => (b.toJSON ? b.toJSON() : b)),
+        all_assigned_areas: Array.from(allAssignedAreasMap.values()),
+        total_all_beats: allBeats.length,
+        total_all_areas: allAssignedAreasMap.size
+      };
+
+      userCards.push(userCard);
+
+      // Add to HQ grouping
+      const userHqs = userHqMapping.get(plainUser.id) || (plainUser.head_office_id ? new Set([plainUser.head_office_id]) : new Set());
+      userHqs.forEach(hqId => {
+        if (hqUserCardsMap.has(hqId)) {
+          hqUserCardsMap.get(hqId).push(userCard);
+        }
+      });
+    }
+
+    // 3. Build Head Office Summaries
+    const hqSummaries = [];
+    for (const hqId of targetHqIds) {
+      const hq = hqMap.get(hqId);
+      if (!hq) continue;
+
+      const hqUsers = hqUserCardsMap.get(hqId) || [];
+
+      // Collect all areas covered under this HQ on dateStr
+      const hqDayAreasMap = new Map();
+      hqUsers.forEach(u => {
+        (u.day_assigned_areas || []).forEach(a => {
+          if (!hqDayAreasMap.has(a.id)) {
+            hqDayAreasMap.set(a.id, a);
+          }
+        });
+      });
+
+      // All areas defined under this Head Office in the Area table
+      let allHqAreas = [];
+      if (Area) {
+        try {
+          allHqAreas = await Area.findAll({
+            where: { head_office_id: hqId, is_active: true },
+            attributes: ['id', 'name', 'pincode', 'post_office', 'latitude', 'longitude', 'radius']
+          });
+        } catch (e) {
+          console.warn(`[getAsmDateUsersOverview] allHqAreas query warning for HQ ${hqId}:`, e.message);
+        }
+      }
+
+      hqSummaries.push({
+        id: hq.id,
+        name: hq.name,
+        pincode: hq.pincode,
+        latitude: hq.latitude,
+        longitude: hq.longitude,
+        state: hq.State ? { id: hq.State.id, name: hq.State.name } : null,
+        total_users: hqUsers.length,
+        users: hqUsers,
+        day_areas_covered: Array.from(hqDayAreasMap.values()),
+        all_areas: allHqAreas
+      });
+    }
+
+    res.json({
+      success: true,
+      date: dateStr,
+      asm: {
+        id: targetUser.id,
+        name: targetUser.name,
+        role: targetUser.role,
+        employee_code: targetUser.employee_code,
+        head_office: targetUser.HeadOffice ? {
+          id: targetUser.HeadOffice.id,
+          name: targetUser.HeadOffice.name,
+          pincode: targetUser.HeadOffice.pincode
+        } : null
+      },
+      total_assigned_hqs: targetHqIds.length,
+      total_users: userCards.length,
+      users: userCards,
+      head_offices: hqSummaries
+    });
+  } catch (error) {
+    console.error('getAsmDateUsersOverview error:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -1311,6 +1733,8 @@ module.exports = {
   RSM_ROLES,
   getAssignedHeadOfficeIds,
   getAsmHeadOfficesOverview,
+  getAsmDateUsersOverview,
+  getAsmUsersAndAreasByDate: getAsmDateUsersOverview,
   saveAsmTourPlanDraft,
   updateAsmPlanDay,
   getAsmPlan,

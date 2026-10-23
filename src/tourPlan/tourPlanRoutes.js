@@ -26,6 +26,7 @@ const {
 
 const {
   getAsmHeadOfficesOverview,
+  getAsmDateUsersOverview,
   saveAsmTourPlanDraft,
   updateAsmPlanDay,
   getAsmPlan,
@@ -55,8 +56,16 @@ router.use(async (req, res, next) => {
 });
 
 // ASM / Manager Level Tour Plan & HQ routes
+router.post('/asm/users-by-date', getAsmDateUsersOverview);
+router.get('/asm/users-by-date', getAsmDateUsersOverview);
+router.post('/asm/date-users', getAsmDateUsersOverview);
+router.get('/asm/date-users', getAsmDateUsersOverview);
+router.post('/asm/date-areas', getAsmDateUsersOverview);
+router.get('/asm/date-areas', getAsmDateUsersOverview);
 router.get('/asm/assigned-hqs', getAsmHeadOfficesOverview);
+router.post('/asm/assigned-hqs', getAsmHeadOfficesOverview);
 router.get('/asm/hqs', getAsmHeadOfficesOverview);
+router.post('/asm/hqs', getAsmHeadOfficesOverview);
 router.get('/asm/rsm-coworkers', getAsmRsmCoworkers);
 router.get('/asm/my-plans', getMyAsmPlans);
 router.get('/asm/plan', getAsmPlan);
