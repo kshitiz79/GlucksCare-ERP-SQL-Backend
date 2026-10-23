@@ -87,6 +87,31 @@ const enrichTourPlanDaysWithJointUsers = async (daysOrDay, User) => {
       if (!day.joint_work_user_ids || !Array.isArray(day.joint_work_user_ids)) {
         day.joint_work_user_ids = ids;
       }
+
+      // Populate beats array from beat1 and beat2 on every day
+      const dayBeats = [];
+      if (day.beat1) {
+        dayBeats.push({
+          beat_id: day.beat1.id,
+          beat_name: day.beat1.name,
+          id: day.beat1.id,
+          name: day.beat1.name,
+          color: day.beat1.color || null,
+          areas: day.beat1.areas || []
+        });
+      }
+      if (day.beat2) {
+        dayBeats.push({
+          beat_id: day.beat2.id,
+          beat_name: day.beat2.name,
+          id: day.beat2.id,
+          name: day.beat2.name,
+          color: day.beat2.color || null,
+          areas: day.beat2.areas || []
+        });
+      }
+      day.beats = dayBeats;
+      day.total_beats = dayBeats.length;
     }
   });
 
@@ -112,7 +137,7 @@ const enrichTourPlansWithJointUsers = async (plansOrPlan, User) => {
   return isArray ? plainPlans : plainPlans[0];
 };
 
-// GET my tour plans
+// GET my tour plans (or subordinate tour plans by user_id/email)
 const getMyPlans = async (req, res) => {
   try {
     const sequelize = getSequelize(req);
@@ -121,17 +146,39 @@ const getMyPlans = async (req, res) => {
       throw new Error('Required models are not available');
     }
     await ensureTourPlanSchema(sequelize);
-    const { TourPlan, TourPlanDay, Beat, User } = models;
+    const { TourPlan, TourPlanDay, Beat, Area, User } = models;
+
+    let targetUserId = req.user.id;
+    if (req.query.user_id) {
+      targetUserId = req.query.user_id;
+    } else if (req.query.email) {
+      const targetUser = await User.findOne({ where: { email: req.query.email } });
+      if (targetUser) targetUserId = targetUser.id;
+    }
+
+    const whereClause = { user_id: targetUserId };
+    if (req.query.month) whereClause.month = parseInt(req.query.month, 10);
+    if (req.query.year) whereClause.year = parseInt(req.query.year, 10);
 
     const plans = await TourPlan.findAll({
-      where: { user_id: req.user.id },
+      where: whereClause,
       include: [
         {
           model: TourPlanDay,
           as: 'days',
           include: [
-            { model: Beat, as: 'beat1', attributes: ['id', 'name'] },
-            { model: Beat, as: 'beat2', attributes: ['id', 'name'] },
+            {
+              model: Beat,
+              as: 'beat1',
+              attributes: ['id', 'name', 'color'],
+              include: Area ? [{ model: Area, as: 'areas', attributes: ['id', 'name', 'pincode'], through: { attributes: [] } }] : []
+            },
+            {
+              model: Beat,
+              as: 'beat2',
+              attributes: ['id', 'name', 'color'],
+              include: Area ? [{ model: Area, as: 'areas', attributes: ['id', 'name', 'pincode'], through: { attributes: [] } }] : []
+            },
             { model: User, as: 'jointWorkWith', attributes: ['id', 'name', 'role'] }
           ]
         }
@@ -165,7 +212,7 @@ const getPlanById = async (req, res) => {
     if (!models || !models.TourPlan) {
       throw new Error('Required models are not available');
     }
-    const { TourPlan, TourPlanDay, User, Beat } = models;
+    const { TourPlan, TourPlanDay, User, Beat, Area } = models;
 
     const plan = await TourPlan.findByPk(req.params.id, {
       include: [
@@ -178,8 +225,18 @@ const getPlanById = async (req, res) => {
           model: TourPlanDay,
           as: 'days',
           include: [
-            { model: Beat, as: 'beat1', attributes: ['id', 'name'] },
-            { model: Beat, as: 'beat2', attributes: ['id', 'name'] },
+            {
+              model: Beat,
+              as: 'beat1',
+              attributes: ['id', 'name', 'color'],
+              include: Area ? [{ model: Area, as: 'areas', attributes: ['id', 'name', 'pincode'], through: { attributes: [] } }] : []
+            },
+            {
+              model: Beat,
+              as: 'beat2',
+              attributes: ['id', 'name', 'color'],
+              include: Area ? [{ model: Area, as: 'areas', attributes: ['id', 'name', 'pincode'], through: { attributes: [] } }] : []
+            },
             { model: User, as: 'jointWorkWith', attributes: ['id', 'name', 'role'] }
           ]
         }

@@ -1215,7 +1215,7 @@ const updateAsmPlanDay = async (req, res) => {
  * active managers, and their mapped day beats.
  */
 const getEnrichedAsmPlan = async (planId, models) => {
-  const { TourPlan, TourPlanDay, User } = models;
+  const { TourPlan, TourPlanDay, User, Beat, Area } = models;
 
   const plan = await TourPlan.findByPk(planId, {
     include: [
@@ -1232,7 +1232,31 @@ const getEnrichedAsmPlan = async (planId, models) => {
             model: User,
             as: 'coWorkWith',
             attributes: ['id', 'name', 'role', 'employee_code', 'email', 'mobile_number']
-          }
+          },
+          ...(Beat ? [
+            {
+              model: Beat,
+              as: 'beat1',
+              attributes: ['id', 'name', 'color', 'is_active'],
+              include: Area ? [{
+                model: Area,
+                as: 'areas',
+                attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
+                through: { attributes: [] }
+              }] : []
+            },
+            {
+              model: Beat,
+              as: 'beat2',
+              attributes: ['id', 'name', 'color', 'is_active'],
+              include: Area ? [{
+                model: Area,
+                as: 'areas',
+                attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
+                through: { attributes: [] }
+              }] : []
+            }
+          ] : [])
         ]
       }
     ],
@@ -1252,8 +1276,47 @@ const getEnrichedAsmPlan = async (planId, models) => {
         hqDetails = await getHqDetailsWithManagersAndDayBeats(d.head_office_id, d.date, models);
       }
 
+      // Populate beats array on each day
+      const dayBeats = [];
+      if (d.beat1) {
+        const b = d.beat1.toJSON ? d.beat1.toJSON() : d.beat1;
+        dayBeats.push({
+          beat_id: b.id,
+          beat_name: b.name,
+          id: b.id,
+          name: b.name,
+          color: b.color,
+          areas: (b.areas || []).map(a => ({
+            area_id: a.id,
+            area_name: a.name,
+            id: a.id,
+            name: a.name,
+            pincode: a.pincode
+          }))
+        });
+      }
+      if (d.beat2) {
+        const b = d.beat2.toJSON ? d.beat2.toJSON() : d.beat2;
+        dayBeats.push({
+          beat_id: b.id,
+          beat_name: b.name,
+          id: b.id,
+          name: b.name,
+          color: b.color,
+          areas: (b.areas || []).map(a => ({
+            area_id: a.id,
+            area_name: a.name,
+            id: a.id,
+            name: a.name,
+            pincode: a.pincode
+          }))
+        });
+      }
+
       enrichedDays.push({
         ...d,
+        beats: dayBeats,
+        total_beats: dayBeats.length,
         hq_details: hqDetails,
         co_worker: d.coWorkWith || null
       });
@@ -1294,7 +1357,10 @@ const getAsmPlan = async (req, res) => {
       const yearNum = parseInt(req.query.year || new Date().getFullYear(), 10);
       let targetUserId = req.user.id;
 
-      if (req.query.user_id && ['Super Admin', 'Admin', 'Opps Team', 'National Head', 'State Head', 'Zonal Manager'].includes(req.user.role)) {
+      if (req.query.email) {
+        const u = await models.User.findOne({ where: { email: req.query.email } });
+        if (u) targetUserId = u.id;
+      } else if (req.query.user_id) {
         targetUserId = req.query.user_id;
       }
 
