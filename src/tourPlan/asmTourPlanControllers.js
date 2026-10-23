@@ -301,22 +301,39 @@ const getHqDetailsWithManagersAndDayBeats = async (headOfficeId, dateStr, models
       }
     }
 
-    // B. All beats of this manager/user
-    let allBeats = [];
-    if (Beat) {
-      allBeats = await Beat.findAll({
-        where: { user_id: mgr.id, is_active: true },
-        attributes: ['id', 'name', 'color', 'is_active'],
-        include: Area ? [{
-          model: Area,
-          as: 'areas',
-          attributes: ['id', 'name', 'pincode', 'post_office', 'head_office_id', 'latitude', 'longitude', 'radius'],
-          through: { attributes: [] }
-        }] : []
+    // Format only the beat(s) assigned to that particular day with their areas
+    const formattedDayBeats = dayBeats.map(b => {
+      const bPlain = b.toJSON ? b.toJSON() : b;
+      const rawAreas = bPlain.areas || [];
+      const formattedAreas = rawAreas.map(a => {
+        const aPlain = a.toJSON ? a.toJSON() : a;
+        return {
+          id: aPlain.id,
+          area_id: aPlain.id,
+          name: aPlain.name,
+          area_name: aPlain.name,
+          pincode: aPlain.pincode,
+          post_office: aPlain.post_office,
+          head_office_id: aPlain.head_office_id,
+          latitude: aPlain.latitude,
+          longitude: aPlain.longitude,
+          radius: aPlain.radius
+        };
       });
-    }
 
-    // C. Map areas for that particular day
+      return {
+        id: bPlain.id,
+        beat_id: bPlain.id,
+        name: bPlain.name,
+        beat_name: bPlain.name,
+        color: bPlain.color,
+        is_active: bPlain.is_active,
+        total_areas: formattedAreas.length,
+        areas: formattedAreas
+      };
+    });
+
+    // Map areas for that particular day
     const dayAreasMap = new Map();
     dayBeats.forEach(b => {
       const bAreas = b.areas || [];
@@ -331,29 +348,23 @@ const getHqDetailsWithManagersAndDayBeats = async (headOfficeId, dateStr, models
       });
     });
 
-    // D. Map all assigned areas under this HQ
-    const assignedAreasMap = new Map();
-    allBeats.forEach(b => {
-      const bAreas = b.areas || [];
-      bAreas.forEach(a => {
-        const plainArea = a.toJSON ? a.toJSON() : a;
-        // Include areas belonging to this HQ
-        if (plainArea.head_office_id === headOfficeId || !plainArea.head_office_id) {
-          if (!assignedAreasMap.has(plainArea.id)) {
-            assignedAreasMap.set(plainArea.id, plainArea);
-          }
-        }
-      });
-    });
+    const dayAreasList = Array.from(dayAreasMap.values());
 
-    // Also direct areas in Area table for this HQ if assigned directly or beats map them
     managerCards.push({
       ...plainMgr,
       tour_plan_day: tourPlanDayInfo,
-      day_beats: dayBeats.map(b => (b.toJSON ? b.toJSON() : b)),
-      day_areas: Array.from(dayAreasMap.values()),
-      all_beats: allBeats.map(b => (b.toJSON ? b.toJSON() : b)),
-      assigned_areas: Array.from(assignedAreasMap.values())
+      date: dateStr,
+      has_day_plan: Boolean(tourPlanDayInfo),
+      day_type: tourPlanDayInfo ? tourPlanDayInfo.day_type : 'Not Planned',
+      tour_plan_status: tourPlanDayInfo?.status || 'No Plan',
+      total_beats: formattedDayBeats.length,
+      total_day_beats: formattedDayBeats.length,
+      beats: formattedDayBeats,
+      day_beats: formattedDayBeats,
+      total_areas: dayAreasList.length,
+      total_day_areas: dayAreasList.length,
+      areas: dayAreasList,
+      day_areas: dayAreasList
     });
   }
 
@@ -580,9 +591,37 @@ const getAsmDateUsersOverview = async (req, res) => {
       include: State ? [{ model: State, attributes: ['id', 'name'] }] : []
     });
     const hqMap = new Map();
+    // Consolidate duplicate HQs by normalized name (e.g. 'Darbhanga' vs 'DARBHANGA')
+    const consolidatedHqMap = new Map(); // normalizedName -> HQ Object
+    const hqIdToNormName = new Map(); // hqId -> normalizedName
+
     headOffices.forEach(h => {
       const plainH = h.toJSON ? h.toJSON() : h;
       hqMap.set(plainH.id, plainH);
+      const normName = (plainH.name || '').trim().toLowerCase();
+      hqIdToNormName.set(plainH.id, normName);
+
+      if (!consolidatedHqMap.has(normName)) {
+        consolidatedHqMap.set(normName, {
+          id: plainH.id,
+          hq_id: plainH.id,
+          name: plainH.name,
+          hq_name: plainH.name,
+          pincode: plainH.pincode,
+          latitude: plainH.latitude,
+          longitude: plainH.longitude,
+          state: plainH.State ? (plainH.State.name || plainH.State) : null,
+          all_hq_ids: [plainH.id],
+          msrs_map: new Map()
+        });
+      } else {
+        const existing = consolidatedHqMap.get(normName);
+        existing.all_hq_ids.push(plainH.id);
+        if (!existing.pincode && plainH.pincode) existing.pincode = plainH.pincode;
+        if (!existing.state && plainH.State) existing.state = plainH.State.name || plainH.State;
+        if (!existing.latitude && plainH.latitude) existing.latitude = plainH.latitude;
+        if (!existing.longitude && plainH.longitude) existing.longitude = plainH.longitude;
+      }
     });
 
     // 1. Gather all users belonging to these common Head Offices
@@ -667,8 +706,6 @@ const getAsmDateUsersOverview = async (req, res) => {
 
     // 2. For each user, fetch their plan for dateStr and their beat(s) + areas
     const userCards = [];
-    const hqUserCardsMap = new Map(); // hqId -> array of userCards
-    targetHqIds.forEach(id => hqUserCardsMap.set(id, []));
 
     for (const u of teamUsers) {
       const plainUser = u.toJSON ? u.toJSON() : u;
@@ -764,32 +801,41 @@ const getAsmDateUsersOverview = async (req, res) => {
       });
       const dayAssignedAreas = Array.from(dayAreasMap.values());
 
-      // Format only the beat(s) assigned to that particular day
+      // Format only the beat(s) assigned to that particular day (Level 3: Inside MSR -> Beats)
       const formattedDayBeats = dayBeats.map(b => {
         const bPlain = b.toJSON ? b.toJSON() : b;
+        const rawAreas = bPlain.areas || [];
+        const formattedAreas = rawAreas.map(a => {
+          const aPlain = a.toJSON ? a.toJSON() : a;
+          return {
+            id: aPlain.id,
+            area_id: aPlain.id,
+            name: aPlain.name,
+            area_name: aPlain.name,
+            pincode: aPlain.pincode,
+            post_office: aPlain.post_office,
+            head_office_id: aPlain.head_office_id,
+            latitude: aPlain.latitude,
+            longitude: aPlain.longitude,
+            radius: aPlain.radius
+          };
+        });
+
         return {
           id: bPlain.id,
+          beat_id: bPlain.id,
           name: bPlain.name,
+          beat_name: bPlain.name,
           color: bPlain.color,
           is_active: bPlain.is_active,
-          areas: (bPlain.areas || []).map(a => {
-            const aPlain = a.toJSON ? a.toJSON() : a;
-            return {
-              id: aPlain.id,
-              name: aPlain.name,
-              pincode: aPlain.pincode,
-              post_office: aPlain.post_office,
-              head_office_id: aPlain.head_office_id,
-              latitude: aPlain.latitude,
-              longitude: aPlain.longitude,
-              radius: aPlain.radius
-            };
-          })
+          total_areas: formattedAreas.length,
+          areas: formattedAreas // (Level 4: Inside Beat -> Areas)
         };
       });
 
       const primaryDayBeat = formattedDayBeats[0] || null;
 
+      // User card (Level 2: Inside HQ -> MSRs)
       const userCard = {
         id: plainUser.id,
         user_id: plainUser.id,
@@ -823,87 +869,99 @@ const getAsmDateUsersOverview = async (req, res) => {
         handshake_status: tourPlanDayInfo?.handshake_status || null,
         tour_plan_day: tourPlanDayInfo,
 
-        // ONLY beats assigned to that particular day of this MSR
+        // ONLY beats assigned to that particular day of this MSR (Level 3)
         beat: primaryDayBeat,
         beat_name: primaryDayBeat?.name || null,
         beat_id: primaryDayBeat?.id || null,
-        day_beats: formattedDayBeats,
         beats: formattedDayBeats,
-        total_day_beats: formattedDayBeats.length,
+        day_beats: formattedDayBeats,
         total_beats: formattedDayBeats.length,
+        total_day_beats: formattedDayBeats.length,
 
         // ONLY areas belonging to that particular day's assigned beat(s)
+        areas: dayAssignedAreas,
         day_assigned_areas: dayAssignedAreas,
         assigned_areas: dayAssignedAreas,
-        areas: dayAssignedAreas,
-        day_assigned_area_names: dayAssignedAreas.map(a => a.name),
-        assigned_area_names: dayAssignedAreas.map(a => a.name),
-        day_assigned_pincodes: dayAssignedAreas.map(a => a.pincode).filter(Boolean),
-        total_day_areas: dayAssignedAreas.length,
-        total_areas: dayAssignedAreas.length
+        total_areas: dayAssignedAreas.length,
+        total_day_areas: dayAssignedAreas.length
       };
 
       userCards.push(userCard);
 
-      // Add to HQ grouping
+      // Add to consolidated HQ grouping
       const userHqs = userHqMapping.get(plainUser.id) || (plainUser.head_office_id ? new Set([plainUser.head_office_id]) : new Set());
       let addedToHq = false;
       userHqs.forEach(hqId => {
-        if (hqUserCardsMap.has(hqId)) {
-          hqUserCardsMap.get(hqId).push(userCard);
+        const normKey = hqIdToNormName.get(hqId);
+        if (normKey && consolidatedHqMap.has(normKey)) {
+          const group = consolidatedHqMap.get(normKey);
+          if (!group.msrs_map.has(plainUser.id)) {
+            group.msrs_map.set(plainUser.id, userCard);
+          }
           addedToHq = true;
         }
       });
-      if (!addedToHq && targetHqIds.length > 0) {
-        const firstHq = targetHqIds[0];
-        if (hqUserCardsMap.has(firstHq)) {
-          hqUserCardsMap.get(firstHq).push(userCard);
+
+      if (!addedToHq && primaryHq) {
+        const normKey = (primaryHq.name || '').trim().toLowerCase();
+        if (consolidatedHqMap.has(normKey)) {
+          const group = consolidatedHqMap.get(normKey);
+          if (!group.msrs_map.has(plainUser.id)) {
+            group.msrs_map.set(plainUser.id, userCard);
+          }
+          addedToHq = true;
+        }
+      }
+
+      if (!addedToHq && consolidatedHqMap.size > 0) {
+        const firstGroup = consolidatedHqMap.values().next().value;
+        if (firstGroup && !firstGroup.msrs_map.has(plainUser.id)) {
+          firstGroup.msrs_map.set(plainUser.id, userCard);
         }
       }
     }
 
-    // 3. Build Head Office Summaries
-    const hqSummaries = [];
-    for (const hqId of targetHqIds) {
-      const hq = hqMap.get(hqId);
-      if (!hq) continue;
+    // 3. Build Final Nested Hierarchy: HQ LIST -> MSR LIST -> BEATS -> AREAS
+    const hqList = [];
+    for (const group of consolidatedHqMap.values()) {
+      const msrs = Array.from(group.msrs_map.values());
 
-      const hqUsers = hqUserCardsMap.get(hqId) || [];
-
-      // Collect all areas covered under this HQ on dateStr
+      // Collect day areas covered across all MSRs in this HQ on dateStr
       const hqDayAreasMap = new Map();
-      hqUsers.forEach(u => {
-        (u.day_assigned_areas || []).forEach(a => {
+      msrs.forEach(u => {
+        (u.areas || []).forEach(a => {
           if (!hqDayAreasMap.has(a.id)) {
             hqDayAreasMap.set(a.id, a);
           }
         });
       });
 
-      // All areas defined under this Head Office in the Area table
+      // All areas defined under these Head Office IDs in the Area table
       let allHqAreas = [];
       if (Area) {
         try {
           allHqAreas = await Area.findAll({
-            where: { head_office_id: hqId, is_active: true },
+            where: { head_office_id: { [Op.in]: group.all_hq_ids }, is_active: true },
             attributes: ['id', 'name', 'pincode', 'post_office', 'latitude', 'longitude', 'radius']
           });
         } catch (e) {
-          console.warn(`[getAsmDateUsersOverview] allHqAreas query warning for HQ ${hqId}:`, e.message);
+          console.warn(`[getAsmDateUsersOverview] allHqAreas query warning for HQ ${group.id}:`, e.message);
         }
       }
 
-      hqSummaries.push({
-        id: hq.id,
-        name: hq.name,
-        pincode: hq.pincode,
-        latitude: hq.latitude,
-        longitude: hq.longitude,
-        state: hq.State ? { id: hq.State.id, name: hq.State.name } : null,
-        total_msrs: hqUsers.length,
-        total_users: hqUsers.length,
-        msrs: hqUsers,
-        users: hqUsers,
+      hqList.push({
+        id: group.id,
+        hq_id: group.id,
+        name: group.name,
+        hq_name: group.name,
+        pincode: group.pincode,
+        latitude: group.latitude,
+        longitude: group.longitude,
+        state: group.state,
+        total_msrs: msrs.length,
+        total_users: msrs.length,
+        msrs: msrs, // Inside HQ: MSR LIST
+        users: msrs,
         day_areas_covered: Array.from(hqDayAreasMap.values()),
         all_areas: allHqAreas
       });
@@ -923,14 +981,18 @@ const getAsmDateUsersOverview = async (req, res) => {
           pincode: targetUser.HeadOffice.pincode
         } : null
       },
-      total_assigned_hqs: targetHqIds.length,
+      total_hqs: hqList.length,
+      total_assigned_hqs: hqList.length,
       total_msrs: userCards.length,
       total_users: userCards.length,
-      data: userCards,
+      // 4-level nested structure: HQ LIST -> MSR LIST -> BEATS -> AREAS
+      data: hqList,
+      head_offices: hqList,
+      hqs: hqList,
+      // Flat MSR array preserved for backwards compatibility
       msrs: userCards,
       users: userCards,
-      msr_details: userCards,
-      head_offices: hqSummaries
+      msr_details: userCards
     });
   } catch (error) {
     console.error('getAsmDateUsersOverview error:', error);
