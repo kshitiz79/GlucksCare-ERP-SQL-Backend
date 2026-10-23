@@ -340,14 +340,20 @@ const createExpense = async (req, res) => {
     let totalDistance = 0;
     let ratePerKm = settings.rate_per_km || 2.40;
 
-    // Check if manual amount is provided (Quick Add feature)
-    const manualAmount = req.body.amount;
+    // Check if client explicitly provided an amount (trust client side value for all expenses, including 0.0)
+    const hasExplicitAmount = req.body.amount !== undefined &&
+                              req.body.amount !== null &&
+                              req.body.amount !== '' &&
+                              !isNaN(Number(req.body.amount));
 
-    if (manualAmount && Number(manualAmount) > 0) {
-      // Use manual amount for Quick Add (when amount is explicitly provided)
-      computedAmount = Number(manualAmount);
+    if (hasExplicitAmount) {
+      // Trust client side value when explicitly provided (for all expense categories, including 0.0)
+      computedAmount = Number(req.body.amount);
+      if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
+        totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
+      }
     } else if (category === 'extra') {
-      computedAmount = Number(req.body.amount) || 0;
+      computedAmount = 0;
     } else if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
       // Auto-calculate for Standard Travel Expense
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
@@ -583,19 +589,38 @@ const updateExpense = async (req, res) => {
     let totalDistance = 0;
     let ratePerKm = settings.rate_per_km || 2.40;
 
-    if (category === 'travel' && Array.isArray(travelDetails)) {
+    const hasExplicitAmount = amount !== undefined &&
+                              amount !== null &&
+                              amount !== '' &&
+                              !isNaN(Number(amount));
+
+    if (hasExplicitAmount) {
+      // Trust client side value when explicitly provided (for all expense categories, including 0.0)
+      computedAmount = Number(amount);
+      if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
+        totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
+      } else if (category === 'travel') {
+        totalDistance = expense.total_distance_km || 0;
+      }
+    } else if (category === 'travel' && Array.isArray(travelDetails) && travelDetails.length > 0) {
       totalDistance = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
       computedAmount = totalDistance * ratePerKm;
     } else if (category === 'daily') {
-      if (dailyAllowanceType === 'headoffice') {
-        computedAmount = settings.head_office_amount || 150;
-      } else if (dailyAllowanceType === 'ex-headquarters') {
-        computedAmount = settings.ex_headquarters_amount || 175;
+      if (dailyAllowanceType && dailyAllowanceType !== expense.daily_allowance_type) {
+        if (dailyAllowanceType === 'headoffice') {
+          computedAmount = settings.head_office_amount || 150;
+        } else if (dailyAllowanceType === 'ex-headquarters') {
+          computedAmount = settings.ex_headquarters_amount || 175;
+        } else {
+          computedAmount = settings.outside_head_office_amount || 175;
+        }
       } else {
-        computedAmount = settings.outside_head_office_amount || 175;
+        computedAmount = expense.amount !== undefined && expense.amount !== null ? Number(expense.amount) : (settings.head_office_amount || 150);
       }
     } else if (category === 'extra') {
-      computedAmount = Number(amount) || expense.amount;
+      computedAmount = expense.amount;
+    } else {
+      computedAmount = expense.amount;
     }
 
     // Update expense data
@@ -604,7 +629,7 @@ const updateExpense = async (req, res) => {
       description,
       bill: billUrl,
       amount: computedAmount,
-      travel_details: category === 'travel' ? travelDetails.map(leg => ({ ...leg, km: parseInt(leg.km, 10) || 0 })) : [],
+      travel_details: category === 'travel' ? (Array.isArray(travelDetails) ? travelDetails.map(leg => ({ ...leg, km: parseInt(leg.km, 10) || 0 })) : (expense.travel_details || [])) : [],
       rate_per_km: ratePerKm,
       total_distance_km: totalDistance,
       daily_allowance_type: category === 'daily' ? dailyAllowanceType : null,
