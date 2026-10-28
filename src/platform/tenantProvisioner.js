@@ -158,6 +158,11 @@ async function dropTenantDatabase(tenantId) {
     throw new Error('Tenant not found');
   }
 
+  // Permanent protection for primary flagship system
+  if (tenant.slug === 'gluckscare' || tenant.db_name === 'gluckscare_db' || tenant.db_name === 'gluckscare_master_db') {
+    throw new Error('Action prohibited: The primary flagship instance database cannot be deleted.');
+  }
+
   const dbName = tenant.db_name;
   console.log(`⚠️ [Provisioner] Terminating active connections and dropping database "${dbName}"...`);
 

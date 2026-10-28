@@ -209,4 +209,9 @@ router.use('/theme', themeColorRoutes);
 router.use('/pdfs', pdfRoutes);
 router.use('/mobimages', mobImageRoutes);
 
+// SaaS Subscription details for active tenant
+const platformController = require('../platform/platformController');
+router.get('/company/subscription', platformController.getCurrentTenantSubscription);
+router.get('/subscription/current', platformController.getCurrentTenantSubscription);
+
 module.exports = router;

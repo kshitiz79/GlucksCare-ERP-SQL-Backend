@@ -4,9 +4,12 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
-const { Tenant, PlatformAdmin, initMasterDatabase } = require('./masterDb');
+const { Tenant, PlatformAdmin, PlatformSetting, initMasterDatabase, DEFAULT_PRICING_CONFIG, DEFAULT_PAYU_CONFIG } = require('./masterDb');
 const { provisionTenantDatabase, dropTenantDatabase } = require('./tenantProvisioner');
 const { getTenantDb } = require('./tenantConnectionManager');
+const { getActivePricingConfig, calculateSubscriptionPrice } = require('./pricingEngine');
+const { getActivePayuConfig, initiatePayUPayment, verifyPaymentHash } = require('./payuService');
+const { generateAndSendDeleteOtp, verifyDeleteOtp } = require('./otpService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gluckscare_platform_master_secret_2026';
 
@@ -106,6 +109,17 @@ async function getTenants(req, res) {
         adminEmail: realAdminEmail,
         status: t.status,
         activeUsers: realCount,
+        subscriptionPlan: t.subscription_plan || 'Starter',
+        subscriptionCategory: t.subscription_category || (t.slug === 'gluckscare' ? 'EXEMPT_NO_PAY' : 'PAID_SAAS'),
+        billingCycle: t.billing_cycle || 'annual',
+        licensedUsers: t.licensed_users || 25,
+        ratePerUser: t.rate_per_user || 200,
+        subscriptionStatus: t.subscription_status || 'ACTIVE',
+        subscriptionStartDate: t.subscription_start_date,
+        subscriptionEndDate: t.subscription_end_date,
+        paymentGateway: t.payment_gateway || (t.slug === 'gluckscare' ? 'EXEMPT' : 'PAYU'),
+        lastPaymentId: t.last_payment_id,
+        lastPaymentAmount: t.last_payment_amount,
         createdAt: t.created_at
       };
     }));
@@ -231,10 +245,76 @@ async function toggleTenantStatus(req, res) {
   }
 }
 
-// 6. Delete Tenant & Drop Database
+// 6. Request Security OTP to Drop Database
+async function requestDeleteTenantOtp(req, res) {
+  try {
+    await initMasterDatabase();
+    const { id } = req.params;
+    const tenant = await Tenant.findByPk(id);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant company not found' });
+    }
+
+    if (tenant.slug === 'gluckscare' || tenant.db_name === 'gluckscare_db' || tenant.db_name === 'gluckscare_master_db') {
+      return res.status(403).json({
+        success: false,
+        message: 'Action prohibited: The primary flagship instance database cannot be deleted.'
+      });
+    }
+
+    const requestedBy = req.platformAdmin ? (req.platformAdmin.username || req.platformAdmin.email || 'Super Admin') : 'Master Admin';
+
+    const result = await generateAndSendDeleteOtp({
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      dbName: tenant.db_name,
+      slug: tenant.slug,
+      requestedBy
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('❌ Request delete OTP error:', err);
+    return res.status(400).json({ success: false, message: err.message });
+  }
+}
+
+// 7. Secure Delete Tenant & Drop Physical Database (Requires Verified OTP + Confirmation)
 async function deleteTenant(req, res) {
   try {
+    await initMasterDatabase();
     const { id } = req.params;
+    const otp = req.body?.otp || req.headers['x-delete-otp'] || req.query?.otp;
+    const confirmDbName = req.body?.confirmDbName || req.headers['x-confirm-db-name'] || req.query?.confirmDbName;
+
+    const tenant = await Tenant.findByPk(id);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant company not found' });
+    }
+
+    if (tenant.slug === 'gluckscare' || tenant.db_name === 'gluckscare_db' || tenant.db_name === 'gluckscare_master_db') {
+      return res.status(403).json({
+        success: false,
+        message: 'Action prohibited: The primary flagship instance database cannot be deleted.'
+      });
+    }
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Security authorization required: Please request an OTP and enter the 6-digit code to drop this database.'
+      });
+    }
+
+    // Verify OTP and exact DB name
+    verifyDeleteOtp({
+      tenantId: tenant.id,
+      inputOtp: otp,
+      confirmDbName,
+      actualDbName: tenant.db_name
+    });
+
+    // If OTP is verified, proceed with physical database drop and tenant removal
     const result = await dropTenantDatabase(id);
     return res.json({ success: true, message: result.message });
   } catch (err) {
@@ -339,13 +419,467 @@ async function getPublicCompanies(req, res) {
   }
 }
 
+// 7. Get Centralized Pricing Configuration
+async function getPricingConfig(req, res) {
+  try {
+    const config = await getActivePricingConfig();
+    return res.json({
+      success: true,
+      data: config
+    });
+  } catch (err) {
+    console.error('❌ Get pricing config error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve pricing configuration',
+      error: err.message
+    });
+  }
+}
+
+// 8. Update Centralized Pricing Configuration
+async function updatePricingConfig(req, res) {
+  try {
+    const newConfig = req.body;
+    if (!newConfig || typeof newConfig !== 'object') {
+      return res.status(400).json({ success: false, message: 'Invalid pricing configuration payload' });
+    }
+
+    let setting = await PlatformSetting.findByPk('pricing_config');
+    if (!setting) {
+      setting = await PlatformSetting.create({
+        key: 'pricing_config',
+        value: { ...DEFAULT_PRICING_CONFIG, ...newConfig }
+      });
+    } else {
+      await setting.update({
+        value: { ...setting.value, ...newConfig }
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Pricing configuration updated successfully',
+      data: setting.value
+    });
+  } catch (err) {
+    console.error('❌ Update pricing config error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update pricing configuration',
+      error: err.message
+    });
+  }
+}
+
+// 9. Calculate Dynamic Subscription Pricing (Validated on backend)
+async function calculatePricing(req, res) {
+  try {
+    const payload = { ...(req.query || {}), ...(req.body || {}) };
+    const rawUsers = payload.users || payload.userCount || payload.user_count || 10;
+    const rawCycle = payload.billingCycle || payload.billing_cycle || 'annual';
+    const config = await getActivePricingConfig();
+    const result = calculateSubscriptionPrice(config, rawUsers, rawCycle);
+
+    return res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error('❌ Calculate pricing error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to calculate subscription pricing',
+      error: err.message
+    });
+  }
+}
+
+// 10. Get PayU Configuration
+async function getPayUConfig(req, res) {
+  try {
+    const config = await getActivePayuConfig();
+    return res.json({
+      success: true,
+      data: {
+        key: config.key,
+        client_id: config.client_id,
+        mode: config.mode,
+        enabled: config.enabled,
+        hasSalt: !!config.salt,
+        hasClientSecret: !!config.client_secret,
+        // Provide masked preview for security
+        saltMasked: config.salt ? `${config.salt.substring(0, 4)}••••${config.salt.slice(-4)}` : '',
+        secretMasked: config.client_secret ? `${config.client_secret.substring(0, 6)}••••${config.client_secret.slice(-6)}` : ''
+      }
+    });
+  } catch (err) {
+    console.error('❌ Get PayU config error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve PayU configuration',
+      error: err.message
+    });
+  }
+}
+
+// 11. Update PayU Configuration
+async function updatePayUConfig(req, res) {
+  try {
+    const { key, salt, client_id, client_secret, mode, enabled } = req.body;
+    let setting = await PlatformSetting.findByPk('payu_config');
+    const existing = setting ? setting.value : DEFAULT_PAYU_CONFIG;
+
+    const updated = {
+      key: key !== undefined ? key : existing.key,
+      salt: salt && !salt.includes('••••') ? salt : existing.salt,
+      client_id: client_id !== undefined ? client_id : existing.client_id,
+      client_secret: client_secret && !client_secret.includes('••••') ? client_secret : existing.client_secret,
+      mode: mode || existing.mode || 'TEST',
+      enabled: enabled !== undefined ? !!enabled : existing.enabled
+    };
+
+    if (!setting) {
+      setting = await PlatformSetting.create({ key: 'payu_config', value: updated });
+    } else {
+      await setting.update({ value: updated });
+    }
+
+    return res.json({
+      success: true,
+      message: 'PayU gateway configuration saved successfully',
+      data: {
+        key: updated.key,
+        client_id: updated.client_id,
+        mode: updated.mode,
+        enabled: updated.enabled
+      }
+    });
+  } catch (err) {
+    console.error('❌ Update PayU config error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update PayU configuration',
+      error: err.message
+    });
+  }
+}
+
+// 12. Get Tenant Subscription Details
+async function getTenantSubscription(req, res) {
+  try {
+    const { id } = req.params;
+    const tenant = await Tenant.findByPk(id);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        subscriptionPlan: tenant.subscription_plan,
+        subscriptionCategory: tenant.subscription_category, // 'PAID_SAAS' vs 'EXEMPT_NO_PAY'
+        billingCycle: tenant.billing_cycle,
+        licensedUsers: tenant.licensed_users,
+        ratePerUser: tenant.rate_per_user,
+        subscriptionStatus: tenant.subscription_status,
+        subscriptionStartDate: tenant.subscription_start_date,
+        subscriptionEndDate: tenant.subscription_end_date,
+        paymentGateway: tenant.payment_gateway,
+        lastPaymentId: tenant.last_payment_id,
+        lastPaymentAmount: tenant.last_payment_amount
+      }
+    });
+  } catch (err) {
+    console.error('❌ Get tenant subscription error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch tenant subscription',
+      error: err.message
+    });
+  }
+}
+
+// 13. Update Tenant Subscription (Category toggle, user quota, plan change)
+async function updateTenantSubscription(req, res) {
+  try {
+    const { id } = req.params;
+    const {
+      subscriptionPlan,
+      subscriptionCategory, // 'PAID_SAAS' or 'EXEMPT_NO_PAY' (bina pay ke change wali)
+      billingCycle,
+      licensedUsers,
+      ratePerUser,
+      subscriptionStatus,
+      subscriptionEndDate,
+      paymentGateway
+    } = req.body;
+
+    const tenant = await Tenant.findByPk(id);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    const updates = {};
+    if (subscriptionPlan !== undefined) updates.subscription_plan = subscriptionPlan;
+    if (subscriptionCategory !== undefined) updates.subscription_category = subscriptionCategory;
+    if (billingCycle !== undefined) updates.billing_cycle = billingCycle;
+    if (licensedUsers !== undefined) updates.licensed_users = parseInt(licensedUsers, 10);
+    if (ratePerUser !== undefined) updates.rate_per_user = parseFloat(ratePerUser);
+    if (subscriptionStatus !== undefined) updates.subscription_status = subscriptionStatus;
+    if (subscriptionEndDate !== undefined) updates.subscription_end_date = subscriptionEndDate;
+    if (paymentGateway !== undefined) updates.payment_gateway = paymentGateway;
+
+    // If switched to EXEMPT_NO_PAY, automatically set payment gateway to EXEMPT
+    if (subscriptionCategory === 'EXEMPT_NO_PAY') {
+      updates.payment_gateway = 'EXEMPT';
+      if (!updates.rate_per_user && updates.rate_per_user !== 0) {
+        updates.rate_per_user = 0;
+      }
+    }
+
+    await tenant.update(updates);
+
+    return res.json({
+      success: true,
+      message: `Tenant subscription updated successfully (${updates.subscription_category || tenant.subscription_category})`,
+      data: {
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        subscriptionPlan: tenant.subscription_plan,
+        subscriptionCategory: tenant.subscription_category,
+        billingCycle: tenant.billing_cycle,
+        licensedUsers: tenant.licensed_users,
+        ratePerUser: tenant.rate_per_user,
+        subscriptionStatus: tenant.subscription_status,
+        subscriptionEndDate: tenant.subscription_end_date,
+        paymentGateway: tenant.payment_gateway
+      }
+    });
+  } catch (err) {
+    console.error('❌ Update tenant subscription error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update tenant subscription',
+      error: err.message
+    });
+  }
+}
+
+// 14. Initiate PayU Checkout Session
+async function initiatePayUCheckout(req, res) {
+  try {
+    const {
+      tenantId,
+      userCount = 10,
+      billingCycle = 'annual',
+      planName = 'Professional Growth',
+      returnUrl,
+      cancelUrl
+    } = req.body;
+
+    let targetTenant = null;
+    if (tenantId) {
+      targetTenant = await Tenant.findByPk(tenantId);
+    }
+
+    // Check if target tenant is EXEMPT_NO_PAY
+    if (targetTenant && targetTenant.subscription_category === 'EXEMPT_NO_PAY') {
+      return res.status(400).json({
+        success: false,
+        message: 'This tenant belongs to the Complimentary / Internal category and is exempt from payment gateways.'
+      });
+    }
+
+    // Dynamic price calculation
+    const pricingConfig = await getActivePricingConfig();
+    const priceCalculation = calculateSubscriptionPrice(pricingConfig, userCount, billingCycle);
+
+    if (priceCalculation.isEnterprise) {
+      return res.status(400).json({
+        success: false,
+        message: 'Fleet sizes of 1,001+ require custom contract agreements. Please contact enterprise sales.'
+      });
+    }
+
+    const payuPayload = await initiatePayUPayment({
+      tenantId: targetTenant ? targetTenant.id : 'NEW_PROSPECT',
+      tenantSlug: targetTenant ? targetTenant.slug : 'new',
+      companyName: targetTenant ? targetTenant.name : 'Pharma Subscriber',
+      adminName: targetTenant ? targetTenant.admin_name : req.body.adminName,
+      adminEmail: targetTenant ? targetTenant.admin_email : req.body.adminEmail,
+      adminPhone: req.body.adminPhone || '9999999999',
+      planName,
+      userCount: priceCalculation.userCount,
+      billingCycle,
+      amount: priceCalculation.totalAmount,
+      returnUrl: returnUrl || `${req.headers.origin || 'http://localhost:5173'}/payment/callback`,
+      cancelUrl: cancelUrl || `${req.headers.origin || 'http://localhost:5173'}/payment/cancel`
+    });
+
+    return res.json({
+      success: true,
+      calculation: priceCalculation,
+      payment: payuPayload
+    });
+  } catch (err) {
+    console.error('❌ Initiate PayU checkout error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to initiate PayU payment session',
+      error: err.message
+    });
+  }
+}
+
+// 15. Handle PayU Return Webhook / Verification
+async function handlePayUResponse(req, res) {
+  try {
+    const payuConfig = await getActivePayuConfig();
+    const data = req.body || {};
+    const isValid = verifyPaymentHash(data, payuConfig.salt);
+
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'PayU SHA-512 signature verification failed. Potential tampering detected.'
+      });
+    }
+
+    const { status, txnid, amount, udf1: tenantId, udf4: users, udf5: cycle } = data;
+
+    if (status === 'success' && tenantId && tenantId !== 'NEW_PROSPECT') {
+      const tenant = await Tenant.findByPk(tenantId);
+      if (tenant) {
+        const months = cycle === 'annual' ? 12 : (cycle === 'half_yearly' ? 6 : (cycle === 'quarterly' ? 3 : 1));
+        const newEndDate = new Date(Date.now() + months * 30 * 24 * 60 * 60 * 1000);
+
+        await tenant.update({
+          subscription_status: 'ACTIVE',
+          subscription_category: 'PAID_SAAS',
+          billing_cycle: cycle || 'annual',
+          licensed_users: parseInt(users, 10) || tenant.licensed_users,
+          subscription_end_date: newEndDate,
+          payment_gateway: 'PAYU',
+          last_payment_id: txnid,
+          last_payment_amount: parseFloat(amount)
+        });
+        console.log(`✅ Activated PayU subscription for tenant: ${tenant.name} (${txnid})`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      status,
+      txnid,
+      verified: true
+    });
+  } catch (err) {
+    console.error('❌ Handle PayU response error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process PayU callback',
+      error: err.message
+    });
+  }
+}
+
+// 16. Tenant Self-Service: Get Current Subscription (for Admin Profile & Settings)
+async function getCurrentTenantSubscription(req, res) {
+  try {
+    // If tenant context is attached by authMiddleware
+    let tenantRecord = null;
+    if (req.tenant && req.tenant.id) {
+      tenantRecord = await Tenant.findByPk(req.tenant.id);
+    } else if (req.tenant && req.tenant.slug) {
+      tenantRecord = await Tenant.findOne({ where: { slug: req.tenant.slug } });
+    } else if (req.headers['x-tenant-slug']) {
+      tenantRecord = await Tenant.findOne({ where: { slug: req.headers['x-tenant-slug'] } });
+    } else {
+      // Default fallback to main tenant (GlucksCare)
+      tenantRecord = await Tenant.findOne({ where: { slug: 'gluckscare' } });
+    }
+
+    if (!tenantRecord) {
+      // Return default complimentary representation
+      return res.json({
+        success: true,
+        data: {
+          name: 'GlucksCare ERP',
+          subscriptionPlan: 'Enterprise Flagship',
+          subscriptionCategory: 'EXEMPT_NO_PAY',
+          billingCycle: 'annual',
+          licensedUsers: 9999,
+          activeUsers: 1,
+          subscriptionStatus: 'ACTIVE',
+          isExempt: true,
+          renewalDate: null,
+          paymentGateway: 'EXEMPT'
+        }
+      });
+    }
+
+    let realActiveUsers = tenantRecord.active_users || 1;
+    try {
+      const tenantDb = getTenantDb(tenantRecord.db_name);
+      if (tenantDb && tenantDb.models && tenantDb.models.User) {
+        realActiveUsers = await tenantDb.models.User.count({ where: { is_active: true } }).catch(() => realActiveUsers);
+      }
+    } catch (e) {}
+
+    return res.json({
+      success: true,
+      data: {
+        id: tenantRecord.id,
+        name: tenantRecord.name,
+        slug: tenantRecord.slug,
+        subscriptionPlan: tenantRecord.subscription_plan || 'Starter',
+        subscriptionCategory: tenantRecord.subscription_category || (tenantRecord.slug === 'gluckscare' ? 'EXEMPT_NO_PAY' : 'PAID_SAAS'),
+        isExempt: tenantRecord.subscription_category === 'EXEMPT_NO_PAY',
+        billingCycle: tenantRecord.billing_cycle || 'annual',
+        licensedUsers: tenantRecord.licensed_users || 25,
+        activeUsers: realActiveUsers,
+        ratePerUser: tenantRecord.rate_per_user || 200,
+        subscriptionStatus: tenantRecord.subscription_status || 'ACTIVE',
+        subscriptionStartDate: tenantRecord.subscription_start_date,
+        subscriptionEndDate: tenantRecord.subscription_end_date,
+        paymentGateway: tenantRecord.payment_gateway || 'PAYU',
+        lastPaymentId: tenantRecord.last_payment_id,
+        lastPaymentAmount: tenantRecord.last_payment_amount
+      }
+    });
+  } catch (err) {
+    console.error('❌ Get current tenant subscription error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch current subscription status',
+      error: err.message
+    });
+  }
+}
+
 module.exports = {
   login,
   getTenants,
   createTenant,
   updateTenant,
   toggleTenantStatus,
+  requestDeleteTenantOtp,
   deleteTenant,
   getCompanyConfig,
-  getPublicCompanies
+  getPublicCompanies,
+  getPricingConfig,
+  updatePricingConfig,
+  calculatePricing,
+  getPayUConfig,
+  updatePayUConfig,
+  getTenantSubscription,
+  updateTenantSubscription,
+  initiatePayUCheckout,
+  handlePayUResponse,
+  getCurrentTenantSubscription
 };

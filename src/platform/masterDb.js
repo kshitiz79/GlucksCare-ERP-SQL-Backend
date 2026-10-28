@@ -81,6 +81,50 @@ const Tenant = masterSequelize.define('Tenant', {
   active_users: {
     type: DataTypes.INTEGER,
     defaultValue: 1
+  },
+  subscription_plan: {
+    type: DataTypes.STRING(100),
+    defaultValue: 'Starter'
+  },
+  subscription_category: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'PAID_SAAS' // 'PAID_SAAS', 'EXEMPT_NO_PAY'
+  },
+  billing_cycle: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'annual'
+  },
+  licensed_users: {
+    type: DataTypes.INTEGER,
+    defaultValue: 25
+  },
+  rate_per_user: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 200.00
+  },
+  subscription_status: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'ACTIVE' // 'ACTIVE', 'TRIAL', 'EXPIRED', 'SUSPENDED'
+  },
+  subscription_start_date: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  },
+  subscription_end_date: {
+    type: DataTypes.DATE,
+    defaultValue: () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+  },
+  payment_gateway: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'PAYU'
+  },
+  last_payment_id: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
+  last_payment_amount: {
+    type: DataTypes.DECIMAL(12, 2),
+    allowNull: true
   }
 }, {
   tableName: 'tenants'
@@ -119,6 +163,82 @@ const PlatformAdmin = masterSequelize.define('PlatformAdmin', {
   tableName: 'platform_admins'
 });
 
+// Platform Setting Model (Pricing Config, PayU Config, etc.)
+const PlatformSetting = masterSequelize.define('PlatformSetting', {
+  key: {
+    type: DataTypes.STRING(100),
+    primaryKey: true
+  },
+  value: {
+    type: DataTypes.JSONB,
+    allowNull: false
+  }
+}, {
+  tableName: 'platform_settings',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at'
+});
+
+const DEFAULT_PRICING_CONFIG = {
+  currency: 'INR',
+  minimum_users: 10,
+  gst_rate: 18,
+  billing_cycles: {
+    monthly: {
+      key: 'monthly',
+      label: 'Monthly',
+      rate: 249,
+      months: 1,
+      billingText: 'Billed monthly',
+      savingsBadge: null
+    },
+    quarterly: {
+      key: 'quarterly',
+      label: 'Quarterly',
+      rate: 229,
+      months: 3,
+      billingText: 'Billed every 3 months',
+      savingsBadge: 'Save 8%'
+    },
+    half_yearly: {
+      key: 'half_yearly',
+      label: 'Half-Yearly',
+      rate: 215,
+      months: 6,
+      billingText: 'Billed every 6 months',
+      savingsBadge: 'Save 14%'
+    },
+    annual: {
+      key: 'annual',
+      label: 'Annual',
+      rate: 200,
+      months: 12,
+      billingText: 'Billed annually',
+      savingsBadge: 'Save 20% + Volume Tiers',
+      isBestValue: true
+    }
+  },
+  volume_tiers: [
+    { min_users: 1, max_users: 25, rate: 200, label: 'Starter (1–25)' },
+    { min_users: 26, max_users: 50, rate: 195, label: 'Growth (26–50)' },
+    { min_users: 51, max_users: 100, rate: 190, label: 'Scale (51–100)' },
+    { min_users: 101, max_users: 250, rate: 180, label: 'Expansion (101–250)' },
+    { min_users: 251, max_users: 500, rate: 170, label: 'Fleet (251–500)' },
+    { min_users: 501, max_users: 1000, rate: 160, label: 'Mega Fleet (501–1,000)' }
+  ],
+  enterprise_threshold: 1001
+};
+
+const DEFAULT_PAYU_CONFIG = {
+  key: '6YtskX',
+  salt: 'fub2TkaXtFe5luYIX0jqpXYdv7Oe9Cs8',
+  client_id: '4eb8246cedbad8e0a24143d0896cc6813f1120548fe707b58696f1436b0d84c8',
+  client_secret: '642c8dddff6280f59afec060432f1ed5e053272fae8e71a6dd2aba32d0080a46',
+  mode: 'TEST', // 'TEST' or 'LIVE'
+  enabled: true
+};
+
 async function initMasterDatabase() {
   try {
     await masterSequelize.authenticate();
@@ -144,6 +264,17 @@ async function initMasterDatabase() {
 
       ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url TEXT;
       ALTER TABLE tenants ADD COLUMN IF NOT EXISTS backend_url VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(100) DEFAULT 'Starter';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_category VARCHAR(50) DEFAULT 'PAID_SAAS';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS billing_cycle VARCHAR(50) DEFAULT 'annual';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS licensed_users INTEGER DEFAULT 25;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS rate_per_user NUMERIC(10, 2) DEFAULT 200.00;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'ACTIVE';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_start_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_end_date TIMESTAMP WITH TIME ZONE DEFAULT (CURRENT_TIMESTAMP + INTERVAL '1 year');
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS payment_gateway VARCHAR(50) DEFAULT 'PAYU';
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS last_payment_id VARCHAR(100);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS last_payment_amount NUMERIC(12, 2);
 
       CREATE TABLE IF NOT EXISTS platform_admins (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -155,11 +286,19 @@ async function initMasterDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
-    // Sync Tenant & PlatformAdmin models in Master DB
+    // Sync models
     await Tenant.sync({ alter: true });
     await PlatformAdmin.sync();
+    await PlatformSetting.sync();
 
     // Seed default Platform Super Admin if not present
     const defaultEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@gluckscare.com';
@@ -178,22 +317,71 @@ async function initMasterDatabase() {
       console.log(`✅ Default Super Admin seeded: ${defaultEmail}`);
     }
 
-    // Seed main tenant if no tenants exist
-    const count = await Tenant.count();
-    if (count === 0) {
-      await Tenant.create({
-        name: 'GlucksCare Pharmaceuticals (Main)',
-        slug: 'gluckscare',
-        logo_url: 'https://gluckscare.com/logo.png',
-        backend_url: 'https://api.gluckscare.com',
-        db_name: process.env.DB_NAME || 'gluckscare_erp_production',
-        subdomain: 'gluckscare.gluckscare.com',
-        admin_name: 'Main Administrator',
-        admin_email: 'admin@gluckscare.com',
-        status: 'ACTIVE',
-        active_users: 1
+    // Seed default Pricing Configuration in platform_settings if not present
+    const pricingSetting = await PlatformSetting.findByPk('pricing_config');
+    if (!pricingSetting) {
+      await PlatformSetting.create({
+        key: 'pricing_config',
+        value: DEFAULT_PRICING_CONFIG
       });
-      console.log('✅ Seeded default main tenant in master registry');
+      console.log('✅ Seeded default Pharma Sales SaaS pricing configuration');
+    }
+
+    // Seed default PayU Configuration in platform_settings if not present
+    const payuSetting = await PlatformSetting.findByPk('payu_config');
+    if (!payuSetting) {
+      await PlatformSetting.create({
+        key: 'payu_config',
+        value: DEFAULT_PAYU_CONFIG
+      });
+      console.log('✅ Seeded PayU Gateway credentials and configuration');
+    }
+
+    // Ensure GlucksCare flagship tenant has 'EXEMPT_NO_PAY' category (no payment required)
+    const glucksTenant = await Tenant.findOne({
+      where: {
+        slug: 'gluckscare'
+      }
+    });
+
+    if (glucksTenant) {
+      if (glucksTenant.subscription_category !== 'EXEMPT_NO_PAY') {
+        await glucksTenant.update({
+          subscription_plan: 'GlucksCare Enterprise (Internal)',
+          subscription_category: 'EXEMPT_NO_PAY',
+          licensed_users: 9999,
+          rate_per_user: 0,
+          payment_gateway: 'EXEMPT',
+          billing_cycle: 'annual',
+          subscription_status: 'ACTIVE'
+        });
+        console.log('✅ Updated GlucksCare flagship tenant to EXEMPT_NO_PAY (No Payment Needed)');
+      }
+    } else {
+      // Seed main tenant if no tenants exist
+      const count = await Tenant.count();
+      if (count === 0) {
+        await Tenant.create({
+          name: 'GlucksCare Pharmaceuticals (Main)',
+          slug: 'gluckscare',
+          logo_url: 'https://gluckscare.com/logo.png',
+          backend_url: 'https://api.gluckscare.com',
+          db_name: process.env.DB_NAME || 'gluckscare_erp_production',
+          subdomain: 'gluckscare.gluckscare.com',
+          admin_name: 'Main Administrator',
+          admin_email: 'admin@gluckscare.com',
+          status: 'ACTIVE',
+          active_users: 1,
+          subscription_plan: 'GlucksCare Enterprise (Internal)',
+          subscription_category: 'EXEMPT_NO_PAY',
+          licensed_users: 9999,
+          rate_per_user: 0,
+          payment_gateway: 'EXEMPT',
+          billing_cycle: 'annual',
+          subscription_status: 'ACTIVE'
+        });
+        console.log('✅ Seeded default main tenant in master registry with EXEMPT_NO_PAY');
+      }
     }
 
     // Pre-warm and ensure sync schemas across all active tenants
@@ -220,5 +408,8 @@ module.exports = {
   masterSequelize,
   Tenant,
   PlatformAdmin,
+  PlatformSetting,
+  DEFAULT_PRICING_CONFIG,
+  DEFAULT_PAYU_CONFIG,
   initMasterDatabase
 };
