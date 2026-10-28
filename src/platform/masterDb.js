@@ -231,11 +231,11 @@ const DEFAULT_PRICING_CONFIG = {
 };
 
 const DEFAULT_PAYU_CONFIG = {
-  key: '6YtskX',
-  salt: 'fub2TkaXtFe5luYIX0jqpXYdv7Oe9Cs8',
-  client_id: '4eb8246cedbad8e0a24143d0896cc6813f1120548fe707b58696f1436b0d84c8',
-  client_secret: '642c8dddff6280f59afec060432f1ed5e053272fae8e71a6dd2aba32d0080a46',
-  mode: 'TEST', // 'TEST' or 'LIVE'
+  key: process.env.PAYU_KEY || '3C4QvH',
+  salt: process.env.PAYU_SALT || 'KWuZ3yBp7bOucD2DHBWdrrEcabZjHzHU',
+  client_id: process.env.PAYU_CLIENT_ID || '4eb8246cedbad8e0a24143d0896cc6813f1120548fe707b58696f1436b0d84c8',
+  client_secret: process.env.PAYU_CLIENT_SECRET || '642c8dddff6280f59afec060432f1ed5e053272fae8e71a6dd2aba32d0080a46',
+  mode: process.env.PAYU_MODE || 'LIVE', // 'TEST' or 'LIVE'
   enabled: true
 };
 

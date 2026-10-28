@@ -8,7 +8,7 @@ const { Tenant, PlatformAdmin, PlatformSetting, initMasterDatabase, DEFAULT_PRIC
 const { provisionTenantDatabase, dropTenantDatabase } = require('./tenantProvisioner');
 const { getTenantDb } = require('./tenantConnectionManager');
 const { getActivePricingConfig, calculateSubscriptionPrice } = require('./pricingEngine');
-const { getActivePayuConfig, initiatePayUPayment, verifyPaymentHash } = require('./payuService');
+const { getActivePayuConfig, initiatePayUPayment, verifyPaymentHash, normalizePayuKey, normalizePayuSalt } = require('./payuService');
 const { generateAndSendDeleteOtp, verifyDeleteOtp } = require('./otpService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gluckscare_platform_master_secret_2026';
@@ -531,11 +531,11 @@ async function updatePayUConfig(req, res) {
     const existing = setting ? setting.value : DEFAULT_PAYU_CONFIG;
 
     const updated = {
-      key: key !== undefined ? key : existing.key,
-      salt: salt && !salt.includes('••••') ? salt : existing.salt,
-      client_id: client_id !== undefined ? client_id : existing.client_id,
-      client_secret: client_secret && !client_secret.includes('••••') ? client_secret : existing.client_secret,
-      mode: mode || existing.mode || 'TEST',
+      key: key !== undefined ? normalizePayuKey(key) : existing.key,
+      salt: salt && !salt.includes('••••') ? normalizePayuSalt(salt) : existing.salt,
+      client_id: client_id !== undefined ? String(client_id).trim() : existing.client_id,
+      client_secret: client_secret && !client_secret.includes('••••') ? String(client_secret).trim() : existing.client_secret,
+      mode: mode || existing.mode || 'LIVE',
       enabled: enabled !== undefined ? !!enabled : existing.enabled
     };
 
