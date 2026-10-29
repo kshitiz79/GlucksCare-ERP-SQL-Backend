@@ -128,12 +128,13 @@ async function initiatePayUPayment({
   userCount,
   billingCycle,
   amount,
+  productinfo: customProductInfo,
   returnUrl,
   cancelUrl
 }) {
   const config = await getActivePayuConfig();
   const txnid = `GLUCKS_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`.toUpperCase();
-  const productinfo = `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle})`;
+  const productinfo = customProductInfo || `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle})`;
   const firstname = (adminName || 'Admin').split(' ')[0] || 'Subscriber';
   const email = adminEmail || 'billing@gluckscare.com';
   const phone = adminPhone || '9999999999';

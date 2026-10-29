@@ -27,7 +27,7 @@ async function getActivePricingConfig() {
  * - 1001+ users returns custom/enterprise flag
  * - Dynamic GST calculation
  */
-function calculateSubscriptionPrice(config, usersInput, cycleKey = 'annual') {
+function calculateSubscriptionPrice(config, usersInput, cycleKey = 'annual', options = {}) {
   const cfg = config || DEFAULT_PRICING_CONFIG;
   const rawUsers = parseInt(usersInput, 10);
   const minUsers = cfg.minimum_users || 10;
@@ -47,13 +47,16 @@ function calculateSubscriptionPrice(config, usersInput, cycleKey = 'annual') {
       message: 'Custom pricing for large pharmaceutical organizations (1,001+ Users)',
       ratePerUserPerMonth: null,
       subtotal: null,
+      subscriptionSubtotal: null,
+      setupFee: 0,
+      setupFeeEnabled: !!cfg.setup_fee_enabled,
       gstRate: cfg.gst_rate || 18,
       gstAmount: null,
       totalAmount: null
     };
   }
 
-  const cycle = cfg.billing_cycles[cycleKey] || cfg.billing_cycles.annual;
+  const cycle = (cfg.billing_cycles && cfg.billing_cycles[cycleKey]) || DEFAULT_PRICING_CONFIG.billing_cycles[cycleKey] || DEFAULT_PRICING_CONFIG.billing_cycles.annual;
   const months = cycle.months || 12;
   let ratePerUserPerMonth = cycle.rate;
   let activeTier = null;
@@ -69,17 +72,25 @@ function calculateSubscriptionPrice(config, usersInput, cycleKey = 'annual') {
     }
   }
 
-  // Tier-based calculation for entire volume: userCount * rate * months
+  // Tier-based calculation for subscription: userCount * rate * months
   const monthlyTotal = userCount * ratePerUserPerMonth;
-  const subtotal = monthlyTotal * months;
+  const subscriptionSubtotal = monthlyTotal * months;
+
+  // One-Time Setup Fee for 1st-Time Clients
+  const isFirstTime = typeof options === 'boolean' ? options : (options.isFirstTime !== false);
+  const setupFeeEnabled = cfg.setup_fee_enabled !== false;
+  const setupFee = (isFirstTime && setupFeeEnabled) ? (Number(cfg.setup_fee) || 0) : 0;
+  const setupFeeLabel = cfg.setup_fee_label || 'One-Time Onboarding & Implementation Setup Fee';
+
+  const subtotal = subscriptionSubtotal + setupFee;
   const gstRate = typeof cfg.gst_rate === 'number' ? cfg.gst_rate : 18;
   const gstAmount = Math.round((subtotal * (gstRate / 100)) * 100) / 100;
   const totalAmount = Math.round((subtotal + gstAmount) * 100) / 100;
 
   // Savings calculation against standard monthly rate
-  const standardMonthlyRate = cfg.billing_cycles.monthly?.rate || 249;
+  const standardMonthlyRate = (cfg.billing_cycles && cfg.billing_cycles.monthly?.rate) || 249;
   const standardEquivalentTotal = userCount * standardMonthlyRate * months;
-  const totalSavings = Math.max(0, standardEquivalentTotal - subtotal);
+  const totalSavings = Math.max(0, standardEquivalentTotal - subscriptionSubtotal);
 
   return {
     isEnterprise: false,
@@ -93,6 +104,11 @@ function calculateSubscriptionPrice(config, usersInput, cycleKey = 'annual') {
     billingFrequencyText: cycle.billingText,
     ratePerUserPerMonth,
     monthlyTotal,
+    subscriptionSubtotal,
+    setupFee,
+    setupFeeEnabled,
+    setupFeeLabel,
+    isFirstTime,
     subtotal,
     gstRate,
     gstAmount,

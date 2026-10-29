@@ -477,9 +477,11 @@ async function calculatePricing(req, res) {
   try {
     const payload = { ...(req.query || {}), ...(req.body || {}) };
     const rawUsers = payload.users || payload.userCount || payload.user_count || 10;
-    const rawCycle = payload.billingCycle || payload.billing_cycle || 'annual';
+    const isFirstTime = payload.isFirstTime !== undefined
+      ? (payload.isFirstTime === true || payload.isFirstTime === 'true' || payload.isFirstTime === 1)
+      : true;
     const config = await getActivePricingConfig();
-    const result = calculateSubscriptionPrice(config, rawUsers, rawCycle);
+    const result = calculateSubscriptionPrice(config, rawUsers, rawCycle, { isFirstTime });
 
     return res.json({
       success: true,
@@ -697,7 +699,10 @@ async function initiatePayUCheckout(req, res) {
 
     // Dynamic price calculation
     const pricingConfig = await getActivePricingConfig();
-    const priceCalculation = calculateSubscriptionPrice(pricingConfig, userCount, billingCycle);
+    const isFirstTime = req.body.isFirstTime !== undefined
+      ? (req.body.isFirstTime === true || req.body.isFirstTime === 'true' || req.body.isFirstTime === 1)
+      : (!targetTenant || targetTenant.subscription_status === 'PROSPECT' || !targetTenant.last_payment_id);
+    const priceCalculation = calculateSubscriptionPrice(pricingConfig, userCount, billingCycle, { isFirstTime });
 
     if (priceCalculation.isEnterprise) {
       return res.status(400).json({
@@ -706,14 +711,19 @@ async function initiatePayUCheckout(req, res) {
       });
     }
 
+    const productinfo = priceCalculation.setupFee > 0
+      ? `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle}) + One-Time Setup Fee`
+      : `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle})`;
+
     const payuPayload = await initiatePayUPayment({
       tenantId: targetTenant ? targetTenant.id : 'NEW_PROSPECT',
       tenantSlug: targetTenant ? targetTenant.slug : 'new',
-      companyName: targetTenant ? targetTenant.name : 'Pharma Subscriber',
+      companyName: targetTenant ? targetTenant.name : (req.body.companyName || 'Pharma Subscriber'),
       adminName: targetTenant ? targetTenant.admin_name : req.body.adminName,
       adminEmail: targetTenant ? targetTenant.admin_email : req.body.adminEmail,
       adminPhone: req.body.adminPhone || '9999999999',
       planName,
+      productinfo,
       userCount: priceCalculation.userCount,
       billingCycle,
       amount: priceCalculation.totalAmount,

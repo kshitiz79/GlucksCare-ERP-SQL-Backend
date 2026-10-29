@@ -183,7 +183,11 @@ const PlatformSetting = masterSequelize.define('PlatformSetting', {
 const DEFAULT_PRICING_CONFIG = {
   currency: 'INR',
   minimum_users: 10,
+  enterprise_threshold: 1001,
   gst_rate: 18,
+  setup_fee: 5000, // One-Time Setup & Onboarding Fee for 1st-time clients
+  setup_fee_enabled: true,
+  setup_fee_label: 'One-Time Onboarding & Implementation Setup Fee',
   billing_cycles: {
     monthly: {
       key: 'monthly',
