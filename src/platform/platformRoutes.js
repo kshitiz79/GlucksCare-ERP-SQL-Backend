@@ -68,4 +68,8 @@ router.post('/payu/initiate', platformController.initiatePayUCheckout);
 router.get('/tenants/:id/subscription', platformController.getTenantSubscription);
 router.put('/tenants/:id/subscription', platformController.updateTenantSubscription);
 
+// Platform Online Orders & Payment Transactions
+router.get('/transactions', platformController.getTransactions);
+router.get('/transactions/stats', platformController.getTransactionStats);
+
 module.exports = router;

@@ -4,7 +4,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
-const { Tenant, PlatformAdmin, PlatformSetting, initMasterDatabase, DEFAULT_PRICING_CONFIG, DEFAULT_PAYU_CONFIG } = require('./masterDb');
+const { Tenant, PlatformAdmin, PlatformSetting, PlatformTransaction, initMasterDatabase, DEFAULT_PRICING_CONFIG, DEFAULT_PAYU_CONFIG } = require('./masterDb');
 const { provisionTenantDatabase, dropTenantDatabase } = require('./tenantProvisioner');
 const { getTenantDb } = require('./tenantConnectionManager');
 const { getActivePricingConfig, calculateSubscriptionPrice } = require('./pricingEngine');
@@ -677,6 +677,10 @@ async function initiatePayUCheckout(req, res) {
   try {
     const {
       tenantId,
+      companyName,
+      adminName,
+      adminEmail,
+      adminPhone = '9999999999',
       userCount = 10,
       billingCycle = 'annual',
       planName = 'Professional Growth',
@@ -685,7 +689,7 @@ async function initiatePayUCheckout(req, res) {
     } = req.body;
 
     let targetTenant = null;
-    if (tenantId) {
+    if (tenantId && tenantId !== 'NEW_PROSPECT') {
       targetTenant = await Tenant.findByPk(tenantId);
     }
 
@@ -711,30 +715,93 @@ async function initiatePayUCheckout(req, res) {
       });
     }
 
+    const cleanCompanyName = (companyName || (targetTenant ? targetTenant.name : 'Pharma Subscriber')).trim();
+    const cleanEmail = (adminEmail || (targetTenant ? targetTenant.admin_email : '')).toLowerCase().trim();
+    const cleanAdminName = (adminName || (targetTenant ? targetTenant.admin_name : 'Admin')).trim();
+
+    // If new prospect checkout, create or link tenant record in master DB
+    if (!targetTenant) {
+      if (cleanEmail) {
+        targetTenant = await Tenant.findOne({ where: { admin_email: cleanEmail } });
+      }
+
+      if (!targetTenant) {
+        const baseSlug = cleanCompanyName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 35) || 'client';
+        let slug = baseSlug;
+        const existingSlug = await Tenant.findOne({ where: { slug } });
+        if (existingSlug) {
+          slug = `${baseSlug}-${Date.now().toString().slice(-4)}`;
+        }
+
+        targetTenant = await Tenant.create({
+          name: cleanCompanyName,
+          slug,
+          db_name: `gluckscare_tenant_${slug.replace(/-/g, '_')}`,
+          subdomain: `${slug}.gluckscare.com`,
+          admin_name: cleanAdminName,
+          admin_email: cleanEmail || `${slug}@subscriber.fieldomni.com`,
+          status: 'ACTIVE',
+          subscription_status: 'PENDING_PAYMENT',
+          subscription_category: 'PAID_SAAS',
+          subscription_plan: planName,
+          billing_cycle: billingCycle,
+          licensed_users: priceCalculation.userCount,
+          rate_per_user: priceCalculation.ratePerUserPerMonth,
+          payment_gateway: 'PAYU'
+        });
+        console.log(`🏢 Created prospect tenant record for online checkout: ${targetTenant.name} (${targetTenant.id})`);
+      }
+    }
+
     const productinfo = priceCalculation.setupFee > 0
       ? `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle}) + One-Time Setup Fee`
       : `SaaS Subscription: ${planName} (${userCount} Users - ${billingCycle})`;
 
+    const txnid = `GLUCKS_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`.toUpperCase();
+
+    // Record checkout session lead in PlatformTransaction
+    await PlatformTransaction.create({
+      txnid,
+      company_name: cleanCompanyName,
+      admin_name: cleanAdminName,
+      admin_email: cleanEmail || (targetTenant ? targetTenant.admin_email : 'client@fieldomni.com'),
+      admin_phone: adminPhone || '9999999999',
+      plan_name: planName,
+      user_count: priceCalculation.userCount,
+      billing_cycle: billingCycle,
+      is_first_time: isFirstTime,
+      setup_fee: priceCalculation.setupFee || 0,
+      subtotal: priceCalculation.subscriptionSubtotal || priceCalculation.subtotal,
+      gst_amount: priceCalculation.gstAmount,
+      total_amount: priceCalculation.totalAmount,
+      status: 'INITIATED',
+      payment_gateway: 'PAYU',
+      tenant_id: targetTenant ? targetTenant.id : null
+    });
+
     const payuPayload = await initiatePayUPayment({
       tenantId: targetTenant ? targetTenant.id : 'NEW_PROSPECT',
       tenantSlug: targetTenant ? targetTenant.slug : 'new',
-      companyName: targetTenant ? targetTenant.name : (req.body.companyName || 'Pharma Subscriber'),
-      adminName: targetTenant ? targetTenant.admin_name : req.body.adminName,
-      adminEmail: targetTenant ? targetTenant.admin_email : req.body.adminEmail,
-      adminPhone: req.body.adminPhone || '9999999999',
+      companyName: cleanCompanyName,
+      adminName: cleanAdminName,
+      adminEmail: cleanEmail || (targetTenant ? targetTenant.admin_email : 'client@fieldomni.com'),
+      adminPhone: adminPhone || '9999999999',
       planName,
       productinfo,
       userCount: priceCalculation.userCount,
       billingCycle,
       amount: priceCalculation.totalAmount,
-      returnUrl: returnUrl || `${req.headers.origin || 'http://localhost:5173'}/payment/callback`,
-      cancelUrl: cancelUrl || `${req.headers.origin || 'http://localhost:5173'}/payment/cancel`
+      txnid,
+      returnUrl: returnUrl || `${req.headers.origin || 'http://localhost:3000'}/pricing?payment=success`,
+      cancelUrl: cancelUrl || `${req.headers.origin || 'http://localhost:3000'}/pricing?payment=cancelled`
     });
 
     return res.json({
       success: true,
       calculation: priceCalculation,
-      payment: payuPayload
+      payment: payuPayload,
+      txnid,
+      tenantId: targetTenant ? targetTenant.id : null
     });
   } catch (err) {
     console.error('❌ Initiate PayU checkout error:', err);
@@ -754,6 +821,7 @@ async function handlePayUResponse(req, res) {
     const isValid = verifyPaymentHash(data, payuConfig.salt);
 
     if (!isValid) {
+      console.warn('⚠️ PayU hash verification failed for txnid:', data.txnid);
       return res.status(400).json({
         success: false,
         message: 'PayU SHA-512 signature verification failed. Potential tampering detected.'
@@ -762,8 +830,18 @@ async function handlePayUResponse(req, res) {
 
     const { status, txnid, amount, udf1: tenantId, udf4: users, udf5: cycle } = data;
 
-    if (status === 'success' && tenantId && tenantId !== 'NEW_PROSPECT') {
-      const tenant = await Tenant.findByPk(tenantId);
+    // Look up transaction by txnid
+    const txn = await PlatformTransaction.findOne({ where: { txnid } });
+    if (txn) {
+      txn.status = status === 'success' ? 'SUCCESS' : 'FAILED';
+      txn.payu_response = data;
+      await txn.save();
+    }
+
+    const targetTenantId = tenantId && tenantId !== 'NEW_PROSPECT' ? tenantId : (txn ? txn.tenant_id : null);
+
+    if (status === 'success' && targetTenantId) {
+      const tenant = await Tenant.findByPk(targetTenantId);
       if (tenant) {
         const months = cycle === 'annual' ? 12 : (cycle === 'half_yearly' ? 6 : (cycle === 'quarterly' ? 3 : 1));
         const newEndDate = new Date(Date.now() + months * 30 * 24 * 60 * 60 * 1000);
@@ -771,8 +849,9 @@ async function handlePayUResponse(req, res) {
         await tenant.update({
           subscription_status: 'ACTIVE',
           subscription_category: 'PAID_SAAS',
-          billing_cycle: cycle || 'annual',
+          billing_cycle: cycle || tenant.billing_cycle || 'annual',
           licensed_users: parseInt(users, 10) || tenant.licensed_users,
+          subscription_start_date: new Date(),
           subscription_end_date: newEndDate,
           payment_gateway: 'PAYU',
           last_payment_id: txnid,
@@ -782,8 +861,19 @@ async function handlePayUResponse(req, res) {
       }
     }
 
+    // Handle return redirection for browser POST from PayU
+    const acceptsHtml = req.headers.accept && req.headers.accept.includes('text/html');
+    if (acceptsHtml || req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+      const redirectBase = process.env.CLIENT_PRICING_URL || 'http://localhost:3000/pricing';
+      if (status === 'success') {
+        return res.redirect(`${redirectBase}?payment=success&txnid=${encodeURIComponent(txnid)}&amount=${encodeURIComponent(amount)}`);
+      } else {
+        return res.redirect(`${redirectBase}?payment=failed&txnid=${encodeURIComponent(txnid)}`);
+      }
+    }
+
     return res.json({
-      success: true,
+      success: status === 'success',
       status,
       txnid,
       verified: true
@@ -795,6 +885,50 @@ async function handlePayUResponse(req, res) {
       message: 'Failed to process PayU callback',
       error: err.message
     });
+  }
+}
+
+// 16. Get All Platform Payment Transactions & Leads (for Master Admin Panel)
+async function getTransactions(req, res) {
+  try {
+    const transactions = await PlatformTransaction.findAll({
+      order: [['created_at', 'DESC']],
+      limit: 150
+    });
+    return res.json({
+      success: true,
+      data: transactions
+    });
+  } catch (err) {
+    console.error('❌ Get transactions error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch payment transactions', error: err.message });
+  }
+}
+
+// 17. Get Platform Transaction Financial & Conversion Metrics
+async function getTransactionStats(req, res) {
+  try {
+    const transactions = await PlatformTransaction.findAll();
+    const totalRevenue = transactions
+      .filter(t => t.status === 'SUCCESS')
+      .reduce((acc, t) => acc + parseFloat(t.total_amount || 0), 0);
+    const successCount = transactions.filter(t => t.status === 'SUCCESS').length;
+    const initiatedCount = transactions.filter(t => t.status === 'INITIATED').length;
+    const failedCount = transactions.filter(t => t.status === 'FAILED').length;
+
+    return res.json({
+      success: true,
+      data: {
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        successCount,
+        initiatedCount,
+        failedCount,
+        totalTransactions: transactions.length
+      }
+    });
+  } catch (err) {
+    console.error('❌ Get transaction stats error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch transaction stats' });
   }
 }
 
@@ -891,5 +1025,7 @@ module.exports = {
   updateTenantSubscription,
   initiatePayUCheckout,
   handlePayUResponse,
-  getCurrentTenantSubscription
+  getCurrentTenantSubscription,
+  getTransactions,
+  getTransactionStats
 };

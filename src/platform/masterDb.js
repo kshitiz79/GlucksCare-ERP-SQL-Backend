@@ -180,6 +180,89 @@ const PlatformSetting = masterSequelize.define('PlatformSetting', {
   updatedAt: 'updated_at'
 });
 
+// Master Platform Transaction / Order Model
+const PlatformTransaction = masterSequelize.define('PlatformTransaction', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  txnid: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+    unique: true
+  },
+  company_name: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  admin_name: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  admin_email: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  admin_phone: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  plan_name: {
+    type: DataTypes.STRING(100),
+    allowNull: false
+  },
+  user_count: {
+    type: DataTypes.INTEGER,
+    defaultValue: 10
+  },
+  billing_cycle: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'annual'
+  },
+  is_first_time: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
+  },
+  setup_fee: {
+    type: DataTypes.DECIMAL(12, 2),
+    defaultValue: 0
+  },
+  subtotal: {
+    type: DataTypes.DECIMAL(12, 2),
+    defaultValue: 0
+  },
+  gst_amount: {
+    type: DataTypes.DECIMAL(12, 2),
+    defaultValue: 0
+  },
+  total_amount: {
+    type: DataTypes.DECIMAL(12, 2),
+    allowNull: false
+  },
+  status: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'INITIATED' // 'INITIATED', 'SUCCESS', 'FAILED', 'CANCELLED'
+  },
+  payment_gateway: {
+    type: DataTypes.STRING(50),
+    defaultValue: 'PAYU'
+  },
+  tenant_id: {
+    type: DataTypes.UUID,
+    allowNull: true
+  },
+  payu_response: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  }
+}, {
+  tableName: 'platform_transactions',
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at'
+});
+
 const DEFAULT_PRICING_CONFIG = {
   currency: 'INR',
   minimum_users: 10,
@@ -297,12 +380,36 @@ async function initMasterDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS platform_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        txnid VARCHAR(100) NOT NULL UNIQUE,
+        company_name VARCHAR(255) NOT NULL,
+        admin_name VARCHAR(255),
+        admin_email VARCHAR(255) NOT NULL,
+        admin_phone VARCHAR(50),
+        plan_name VARCHAR(100) NOT NULL,
+        user_count INTEGER DEFAULT 10,
+        billing_cycle VARCHAR(50) DEFAULT 'annual',
+        is_first_time BOOLEAN DEFAULT TRUE,
+        setup_fee NUMERIC(12, 2) DEFAULT 0,
+        subtotal NUMERIC(12, 2) DEFAULT 0,
+        gst_amount NUMERIC(12, 2) DEFAULT 0,
+        total_amount NUMERIC(12, 2) NOT NULL,
+        status VARCHAR(50) DEFAULT 'INITIATED',
+        payment_gateway VARCHAR(50) DEFAULT 'PAYU',
+        tenant_id UUID,
+        payu_response JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Sync models
     await Tenant.sync({ alter: true });
     await PlatformAdmin.sync();
     await PlatformSetting.sync();
+    await PlatformTransaction.sync({ alter: true });
 
     // Seed default Platform Super Admin if not present
     const defaultEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@gluckscare.com';
@@ -413,6 +520,7 @@ module.exports = {
   Tenant,
   PlatformAdmin,
   PlatformSetting,
+  PlatformTransaction,
   DEFAULT_PRICING_CONFIG,
   DEFAULT_PAYU_CONFIG,
   initMasterDatabase
