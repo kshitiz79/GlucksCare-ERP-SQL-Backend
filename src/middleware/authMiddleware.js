@@ -3,6 +3,56 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../config/database');
 
+// Helper to bind tenant models, sequelize, and scoped app context
+const bindTenantToRequest = (req, tenantContext, tenantDb) => {
+    if (!tenantDb) return;
+    req.tenant = tenantContext;
+    req.db = tenantDb.models;
+    req.tenantSequelize = tenantDb.sequelize;
+
+    const originalApp = req.app;
+    if (originalApp) {
+        const tenantApp = Object.create(originalApp);
+        tenantApp.get = function(name) {
+            if (name === 'models') return tenantDb.models;
+            if (name === 'sequelize') return tenantDb.sequelize;
+            return originalApp.get.call(originalApp, name);
+        };
+        req.app = tenantApp;
+    }
+};
+
+// Robust multi-source tenant resolver
+const resolveTenantForContext = async (req, decoded) => {
+    try {
+        const { getTenantDb, resolveTenantBySlug, resolveTenantFromRequest } = require('../platform/tenantConnectionManager');
+
+        // 1. If decoded JWT contains db_name directly
+        if (decoded?.tenant?.db_name) {
+            const tenantDb = getTenantDb(decoded.tenant.db_name);
+            return { tenant: decoded.tenant, tenantDb };
+        }
+
+        // 2. If decoded JWT contains tenant slug
+        if (decoded?.tenant?.slug) {
+            const result = await resolveTenantBySlug(decoded.tenant.slug);
+            if (result) {
+                return { tenant: result.tenant, tenantDb: result.db };
+            }
+        }
+
+        // 3. Fallback: Check request headers (x-tenant-slug, x-tenant-id) or host subdomain
+        const reqResult = await resolveTenantFromRequest(req);
+        if (reqResult) {
+            return { tenant: reqResult.tenant, tenantDb: reqResult.db };
+        }
+    } catch (err) {
+        console.warn('⚠️ [resolveTenantForContext] Tenant resolution warning:', err.message);
+    }
+
+    return null;
+};
+
 const authMiddleware = async (req, res, next) => {
     try {
         // Get token from header
@@ -11,7 +61,7 @@ const authMiddleware = async (req, res, next) => {
         // Check if Authorization header exists
         if (!authHeader) {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'No authorization header found' 
             });
         }
@@ -19,7 +69,7 @@ const authMiddleware = async (req, res, next) => {
         // Check if it's a Bearer token
         if (!authHeader.startsWith('Bearer ')) {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'Invalid authorization header format' 
             });
         }
@@ -30,7 +80,7 @@ const authMiddleware = async (req, res, next) => {
         // Check if token exists and is not empty
         if (!token || token.trim() === '') {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'No token provided' 
             });
         }
@@ -39,25 +89,10 @@ const authMiddleware = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         let userModel = User;
-        if (decoded.tenant && decoded.tenant.db_name) {
-            const { getTenantDb } = require('../platform/tenantConnectionManager');
-            const tenantDb = getTenantDb(decoded.tenant.db_name);
-            userModel = tenantDb.models.User;
-            req.tenant = decoded.tenant;
-            req.db = tenantDb.models;
-            req.tenantSequelize = tenantDb.sequelize;
-
-            // Dynamically scope req.app.get('models') and req.app.get('sequelize') to this tenant's isolated DB
-            const originalApp = req.app;
-            if (originalApp) {
-                const tenantApp = Object.create(originalApp);
-                tenantApp.get = function(name) {
-                    if (name === 'models') return tenantDb.models;
-                    if (name === 'sequelize') return tenantDb.sequelize;
-                    return originalApp.get.call(originalApp, name);
-                };
-                req.app = tenantApp;
-            }
+        const tenantInfo = await resolveTenantForContext(req, decoded);
+        if (tenantInfo) {
+            userModel = tenantInfo.tenantDb.models.User;
+            bindTenantToRequest(req, tenantInfo.tenant, tenantInfo.tenantDb);
         }
 
         // Get user from database
@@ -67,7 +102,7 @@ const authMiddleware = async (req, res, next) => {
 
         if (!user) {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'Token is not valid - user not found' 
             });
         }
@@ -78,19 +113,11 @@ const authMiddleware = async (req, res, next) => {
             const validAfterMs = new Date(user.tokens_valid_after).getTime();
             if (tokenIatMs < validAfterMs) {
                 return res.status(401).json({ 
-                    success: false,
+                    success: false, 
                     msg: 'Session has expired - forced logout by admin' 
                 });
             }
         }
-
-        // NOTE: Temporarily bypassing active status check for testing
-        // if (!user.isActive) {
-        //     return res.status(401).json({ 
-        //         success: false,
-        //         msg: 'User account is deactivated' 
-        //     });
-        // }
 
         // Add user to request object
         req.user = user;
@@ -100,20 +127,20 @@ const authMiddleware = async (req, res, next) => {
         
         if (error.name === 'JsonWebTokenError') {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'Token is not valid - malformed token' 
             });
         }
         
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'Token has expired' 
             });
         }
 
         res.status(500).json({ 
-            success: false,
+            success: false, 
             msg: 'Server error in authentication' 
         });
     }
@@ -124,14 +151,14 @@ const authorize = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
             return res.status(401).json({ 
-                success: false,
+                success: false, 
                 msg: 'Access denied - no user found' 
             });
         }
 
         if (!roles.includes(req.user.role)) {
             return res.status(403).json({ 
-                success: false,
+                success: false, 
                 msg: `Access denied - requires one of: ${roles.join(', ')}` 
             });
         }
@@ -146,34 +173,25 @@ const adminAuth = authorize('Super Admin', 'Admin');
 // Manager authorization (includes Admin + Manager roles)
 const managerAuth = authorize('Super Admin', 'Admin', 'National Head', 'State Head', 'Zonal Manager', 'Area Manager', 'Manager');
 
-// Optional auth middleware (attaches tenant context if token is present, does not fail if absent)
+// Optional auth middleware (attaches tenant context if token, header, or subdomain is present, does not fail if absent)
 const optionalAuth = async (req, res, next) => {
     try {
         const authHeader = req.header('Authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return next();
-        }
-        const token = authHeader.replace('Bearer ', '').trim();
-        if (!token) return next();
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (decoded.tenant && decoded.tenant.db_name) {
-            const { getTenantDb } = require('../platform/tenantConnectionManager');
-            const tenantDb = getTenantDb(decoded.tenant.db_name);
-            req.tenant = decoded.tenant;
-            req.db = tenantDb.models;
-            req.tenantSequelize = tenantDb.sequelize;
-
-            const originalApp = req.app;
-            if (originalApp) {
-                const tenantApp = Object.create(originalApp);
-                tenantApp.get = function(name) {
-                    if (name === 'models') return tenantDb.models;
-                    if (name === 'sequelize') return tenantDb.sequelize;
-                    return originalApp.get.call(originalApp, name);
-                };
-                req.app = tenantApp;
+        let decoded = null;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.replace('Bearer ', '').trim();
+            if (token) {
+                try {
+                    decoded = jwt.verify(token, process.env.JWT_SECRET);
+                } catch (jwtErr) {
+                    // Token invalid or expired - continue to header/subdomain fallback
+                }
             }
+        }
+
+        const tenantInfo = await resolveTenantForContext(req, decoded);
+        if (tenantInfo) {
+            bindTenantToRequest(req, tenantInfo.tenant, tenantInfo.tenantDb);
         }
         next();
     } catch (e) {

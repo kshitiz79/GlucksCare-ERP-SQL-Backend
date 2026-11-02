@@ -37,6 +37,17 @@ const {
   respondToCoWorkRequest
 } = require('./asmTourPlanControllers');
 
+const {
+  getRsmHierarchyOverview,
+  getRsmUnassignedHqs,
+  saveRsmTourPlanDraft,
+  updateRsmPlanDay,
+  getRsmPlan,
+  getMyRsmPlans,
+  submitRsmTourPlan,
+  getRsmAsms
+} = require('./rsmTourPlanControllers');
+
 const { ensureTourPlanSchema } = require('./ensureTourPlanSchema');
 
 // All routes require authentication
@@ -77,6 +88,23 @@ router.post('/asm/day/:dayId/co-work', addOrUpdateCoWorkWithRsm);
 router.post('/asm/day/:dayId/co-work-respond', respondToCoWorkRequest);
 router.post('/asm/:id/submit', submitAsmTourPlan);
 router.post('/asm/submit', submitAsmTourPlan);
+
+// RSM (Regional Sales Manager) Level Tour Plan & Hierarchy routes
+router.get('/rsm/hierarchy', getRsmHierarchyOverview);
+router.post('/rsm/hierarchy', getRsmHierarchyOverview);
+router.get('/rsm/hqs', getRsmHierarchyOverview);
+router.post('/rsm/hqs', getRsmHierarchyOverview);
+router.get('/rsm/unassigned-hqs', getRsmUnassignedHqs);
+router.post('/rsm/unassigned-hqs', getRsmUnassignedHqs);
+router.post('/rsm/draft', saveRsmTourPlanDraft);
+router.put('/rsm/day/:dayId', updateRsmPlanDay);
+router.put('/rsm/day', updateRsmPlanDay);
+router.get('/rsm/plan', getRsmPlan);
+router.get('/rsm/plan/:id', getRsmPlan);
+router.get('/rsm/my-plans', getMyRsmPlans);
+router.post('/rsm/submit', submitRsmTourPlan);
+router.post('/rsm/:id/submit', submitRsmTourPlan);
+router.get('/rsm/asms', getRsmAsms);
 
 // Collaboration and availability routes
 router.get('/users/availability', getUsersAvailability);

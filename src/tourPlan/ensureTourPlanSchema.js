@@ -110,6 +110,13 @@ async function ensureTourPlanSchema(sequelize, force = false) {
     await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS change_request_day_type VARCHAR(50);").catch(() => {});
     await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS change_request_comments TEXT;").catch(() => {});
     await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS notes TEXT;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS selected_asm_id UUID;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS asm_tour_plan_day_id UUID;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS is_unassigned_hq BOOLEAN DEFAULT false;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS last_updated_by_id UUID;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS last_updated_by_name VARCHAR(255);").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP WITH TIME ZONE;").catch(() => {});
+    await sequelize.query("ALTER TABLE tour_plan_days ADD COLUMN IF NOT EXISTS edit_history JSONB DEFAULT '[]'::jsonb;").catch(() => {});
 
     // Try adding foreign keys if possible
     try {
@@ -118,6 +125,9 @@ async function ensureTourPlanSchema(sequelize, force = false) {
     try {
       await sequelize.query("ALTER TABLE tour_plan_days ADD CONSTRAINT fk_tpd_cowork FOREIGN KEY (co_work_with_user_id) REFERENCES users(id) ON DELETE SET NULL;");
     } catch (e) {}
+    try {
+      await sequelize.query("ALTER TABLE tour_plan_days ADD CONSTRAINT fk_tpd_selected_asm FOREIGN KEY (selected_asm_id) REFERENCES users(id) ON DELETE SET NULL;");
+    } catch (e) {}
 
     // Indexes
     await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plans_user_month_year ON tour_plans (user_id, month, year);").catch(() => {});
@@ -125,6 +135,8 @@ async function ensureTourPlanSchema(sequelize, force = false) {
     await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_plan_id ON tour_plan_days (tour_plan_id);").catch(() => {});
     await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_head_office ON tour_plan_days (head_office_id);").catch(() => {});
     await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_cowork ON tour_plan_days (co_work_with_user_id);").catch(() => {});
+    await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_selected_asm ON tour_plan_days (selected_asm_id);").catch(() => {});
+    await sequelize.query("CREATE INDEX IF NOT EXISTS idx_tour_plan_days_asm_day_id ON tour_plan_days (asm_tour_plan_day_id);").catch(() => {});
 
     ensuredDbs.add(dbName);
   } catch (err) {

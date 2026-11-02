@@ -435,6 +435,7 @@ class AuthService {
                         id: tenantContext.id,
                         name: tenantContext.name,
                         slug: tenantContext.slug,
+                        db_name: tenantContext.db_name,
                         subdomain: tenantContext.subdomain
                     }
                 })
@@ -859,20 +860,39 @@ class AuthService {
             otp_expire: null
         });
 
-        const token = JwtService.generateToken({ id: user.id, role: user.role }, '30d');
-
         console.log(`🚀 Email login successful for ${email}`);
 
-        const { resolveTenantByEmail } = require('../../platform/tenantConnectionManager');
+        const { resolveTenantByEmail, resolveTenantFromRequest } = require('../../platform/tenantConnectionManager');
         let targetDbModels = null;
         let tenantContext = null;
         try {
-            const emailTenantResult = await resolveTenantByEmail(email);
-            if (emailTenantResult) {
-                tenantContext = emailTenantResult.tenant;
-                targetDbModels = emailTenantResult.db.models;
+            // Check request headers/subdomain first, then fallback to user email
+            const reqTenantResult = await resolveTenantFromRequest(req);
+            if (reqTenantResult) {
+                tenantContext = reqTenantResult.tenant;
+                targetDbModels = reqTenantResult.db.models;
+            } else {
+                const emailTenantResult = await resolveTenantByEmail(email);
+                if (emailTenantResult) {
+                    tenantContext = emailTenantResult.tenant;
+                    targetDbModels = emailTenantResult.db.models;
+                }
             }
         } catch (e) { }
+
+        const token = JwtService.generateToken({
+            id: user.id,
+            role: user.role,
+            ...(tenantContext && {
+                tenant: {
+                    id: tenantContext.id,
+                    name: tenantContext.name,
+                    slug: tenantContext.slug,
+                    db_name: tenantContext.db_name,
+                    subdomain: tenantContext.subdomain
+                }
+            })
+        }, '30d');
 
         const companyData = await resolveCompanyData(tenantContext, targetDbModels);
 

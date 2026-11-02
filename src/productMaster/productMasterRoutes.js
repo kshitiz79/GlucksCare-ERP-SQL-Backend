@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
+const defaultDb = require('../config/database');
+
+// Helper to reliably retrieve tenant-scoped models or fallback
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 // Unified Master Controller Logic
 
@@ -8,7 +12,7 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 router.get('/:type', authMiddleware, async (req, res) => {
     try {
         const { type } = req.params;
-        const models = req.app.get('models');
+        const models = getModels(req);
         
         const typeToModelName = {
             'salts': 'Salt',
@@ -41,7 +45,7 @@ router.post('/:type', authMiddleware, async (req, res) => {
     try {
         const { type } = req.params;
         const { name } = req.body;
-        const models = req.app.get('models');
+        const models = getModels(req);
         
         const typeToModelName = {
             'salts': 'Salt',
@@ -77,7 +81,7 @@ router.post('/:type', authMiddleware, async (req, res) => {
 router.delete('/:type/:id', authMiddleware, async (req, res) => {
     try {
         const { type, id } = req.params;
-        const models = req.app.get('models');
+        const models = getModels(req);
         
         const typeToModelName = {
             'salts': 'Salt',
@@ -112,7 +116,7 @@ router.put('/:type/:id', authMiddleware, async (req, res) => {
     try {
         const { type, id } = req.params;
         const { name } = req.body;
-        const models = req.app.get('models');
+        const models = getModels(req);
         
         const typeToModelName = {
             'salts': 'Salt',

@@ -25,7 +25,7 @@ const TourPlanDay = (sequelize) => {
       allowNull: false,
       defaultValue: 'Field',
       validate: {
-        isIn: [['Field', 'Joint work', 'Joint Work', 'Meeting', 'Office', 'Office Work', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
+        isIn: [['Field', 'Joint work', 'Joint Work', 'Joint Work with ASM', 'Joint work with ASM', 'Meeting', 'Office', 'Office Work', 'Transit', 'Weekly off', 'Holiday', 'Leave']]
       }
     },
     head_office_id: {
@@ -169,6 +169,44 @@ const TourPlanDay = (sequelize) => {
     notes: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    selected_asm_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    },
+    asm_tour_plan_day_id: {
+      type: DataTypes.UUID,
+      allowNull: true
+    },
+    is_unassigned_hq: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    last_updated_by_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
+    },
+    last_updated_by_name: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    last_updated_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    edit_history: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: []
     }
   }, {
     tableName: 'tour_plan_days',

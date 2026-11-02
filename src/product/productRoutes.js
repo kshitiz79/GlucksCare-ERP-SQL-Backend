@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getAllProducts,
   getProductById,
@@ -25,19 +26,19 @@ const upload = multer({
   }
 });
 
-// GET all products
-router.get('/', getAllProducts);
+// GET all products (resolves tenant from auth token, x-tenant-slug, x-tenant-id, or subdomain)
+router.get('/', optionalAuth, getAllProducts);
 
 // GET product by ID
-router.get('/:id', getProductById);
+router.get('/:id', optionalAuth, getProductById);
 
-// CREATE a new product
-router.post('/', upload.single('image'), createProduct);
+// CREATE a new product (authenticated company admin/user only)
+router.post('/', authMiddleware, upload.single('image'), createProduct);
 
-// UPDATE a product
-router.put('/:id', upload.single('image'), updateProduct);
+// UPDATE a product (authenticated company admin/user only)
+router.put('/:id', authMiddleware, upload.single('image'), updateProduct);
 
-// DELETE a product
-router.delete('/:id', deleteProduct);
+// DELETE a product (authenticated company admin/user only)
+router.delete('/:id', authMiddleware, deleteProduct);
 
 module.exports = router;

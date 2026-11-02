@@ -1,5 +1,9 @@
 const { v2: cloudinary } = require('cloudinary');
 const { Readable } = require('stream');
+const defaultDb = require('../config/database');
+
+// Helper to reliably retrieve tenant-scoped models or fallback
+const getModels = (req) => req.db || (req.app && req.app.get('models')) || defaultDb;
 
 // Helper function to upload image to Cloudinary
 const uploadImageToCloudinary = (buffer) => {
@@ -25,7 +29,7 @@ const uploadImageToCloudinary = (buffer) => {
 // GET all products
 const getAllProducts = async (req, res) => {
   try {
-    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models'); // Get Product model from app context
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = getModels(req);
     const products = await Product.findAll({
       include: [
         { model: Salt, as: 'saltMaster', attributes: ['id', 'name'] },
@@ -49,7 +53,7 @@ const getAllProducts = async (req, res) => {
 // GET product by ID
 const getProductById = async (req, res) => {
   try {
-    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models');
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = getModels(req);
     const product = await Product.findByPk(req.params.id, {
       include: [
         { model: Salt, as: 'saltMaster', attributes: ['id', 'name'] },
@@ -79,14 +83,12 @@ const getProductById = async (req, res) => {
 // CREATE a new product
 const createProduct = async (req, res) => {
   try {
-    const { Product } = req.app.get('models'); // Get Product model from app context
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = getModels(req);
     const {
       name, salt, description, dosage,
       salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id,
       salt_name, unit_name, stripsize_name, hsn_name, gst_name, packsize_name
     } = req.body;
-
-    const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models');
 
     let final_salt_id = salt_id;
     let final_unit_id = unit_id;
@@ -151,7 +153,7 @@ const createProduct = async (req, res) => {
 // UPDATE a product
 const updateProduct = async (req, res) => {
   try {
-    const { Product } = req.app.get('models'); // Get Product model from app context
+    const { Product, Salt, Unit, StripSize, Hsn, Gst, PackSize } = getModels(req);
     const product = await Product.findByPk(req.params.id);
     if (!product) {
       return res.status(404).json({
@@ -165,8 +167,6 @@ const updateProduct = async (req, res) => {
       salt_id, unit_id, stripsize_id, hsn_id, gst_id, packsize_id,
       salt_name, unit_name, stripsize_name, hsn_name, gst_name, packsize_name
     } = req.body;
-
-    const { Salt, Unit, StripSize, Hsn, Gst, PackSize } = req.app.get('models');
 
     // Helper to find or create master
     const getMasterId = async (Model, id, newName) => {
@@ -225,7 +225,7 @@ const updateProduct = async (req, res) => {
 // DELETE a product
 const deleteProduct = async (req, res) => {
   try {
-    const { Product } = req.app.get('models'); // Get Product model from app context
+    const { Product } = getModels(req);
     const product = await Product.findByPk(req.params.id);
     if (!product) {
       return res.status(404).json({
