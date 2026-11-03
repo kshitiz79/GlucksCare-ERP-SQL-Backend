@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
+const { optionalAuth } = require('../middleware/authMiddleware');
 const {
   getAllExpenses,
   getExpenseById,
@@ -17,6 +18,11 @@ const {
   sendExpenseReportEmail,
   getUserVisitsSummary
 } = require('./expenseController');
+
+// Support optional auth / tenant context resolution
+if (optionalAuth) {
+  router.use(optionalAuth);
+}
 
 // GET expense settings
 router.get('/settings', getExpenseSettings);
@@ -54,7 +60,9 @@ router.put('/:id/approve', approveExpense);
 // REJECT an expense
 router.put('/:id/reject', rejectExpense);
 
-// FINALIZE payment for a month
+// FINALIZE payment for a month (supports both /user/:userId/finalize-month and /finalize-payment)
+router.put('/user/:userId/finalize-month', finalizeMonthPayment);
+router.post('/user/:userId/finalize-month', finalizeMonthPayment);
 router.post('/finalize-payment', finalizeMonthPayment);
 
 // SEND expense report via email

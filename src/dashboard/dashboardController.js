@@ -23,7 +23,10 @@ const getUserDashboard = async (req, res) => {
         const monthStart = new Date(currentYear, currentMonth - 1, 1);
         const monthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
 
-        // Get models from app context
+        // Get models and sequelize from tenant/app context
+        const models = req.db || req.app.get('models');
+        const sequelize = req.tenantSequelize || req.app.get('sequelize');
+
         const { 
             User, 
             DoctorVisit, 
@@ -32,10 +35,7 @@ const getUserDashboard = async (req, res) => {
             Expense, 
             SalesTarget,
             Department
-        } = req.app.get('models');
-
-        // Get sequelize instance
-        const sequelize = req.app.get('sequelize');
+        } = models;
 
         // Parallel data fetching for better performance
         const [
@@ -46,9 +46,9 @@ const getUserDashboard = async (req, res) => {
             todayBeat,
             todayCollaboration
         ] = await Promise.all([
-            getVisitStatistics(userId, monthStart, monthEnd, req.app.get('models')),
-            getExpenseData(userId, monthStart, monthEnd, req.app.get('models')),
-            getTargetData(userId, currentMonth, currentYear, req.app.get('models')),
+            getVisitStatistics(userId, monthStart, monthEnd, models),
+            getExpenseData(userId, monthStart, monthEnd, models),
+            getTargetData(userId, currentMonth, currentYear, models, sequelize),
             User.findByPk(userId, {
                 attributes: ['id', 'name', 'role'],
                 include: [{
@@ -57,8 +57,8 @@ const getUserDashboard = async (req, res) => {
                     attributes: ['name']
                 }]
             }),
-            getTodayBeatAssigned(userId, req.app.get('models')),
-            getTodayCollaboration(userId, req.app.get('models'), sequelize)
+            getTodayBeatAssigned(userId, models),
+            getTodayCollaboration(userId, models, sequelize)
         ]);
 
         // Construct dashboard response
@@ -311,31 +311,209 @@ const getExpenseData = async (userId, monthStart, monthEnd, models) => {
 
 /**
  * Get target data for the user
+ * Unifies with Admin Dashboard sales targets:
+ * - Supports Head Office targets assigned via user_head_offices and users.head_office_id
+ * - Supports State Head aggregation across all HOs in state
+ * - Supports direct user_id target assignments
+ * - Calculates achieved amount from invoice_tracking with fallback to st.achieved_amount
  */
-const getTargetData = async (userId, month, year, models) => {
+const getTargetData = async (userId, month, year, models, sequelize) => {
     try {
         const { SalesTarget } = models;
 
-        // First try to find target for current month
-        let target = await SalesTarget.findOne({
-            where: {
-                user_id: userId,
-                target_month: month,
-                target_year: year
-            }
-        });
-
-        // If no target for current month, find the most recent target
-        if (!target) {
-            target = await SalesTarget.findOne({
-                where: {
-                    user_id: userId
-                },
-                order: [['target_year', 'DESC'], ['target_month', 'DESC']]
-            });
+        if (!sequelize) {
+            sequelize = models.sequelize || (SalesTarget && SalesTarget.sequelize);
         }
 
-        if (!target) {
+        let targetData = null;
+
+        if (sequelize) {
+            // 1. Fetch user role, state_id, and head_office_id
+            const [userRow] = await sequelize.query(`
+                SELECT id, role, state_id, head_office_id
+                FROM users
+                WHERE id = :userId
+            `, {
+                replacements: { userId },
+                type: sequelize.QueryTypes.SELECT
+            });
+
+            const userRole = userRow?.role;
+
+            if (userRole === 'State Head' && userRow.state_id) {
+                // State Head: Aggregate targets for all Head Offices in state
+                const invoiceJoin = `
+                    LEFT JOIN (
+                        SELECT 
+                            s.head_office_id,
+                            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+                        FROM invoice_tracking it
+                        JOIN stockists s ON it.stockist_id = s.id
+                        WHERE it.status != 'cancelled'
+                          AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
+                          AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+                        GROUP BY s.head_office_id
+                    ) inv ON inv.head_office_id = ho.id
+                `;
+
+                // Try current month first
+                const stateTargets = await sequelize.query(`
+                    SELECT 
+                        st.target_month,
+                        st.target_year,
+                        SUM(st.target_amount) as target_amount,
+                        SUM(COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0)) as achieved_amount,
+                        MAX(st.completion_deadline) as completion_deadline,
+                        MAX(st.status) as status
+                    FROM sales_targets st
+                    JOIN head_offices ho ON st.head_office_id = ho.id AND ho.is_active = true
+                    ${invoiceJoin}
+                    WHERE ho.state_id = :stateId 
+                      AND st.target_month = :month 
+                      AND st.target_year = :year
+                    GROUP BY st.target_month, st.target_year
+                `, {
+                    replacements: { stateId: userRow.state_id, month, year },
+                    type: sequelize.QueryTypes.SELECT
+                });
+
+                if (stateTargets && stateTargets.length > 0 && parseFloat(stateTargets[0].target_amount) > 0) {
+                    targetData = stateTargets[0];
+                } else {
+                    // Fallback to most recent target month for this state
+                    const recentStateTargets = await sequelize.query(`
+                        SELECT 
+                            st.target_month,
+                            st.target_year,
+                            SUM(st.target_amount) as target_amount,
+                            SUM(COALESCE(st.achieved_amount, 0)) as achieved_amount,
+                            MAX(st.completion_deadline) as completion_deadline,
+                            MAX(st.status) as status
+                        FROM sales_targets st
+                        JOIN head_offices ho ON st.head_office_id = ho.id AND ho.is_active = true
+                        WHERE ho.state_id = :stateId
+                        GROUP BY st.target_month, st.target_year
+                        ORDER BY st.target_year DESC, st.target_month DESC
+                        LIMIT 1
+                    `, {
+                        replacements: { stateId: userRow.state_id },
+                        type: sequelize.QueryTypes.SELECT
+                    });
+
+                    if (recentStateTargets && recentStateTargets.length > 0) {
+                        targetData = recentStateTargets[0];
+                    }
+                }
+            } else {
+                // Regular User / MR / Manager / Area Manager:
+                // Check targets for user's assigned Head Offices or direct user targets
+                const invoiceJoin = `
+                    LEFT JOIN (
+                        SELECT 
+                            s.head_office_id,
+                            SUM(GREATEST(0, COALESCE(it.taxable_amount, it.amount, 0) - COALESCE(it.discount_amount, 0))) as invoice_achieved_amount
+                        FROM invoice_tracking it
+                        JOIN stockists s ON it.stockist_id = s.id
+                        WHERE it.status != 'cancelled'
+                          AND EXTRACT(MONTH FROM it.invoice_date)::int = :month
+                          AND EXTRACT(YEAR FROM it.invoice_date)::int = :year
+                        GROUP BY s.head_office_id
+                    ) inv ON inv.head_office_id = st.head_office_id
+                `;
+
+                // Try current month first
+                const hoUserTargets = await sequelize.query(`
+                    SELECT 
+                        st.target_month,
+                        st.target_year,
+                        SUM(st.target_amount) as target_amount,
+                        SUM(COALESCE(inv.invoice_achieved_amount, st.achieved_amount, 0)) as achieved_amount,
+                        MAX(st.completion_deadline) as completion_deadline,
+                        MAX(st.status) as status
+                    FROM sales_targets st
+                    ${invoiceJoin}
+                    WHERE (
+                        st.user_id = :userId
+                        OR st.head_office_id IN (
+                            SELECT head_office_id FROM user_head_offices WHERE user_id = :userId
+                            UNION
+                            SELECT head_office_id FROM users WHERE id = :userId AND head_office_id IS NOT NULL
+                        )
+                    )
+                    AND st.target_month = :month
+                    AND st.target_year = :year
+                    GROUP BY st.target_month, st.target_year
+                `, {
+                    replacements: { userId, month, year },
+                    type: sequelize.QueryTypes.SELECT
+                });
+
+                if (hoUserTargets && hoUserTargets.length > 0 && parseFloat(hoUserTargets[0].target_amount) > 0) {
+                    targetData = hoUserTargets[0];
+                } else {
+                    // Fallback to most recent target month for assigned HOs / user
+                    const recentHoTargets = await sequelize.query(`
+                        SELECT 
+                            st.target_month,
+                            st.target_year,
+                            SUM(st.target_amount) as target_amount,
+                            SUM(COALESCE(st.achieved_amount, 0)) as achieved_amount,
+                            MAX(st.completion_deadline) as completion_deadline,
+                            MAX(st.status) as status
+                        FROM sales_targets st
+                        WHERE (
+                            st.user_id = :userId
+                            OR st.head_office_id IN (
+                                SELECT head_office_id FROM user_head_offices WHERE user_id = :userId
+                                UNION
+                                SELECT head_office_id FROM users WHERE id = :userId AND head_office_id IS NOT NULL
+                            )
+                        )
+                        GROUP BY st.target_month, st.target_year
+                        ORDER BY st.target_year DESC, st.target_month DESC
+                        LIMIT 1
+                    `, {
+                        replacements: { userId },
+                        type: sequelize.QueryTypes.SELECT
+                    });
+
+                    if (recentHoTargets && recentHoTargets.length > 0) {
+                        targetData = recentHoTargets[0];
+                    }
+                }
+            }
+        }
+
+        // Direct fallback to SalesTarget model if raw query didn't find or sequelize not available
+        if (!targetData && SalesTarget) {
+            let target = await SalesTarget.findOne({
+                where: {
+                    user_id: userId,
+                    target_month: month,
+                    target_year: year
+                }
+            });
+
+            if (!target) {
+                target = await SalesTarget.findOne({
+                    where: { user_id: userId },
+                    order: [['target_year', 'DESC'], ['target_month', 'DESC']]
+                });
+            }
+
+            if (target) {
+                targetData = {
+                    target_month: target.target_month,
+                    target_year: target.target_year,
+                    target_amount: target.target_amount,
+                    achieved_amount: target.achieved_amount,
+                    completion_deadline: target.completion_deadline,
+                    status: target.status
+                };
+            }
+        }
+
+        if (!targetData) {
             return {
                 monthlyTarget: 0,
                 achieved: 0,
@@ -348,25 +526,26 @@ const getTargetData = async (userId, month, year, models) => {
             };
         }
 
-        const achieved = parseFloat(target.achieved_amount) || 0;
-        const monthlyTarget = parseFloat(target.target_amount) || 0;
+        const achieved = parseFloat(targetData.achieved_amount) || 0;
+        const monthlyTarget = parseFloat(targetData.target_amount) || 0;
         const remaining = Math.max(0, monthlyTarget - achieved);
         const achievementPercentage = monthlyTarget > 0 ? ((achieved / monthlyTarget) * 100) : 0;
 
-        // Check if this is the current month target or a different month
-        const isCurrentMonth = target.target_month === month && target.target_year === year;
+        const targetMonthNum = parseInt(targetData.target_month) || month;
+        const targetYearNum = parseInt(targetData.target_year) || year;
+        const isCurrentMonth = targetMonthNum === month && targetYearNum === year;
 
         return {
             monthlyTarget,
             achieved,
             remaining,
             achievementPercentage: parseFloat(achievementPercentage.toFixed(1)),
-            status: target.status || 'Active',
-            deadline: target.completion_deadline,
-            targetMonth: target.target_month,
-            targetYear: target.target_year,
+            status: targetData.status || (achievementPercentage >= 100 ? 'Completed' : 'Active'),
+            deadline: targetData.completion_deadline,
+            targetMonth: targetMonthNum,
+            targetYear: targetYearNum,
             isCurrentMonth,
-            targetPeriod: `${getMonthName(target.target_month)} ${target.target_year}`
+            targetPeriod: `${getMonthName(targetMonthNum)} ${targetYearNum}`
         };
     } catch (error) {
         console.error('Error fetching target data:', error);

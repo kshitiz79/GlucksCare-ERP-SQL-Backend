@@ -411,21 +411,41 @@ async function initMasterDatabase() {
     await PlatformSetting.sync();
     await PlatformTransaction.sync({ alter: true });
 
-    // Seed default Platform Super Admin if not present
-    const defaultEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@gluckscare.com';
-    const defaultPassword = process.env.SUPER_ADMIN_PASSWORD || 'GlucksCare@2026';
+    // Seed / Sync default Platform Super Admins
+    const defaultAdmins = [
+      {
+        email: (process.env.SUPER_ADMIN_EMAIL || 'superadmin@gluckscare.com').toLowerCase().trim(),
+        password: process.env.SUPER_ADMIN_PASSWORD || 'GlucksCare@2026',
+        name: 'Platform Super Operator'
+      },
+      {
+        email: 'superadmin@fieldomni.com',
+        password: 'Fieldomni@2026',
+        name: 'FieldOmni Super Operator'
+      }
+    ];
 
-    const existingAdmin = await PlatformAdmin.findOne({ where: { email: defaultEmail } });
-    if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-      await PlatformAdmin.create({
-        name: 'Platform Super Operator',
-        email: defaultEmail,
-        password: hashedPassword,
-        role: 'SUPER_ADMIN',
-        is_active: true
-      });
-      console.log(`✅ Default Super Admin seeded: ${defaultEmail}`);
+    for (const adm of defaultAdmins) {
+      const cleanEmail = adm.email.toLowerCase().trim();
+      const existingAdmin = await PlatformAdmin.findOne({ where: { email: cleanEmail } });
+      const hashedPassword = await bcrypt.hash(adm.password, 10);
+      if (!existingAdmin) {
+        await PlatformAdmin.create({
+          name: adm.name,
+          email: cleanEmail,
+          password: hashedPassword,
+          role: 'SUPER_ADMIN',
+          is_active: true
+        });
+        console.log(`✅ Default Super Admin seeded: ${cleanEmail}`);
+      } else {
+        await existingAdmin.update({
+          password: hashedPassword,
+          is_active: true,
+          role: 'SUPER_ADMIN'
+        });
+        console.log(`✅ Super Admin synced & activated: ${cleanEmail}`);
+      }
     }
 
     // Seed default Pricing Configuration in platform_settings if not present

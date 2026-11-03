@@ -884,39 +884,100 @@ const uploadBillImage = async (req, res) => {
 // Finalize payment for a month (mark all approved expenses as paid)
 const finalizeMonthPayment = async (req, res) => {
   try {
-    const { Expense } = req.app.get('models');
-    const { userId, monthYear, transactionId, paymentNote } = req.body; // monthYear format: "YYYY-MM"
-
-    if (!userId || !monthYear || !transactionId) {
-      return res.status(400).json({
-        success: false,
-        message: 'userId, monthYear, and transactionId are required'
-      });
-    }
-
-    // Validate monthYear format
-    if (!/^\d{4}-\d{2}$/.test(monthYear)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid monthYear format. Use YYYY-MM'
-      });
-    }
-
-    // Find all approved and unpaid expenses for the user in that month
-    const [year, month] = monthYear.split('-');
-    const startDate = `${year}-${month}-01`;
-    const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
-
+    const models = req.db || (req.app && req.app.get('models'));
+    const { Expense } = models;
     const { Op } = require('sequelize');
 
-    // Find expenses where either:
-    // 1. The date falls within the month, OR
-    // 2. The date range (date to end_date) overlaps with the month
+    const userId = req.params.userId || req.body.userId;
+    const transactionId = (req.body.transactionId || '').trim();
+    const paymentNote = req.body.paymentNote ? req.body.paymentNote.trim() : null;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId is required'
+      });
+    }
+
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'transactionId is required'
+      });
+    }
+
+    const MONTH_MAP = {
+      january: 1, jan: 1,
+      february: 2, feb: 2,
+      march: 3, mar: 3,
+      april: 4, apr: 4,
+      may: 5,
+      june: 6, jun: 6,
+      july: 7, jul: 7,
+      august: 8, aug: 8,
+      september: 9, sep: 9, sept: 9,
+      october: 10, oct: 10,
+      november: 11, nov: 11,
+      december: 12, dec: 12
+    };
+
+    let targetYear = null;
+    let targetMonth = null;
+
+    if (req.body.monthYear && typeof req.body.monthYear === 'string') {
+      const myStr = req.body.monthYear.trim();
+      if (/^\d{4}-\d{2}$/.test(myStr)) {
+        const [y, m] = myStr.split('-');
+        targetYear = parseInt(y, 10);
+        targetMonth = parseInt(m, 10);
+      } else {
+        const parts = myStr.split(/[\s-]+/);
+        for (const part of parts) {
+          const cleanPart = part.toLowerCase();
+          if (MONTH_MAP[cleanPart]) {
+            targetMonth = MONTH_MAP[cleanPart];
+          } else if (/^\d{4}$/.test(cleanPart)) {
+            targetYear = parseInt(cleanPart, 10);
+          }
+        }
+      }
+    }
+
+    if (!targetYear && req.body.year) {
+      targetYear = parseInt(req.body.year, 10);
+    }
+
+    if (!targetMonth && req.body.month !== undefined && req.body.month !== null) {
+      const rawM = parseInt(req.body.month, 10);
+      // If 0-11 (JavaScript 0-indexed month from frontend)
+      if (rawM >= 0 && rawM <= 11) {
+        targetMonth = rawM + 1;
+      } else if (rawM >= 1 && rawM <= 12) {
+        targetMonth = rawM;
+      }
+    }
+
+    if (!targetYear) {
+      targetYear = new Date().getFullYear();
+    }
+    if (!targetMonth) {
+      targetMonth = new Date().getMonth() + 1;
+    }
+
+    const paddedMonth = String(targetMonth).padStart(2, '0');
+    const stdMonthYear = `${targetYear}-${paddedMonth}`;
+    const startDate = `${targetYear}-${paddedMonth}-01`;
+    const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+    const endDate = `${targetYear}-${paddedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+    // Find all approved and unpaid expenses for the user in that month
     const expenses = await Expense.findAll({
       where: {
         user_id: userId,
         status: 'approved',
-        payment_status: 'unpaid',
+        payment_status: {
+          [Op.or]: ['unpaid', null]
+        },
         [Op.or]: [
           // Case 1: date is within the month
           {
@@ -936,9 +997,9 @@ const finalizeMonthPayment = async (req, res) => {
     });
 
     if (expenses.length === 0) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        message: 'No unpaid approved expenses found for this month'
+        message: `No approved unpaid expenses found for ${stdMonthYear}`
       });
     }
 
@@ -948,7 +1009,7 @@ const finalizeMonthPayment = async (req, res) => {
       {
         payment_status: 'paid',
         payment_date: new Date(),
-        payment_month_year: monthYear,
+        payment_month_year: stdMonthYear,
         transaction_id: transactionId,
         payment_note: paymentNote || null
       },
@@ -959,16 +1020,18 @@ const finalizeMonthPayment = async (req, res) => {
       }
     );
 
-    const totalAmount = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
+    const totalAmount = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
 
     res.json({
       success: true,
       message: `Payment finalized for ${expenses.length} expenses`,
+      updatedCount: expenses.length,
       data: {
         count: expenses.length,
-        totalAmount: totalAmount,
-        monthYear: monthYear,
-        paidDate: new Date()
+        totalAmount,
+        monthYear: stdMonthYear,
+        paidDate: new Date(),
+        expenseIds
       }
     });
   } catch (error) {
