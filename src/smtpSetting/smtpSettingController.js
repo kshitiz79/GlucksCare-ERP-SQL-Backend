@@ -200,8 +200,168 @@ const testSmtpSettings = async (req, res) => {
   }
 };
 
+// SEND BULK EMAIL to all users, specific role, or selected users
+const sendBulkEmail = async (req, res) => {
+  try {
+    const models = req.db || (req.app && req.app.get('models')) || require('../config/database');
+    const { User } = models;
+    const { Op } = require('sequelize');
+
+    const {
+      targetType = 'all', // 'all', 'role', 'selected'
+      userIds = [],
+      role = '',
+      subject,
+      message,
+      htmlMessage
+    } = req.body;
+
+    if (!subject || !subject.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email subject is required'
+      });
+    }
+
+    if (!message && !htmlMessage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email body content is required'
+      });
+    }
+
+    // Determine target users
+    const whereClause = {
+      is_active: true,
+      email: {
+        [Op.and]: [
+          { [Op.ne]: null },
+          { [Op.ne]: '' }
+        ]
+      }
+    };
+
+    if (targetType === 'role' && role) {
+      whereClause.role = role;
+    } else if (targetType === 'selected') {
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select at least one recipient user'
+        });
+      }
+      whereClause.id = { [Op.in]: userIds };
+    }
+
+    const recipients = await User.findAll({
+      where: whereClause,
+      attributes: ['id', 'name', 'email', 'role']
+    });
+
+    if (recipients.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active users found with valid email addresses for the selected criteria'
+      });
+    }
+
+    // Get active SMTP configuration from DB / .env
+    const emailConfig = await EmailService.getConfig(models);
+
+    const results = {
+      total: recipients.length,
+      successCount: 0,
+      failedCount: 0,
+      failures: []
+    };
+
+    const createHtmlTemplate = (userName, bodyContent) => {
+      const personalizedBody = (bodyContent || '').replace(/\{name\}/gi, userName || 'Team Member');
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 24px; color: #111827; }
+            .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+            .header { background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 24px 32px; color: #ffffff; }
+            .header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+            .content { padding: 32px; line-height: 1.6; font-size: 15px; color: #374151; white-space: pre-wrap; }
+            .footer { padding: 20px 32px; background-color: #f3f4f6; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${emailConfig.fromName || 'GlucksCare ERP'}</h1>
+            </div>
+            <div class="content">${personalizedBody}</div>
+            <div class="footer">
+              <p>This message was sent from ${emailConfig.fromName || 'GlucksCare ERP'} administration.</p>
+              <p>Configured Sender: ${emailConfig.fromEmail || emailConfig.user}</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    };
+
+    // Send emails sequentially or in small parallel batches
+    for (const recipient of recipients) {
+      try {
+        const html = htmlMessage || createHtmlTemplate(recipient.name, message);
+        const text = (message || '').replace(/\{name\}/gi, recipient.name || 'Team Member');
+
+        await EmailService.sendMail({
+          to: recipient.email,
+          subject: subject.trim(),
+          text,
+          html,
+          models
+        });
+
+        results.successCount++;
+      } catch (sendErr) {
+        console.error(`Failed to send email to ${recipient.email}:`, sendErr.message);
+        results.failedCount++;
+        results.failures.push({
+          email: recipient.email,
+          name: recipient.name,
+          error: sendErr.message
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Bulk email process completed: ${results.successCount} sent, ${results.failedCount} failed`,
+      data: {
+        total: results.total,
+        sent: results.successCount,
+        failed: results.failedCount,
+        sender: {
+          email: emailConfig.fromEmail || emailConfig.user,
+          name: emailConfig.fromName,
+          host: emailConfig.host
+        },
+        failures: results.failures
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in sendBulkEmail:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error while sending bulk email'
+    });
+  }
+};
+
 module.exports = {
   getSmtpSettings,
   updateSmtpSettings,
-  testSmtpSettings
+  testSmtpSettings,
+  sendBulkEmail
 };

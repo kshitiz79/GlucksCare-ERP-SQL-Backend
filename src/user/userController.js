@@ -115,6 +115,10 @@ const getUsersByState = async (req, res) => {
         department: user.department_id,
         employmentType: user.employment_type_id,
         addressId: user.address_id,
+        designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : (user.designation_id || null),
+        designationId: user.designation_id,
+        designationName: user.designation?.name || null,
+        Designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : null,
         masterAddress: user.masterAddress ? {
           id: user.masterAddress.id,
           addressName: user.masterAddress.address_name,
@@ -339,6 +343,10 @@ const getUsersByRole = async (req, res) => {
         department: user.department_id,
         employmentType: user.employment_type_id,
         addressId: user.address_id,
+        designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : (user.designation_id || null),
+        designationId: user.designation_id,
+        designationName: user.designation?.name || null,
+        Designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : null,
         masterAddress: user.masterAddress ? {
           id: user.masterAddress.id,
           addressName: user.masterAddress.address_name,
@@ -395,7 +403,7 @@ const getAllUsers = async (req, res) => {
   try {
     // Get the User model from app context
     const models = req.app.get('models');
-    const { User, HeadOffice, OfflineBgTracking } = models;
+    const { User, HeadOffice, OfflineBgTracking, Designation } = models;
     const sequelize = req.app.get('sequelize');
     const { Op } = require('sequelize');
 
@@ -418,6 +426,17 @@ const getAllUsers = async (req, res) => {
 
     // Build where clause
     const whereClause = includeDeactivated ? {} : { is_active: true };
+
+    // Support explicit isActive / is_active / status filtering
+    if (req.query.isActive !== undefined && req.query.isActive !== '') {
+      whereClause.is_active = (req.query.isActive === 'true' || req.query.isActive === true);
+    } else if (req.query.is_active !== undefined && req.query.is_active !== '') {
+      whereClause.is_active = (req.query.is_active === 'true' || req.query.is_active === true);
+    } else if (req.query.status === 'active') {
+      whereClause.is_active = true;
+    } else if (req.query.status === 'inactive') {
+      whereClause.is_active = false;
+    }
 
     // Add role filter if provided
     if (roleFilter) {
@@ -455,6 +474,10 @@ const getAllUsers = async (req, res) => {
         {
           model: models.Address,
           as: 'masterAddress'
+        },
+        {
+          model: Designation || models.Designation,
+          as: 'designation'
         }
       ],
       limit,
@@ -642,6 +665,10 @@ const getAllUsers = async (req, res) => {
         department: user.department_id,
         employmentType: user.employment_type_id,
         addressId: user.address_id,
+        designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : (user.designation_id || null),
+        designationId: user.designation_id,
+        designationName: user.designation?.name || null,
+        Designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : null,
         masterAddress: user.masterAddress ? {
           id: user.masterAddress.id,
           addressName: user.masterAddress.address_name,

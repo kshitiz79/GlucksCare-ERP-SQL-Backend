@@ -3,7 +3,8 @@ const router = express.Router();
 const {
   getSmtpSettings,
   updateSmtpSettings,
-  testSmtpSettings
+  testSmtpSettings,
+  sendBulkEmail
 } = require('./smtpSettingController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
@@ -26,5 +27,8 @@ router.put('/', authMiddleware, adminOnly, updateSmtpSettings);
 
 // TEST SMTP settings
 router.post('/test', authMiddleware, adminOnly, testSmtpSettings);
+
+// SEND BULK EMAIL (Admin only)
+router.post('/send-bulk-email', authMiddleware, adminOnly, sendBulkEmail);
 
 module.exports = router;
