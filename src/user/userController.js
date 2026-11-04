@@ -708,12 +708,11 @@ const getAllUsers = async (req, res) => {
 // GET user by ID
 const getUserById = async (req, res) => {
   try {
-    // Get the User model from app context
-    const { User, HeadOffice } = req.app.get('models');
+    const models = req.db || req.app.get('models');
+    const { User, HeadOffice, Address, State, Department, Designation, Branch, EmploymentType } = models;
     const user = await User.findOne({
       where: {
-        id: req.params.id,
-        is_active: true
+        id: req.params.id
       },
       include: [
         {
@@ -722,27 +721,27 @@ const getUserById = async (req, res) => {
           through: { attributes: [] }
         },
         {
-          model: req.app.get('models').Address,
+          model: Address,
           as: 'masterAddress'
         },
         {
-          model: req.app.get('models').State,
+          model: State,
           as: 'State'
         },
         {
-          model: req.app.get('models').Department,
+          model: Department,
           as: 'Department'
         },
         {
-          model: req.app.get('models').Designation,
+          model: Designation,
           as: 'designation'
         },
         {
-          model: req.app.get('models').Branch,
+          model: Branch,
           as: 'Branch'
         },
         {
-          model: req.app.get('models').EmploymentType,
+          model: EmploymentType,
           as: 'EmploymentType'
         }
       ]
@@ -766,9 +765,12 @@ const getUserById = async (req, res) => {
       gender: user.gender,
       religion: user.religion,
       role: user.role,
-      state: user.State?.name || user.state_id,
+      state: user.State ? { id: user.State.id, _id: user.State.id, name: user.State.name } : (user.state_id || null),
       stateId: user.state_id,
+      stateName: user.State?.name || null,
+      State: user.State ? { id: user.State.id, _id: user.State.id, name: user.State.name } : null,
       salaryAmount: user.salary_amount,
+      salaryType: user.salary_type || 'Monthly',
       dateOfBirth: user.date_of_birth,
       dateOfJoining: user.date_of_joining,
       bankDetails: user.bank_details,
@@ -781,14 +783,22 @@ const getUserById = async (req, res) => {
       otpExpire: user.otp_expire,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
-      branch: user.Branch?.name || user.branch_id,
+      branch: user.Branch ? { id: user.Branch.id, _id: user.Branch.id, name: user.Branch.name, code: user.Branch.code } : (user.branch_id || null),
       branchId: user.branch_id,
-      department: user.Department?.name || user.department_id,
+      branchName: user.Branch?.name || null,
+      Branch: user.Branch ? { id: user.Branch.id, _id: user.Branch.id, name: user.Branch.name, code: user.Branch.code } : null,
+      department: user.Department ? { id: user.Department.id, _id: user.Department.id, name: user.Department.name, code: user.Department.code } : (user.department_id || null),
       departmentId: user.department_id,
-      designation: user.designation?.name || user.designation_id,
+      departmentName: user.Department?.name || null,
+      Department: user.Department ? { id: user.Department.id, _id: user.Department.id, name: user.Department.name, code: user.Department.code } : null,
+      designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : (user.designation_id || null),
       designationId: user.designation_id,
-      employmentType: user.EmploymentType?.name || user.employment_type_id,
+      designationName: user.designation?.name || null,
+      Designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : null,
+      employmentType: user.EmploymentType ? { id: user.EmploymentType.id, _id: user.EmploymentType.id, name: user.EmploymentType.name } : (user.employment_type_id || null),
       employmentTypeId: user.employment_type_id,
+      employmentTypeName: user.EmploymentType?.name || null,
+      EmploymentType: user.EmploymentType ? { id: user.EmploymentType.id, _id: user.EmploymentType.id, name: user.EmploymentType.name } : null,
       addressId: user.address_id,
       masterAddress: user.masterAddress ? {
         id: user.masterAddress.id,
@@ -1046,8 +1056,8 @@ const createUser = async (req, res) => {
 // UPDATE a user
 const updateUser = async (req, res) => {
   try {
-    // Get the User model from app context
-    const { User } = req.app.get('models');
+    const models = req.db || req.app.get('models');
+    const { User, Address, HeadOffice, State, Department, Designation, Branch, EmploymentType } = models;
     const user = await User.findByPk(req.params.id);
     if (!user) {
       return res.status(404).json({
@@ -1058,9 +1068,20 @@ const updateUser = async (req, res) => {
 
     // Convert camelCase to snake_case for PostgreSQL
     const updateData = {};
+    const skipKeys = [
+      'password', 'headOffices', 'managers', 'areaManagers', 'subordinates',
+      'designation', 'designationId', 'designation_id',
+      'branch', 'branchId', 'branch_id',
+      'department', 'departmentId', 'department_id',
+      'employmentType', 'employmentTypeId', 'employment_type_id',
+      'state', 'stateId', 'state_id',
+      'headOffice', 'headOfficeId', 'head_office_id',
+      'addressId', 'address_id'
+    ];
+
     Object.keys(req.body).forEach(key => {
-      // Skip password field and relationship fields for this endpoint
-      if (key === 'password' || ['headOffices', 'managers', 'areaManagers', 'designation', 'branch', 'department', 'employmentType', 'state', 'headOffice', 'addressId'].includes(key)) return;
+      // Skip password field and relationship fields for this loop
+      if (skipKeys.includes(key)) return;
 
       const snakeCaseKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       updateData[snakeCaseKey] = req.body[key];
@@ -1071,21 +1092,65 @@ const updateUser = async (req, res) => {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
     };
 
-    // Explicitly handle relationship IDs if provided as UUIDs
-    if (req.body.designation && isUUID(req.body.designation)) updateData.designation_id = req.body.designation;
-    if (req.body.branch && isUUID(req.body.branch)) updateData.branch_id = req.body.branch;
-    if (req.body.department && isUUID(req.body.department)) updateData.department_id = req.body.department;
-    if (req.body.employmentType && isUUID(req.body.employmentType)) updateData.employment_type_id = req.body.employmentType;
-    if (req.body.state && isUUID(req.body.state)) updateData.state_id = req.body.state;
-    if (req.body.headOffice && isUUID(req.body.headOffice)) updateData.head_office_id = req.body.headOffice;
+    // Helper to resolve entity UUID from string ID, name, object, or null
+    const resolveEntityId = async (val, modelName) => {
+      if (val === undefined) return undefined;
+      if (val === null || val === '' || val === 'null' || val === 'undefined') return null;
+      if (typeof val === 'object') {
+        const id = val.id || val._id;
+        if (id && isUUID(id)) return id;
+        if (val.name && modelName) val = val.name;
+      }
+      if (typeof val === 'string') {
+        val = val.trim();
+        if (isUUID(val)) return val;
+        if (modelName && models[modelName]) {
+          const found = await models[modelName].findOne({
+            where: { name: val }
+          });
+          if (found) return found.id;
+        }
+      }
+      return null;
+    };
+
+    // Explicitly handle relationship IDs (supports UUID, name, object, or null/empty)
+    const branchVal = req.body.branch !== undefined ? req.body.branch : (req.body.branchId !== undefined ? req.body.branchId : req.body.branch_id);
+    if (branchVal !== undefined) {
+      updateData.branch_id = await resolveEntityId(branchVal, 'Branch');
+    }
+
+    const deptVal = req.body.department !== undefined ? req.body.department : (req.body.departmentId !== undefined ? req.body.departmentId : req.body.department_id);
+    if (deptVal !== undefined) {
+      updateData.department_id = await resolveEntityId(deptVal, 'Department');
+    }
+
+    const desigVal = req.body.designation !== undefined ? req.body.designation : (req.body.designationId !== undefined ? req.body.designationId : req.body.designation_id);
+    if (desigVal !== undefined) {
+      updateData.designation_id = await resolveEntityId(desigVal, 'Designation');
+    }
+
+    const empTypeVal = req.body.employmentType !== undefined ? req.body.employmentType : (req.body.employmentTypeId !== undefined ? req.body.employmentTypeId : req.body.employment_type_id);
+    if (empTypeVal !== undefined) {
+      updateData.employment_type_id = await resolveEntityId(empTypeVal, 'EmploymentType');
+    }
+
+    const stateVal = req.body.state !== undefined ? req.body.state : (req.body.stateId !== undefined ? req.body.stateId : req.body.state_id);
+    if (stateVal !== undefined) {
+      updateData.state_id = await resolveEntityId(stateVal, 'State');
+    }
+
+    const hoVal = req.body.headOffice !== undefined ? req.body.headOffice : (req.body.headOfficeId !== undefined ? req.body.headOfficeId : req.body.head_office_id);
+    if (hoVal !== undefined) {
+      updateData.head_office_id = await resolveEntityId(hoVal, 'HeadOffice');
+    }
 
     if (req.body.addressId) {
       updateData['address_id'] = req.body.addressId;
     }
 
     // Start a transaction for user and address update
-    const sequelize = req.app.get('sequelize');
-    const { Address, HeadOffice } = req.app.get('models');
+    const sequelize = req.tenantSequelize || req.app.get('sequelize') || models.sequelize;
     const transaction = await sequelize.transaction();
 
     try {
@@ -1292,6 +1357,41 @@ const updateUser = async (req, res) => {
         console.error('Error loading updated managers for response:', respError);
       }
 
+      // Reload user with all associations after update
+      await user.reload({
+        include: [
+          {
+            model: HeadOffice,
+            as: 'headOffices',
+            through: { attributes: [] }
+          },
+          {
+            model: Address,
+            as: 'masterAddress'
+          },
+          {
+            model: State,
+            as: 'State'
+          },
+          {
+            model: Department,
+            as: 'Department'
+          },
+          {
+            model: Designation,
+            as: 'designation'
+          },
+          {
+            model: Branch,
+            as: 'Branch'
+          },
+          {
+            model: EmploymentType,
+            as: 'EmploymentType'
+          }
+        ]
+      });
+
       // Transform user to match MongoDB format
       const transformedUser = {
         _id: user.id,
@@ -1304,8 +1404,18 @@ const updateUser = async (req, res) => {
         religion: user.religion,
         role: user.role,
         headOffice: user.head_office_id,
-        state: user.state_id,
+        headOffices: user.headOffices ? user.headOffices.map(ho => ({
+          _id: ho.id,
+          id: ho.id,
+          name: ho.name,
+          pincode: ho.pincode
+        })) : [],
+        state: user.State ? { id: user.State.id, _id: user.State.id, name: user.State.name } : (user.state_id || null),
+        stateId: user.state_id,
+        stateName: user.State?.name || null,
+        State: user.State ? { id: user.State.id, _id: user.State.id, name: user.State.name } : null,
         salaryAmount: user.salary_amount,
+        salaryType: user.salary_type || 'Monthly',
         dateOfBirth: user.date_of_birth,
         dateOfJoining: user.date_of_joining,
         bankDetails: user.bank_details,
@@ -1318,9 +1428,36 @@ const updateUser = async (req, res) => {
         otpExpire: user.otp_expire,
         createdAt: user.created_at,
         updatedAt: user.updated_at,
-        branch: user.branch_id,
-        department: user.department_id,
-        employmentType: user.employment_type_id,
+        branch: user.Branch ? { id: user.Branch.id, _id: user.Branch.id, name: user.Branch.name, code: user.Branch.code } : (user.branch_id || null),
+        branchId: user.branch_id,
+        branchName: user.Branch?.name || null,
+        Branch: user.Branch ? { id: user.Branch.id, _id: user.Branch.id, name: user.Branch.name, code: user.Branch.code } : null,
+        department: user.Department ? { id: user.Department.id, _id: user.Department.id, name: user.Department.name, code: user.Department.code } : (user.department_id || null),
+        departmentId: user.department_id,
+        departmentName: user.Department?.name || null,
+        Department: user.Department ? { id: user.Department.id, _id: user.Department.id, name: user.Department.name, code: user.Department.code } : null,
+        designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : (user.designation_id || null),
+        designationId: user.designation_id,
+        designationName: user.designation?.name || null,
+        Designation: user.designation ? { id: user.designation.id, _id: user.designation.id, name: user.designation.name } : null,
+        employmentType: user.EmploymentType ? { id: user.EmploymentType.id, _id: user.EmploymentType.id, name: user.EmploymentType.name } : (user.employment_type_id || null),
+        employmentTypeId: user.employment_type_id,
+        employmentTypeName: user.EmploymentType?.name || null,
+        EmploymentType: user.EmploymentType ? { id: user.EmploymentType.id, _id: user.EmploymentType.id, name: user.EmploymentType.name } : null,
+        addressId: user.address_id,
+        masterAddress: user.masterAddress ? {
+          id: user.masterAddress.id,
+          addressName: user.masterAddress.address_name,
+          addressLine1: user.masterAddress.address_line_1,
+          addressLine2: user.masterAddress.address_line_2,
+          areaLocality: user.masterAddress.area_locality,
+          postOffice: user.masterAddress.post_office,
+          district: user.masterAddress.district,
+          state: user.masterAddress.state,
+          pincode: user.masterAddress.pincode,
+          contactPersonName: user.masterAddress.contact_person_name,
+          contactNumber: user.masterAddress.contact_number
+        } : null,
         managers: responseManagers,
         areaManagers: responseAreaManagers,
         subordinates: responseSubordinates,
