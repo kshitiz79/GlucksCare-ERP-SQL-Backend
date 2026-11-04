@@ -170,16 +170,15 @@ const testSmtpSettings = async (req, res) => {
       to: toEmail.trim(),
       subject: '✅ SMTP Configuration Test - ERP System',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; rounded: 8px;">
-          <h2 style="color: #4F46E5;">SMTP Connection Successful!</h2>
-          <p>This is a test email sent from your ERP System to verify your SMTP email settings.</p>
-          <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;" />
-          <p style="font-size: 12px; color: #666;">
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 6px; color: #222222;">
+          <h2 style="margin-top: 0; color: #111827; font-size: 18px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px;">SMTP Connection Successful</h2>
+          <p style="font-size: 14px; line-height: 1.5; color: #333333;">This is a test email sent from your ERP System to verify your SMTP email settings.</p>
+          <div style="font-size: 12px; color: #555555; background: #fafafa; padding: 12px; border: 1px solid #e5e7eb; border-radius: 4px; margin-top: 16px; line-height: 1.5;">
             <strong>Configured Host:</strong> ${host || 'smtp.gmail.com'}<br>
             <strong>Port:</strong> ${port || 587}<br>
             <strong>Sender User:</strong> ${emailUser}<br>
             <strong>Timestamp:</strong> ${new Date().toISOString()}
-          </p>
+          </div>
         </div>
       `
     };
@@ -284,12 +283,49 @@ const sendBulkEmail = async (req, res) => {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 24px; color: #111827; }
-            .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-            .header { background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 24px 32px; color: #ffffff; }
-            .header h1 { margin: 0; font-size: 20px; font-weight: 600; }
-            .content { padding: 32px; line-height: 1.6; font-size: 15px; color: #374151; white-space: pre-wrap; }
-            .footer { padding: 20px 32px; background-color: #f3f4f6; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; }
+            body {
+              font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background-color: #ffffff;
+              margin: 0;
+              padding: 20px;
+              color: #222222;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              background: #ffffff;
+              border: 1px solid #e5e7eb;
+              border-radius: 6px;
+              padding: 24px;
+            }
+            .header {
+              border-bottom: 1px solid #e5e7eb;
+              padding-bottom: 16px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 18px;
+              font-weight: bold;
+              color: #111827;
+            }
+            .content {
+              font-size: 14px;
+              line-height: 1.6;
+              color: #333333;
+              white-space: pre-wrap;
+            }
+            .footer {
+              margin-top: 24px;
+              padding-top: 16px;
+              border-top: 1px solid #e5e7eb;
+              font-size: 12px;
+              color: #666666;
+              line-height: 1.5;
+            }
+            .footer p {
+              margin: 4px 0;
+            }
           </style>
         </head>
         <body>
@@ -299,8 +335,8 @@ const sendBulkEmail = async (req, res) => {
             </div>
             <div class="content">${personalizedBody}</div>
             <div class="footer">
-              <p>This message was sent from ${emailConfig.fromName || 'GlucksCare ERP'} administration.</p>
-              <p>Configured Sender: ${emailConfig.fromEmail || emailConfig.user}</p>
+              <p>This message was sent from ${emailConfig.fromName || 'GlucksCare ERP'}.</p>
+              <p>Sender: ${emailConfig.fromEmail || emailConfig.user}</p>
             </div>
           </div>
         </body>
