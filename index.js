@@ -115,6 +115,7 @@ async function startServer() {
 
     // Mount Central API Routes
     app.use('/api', apiRoutes);
+    app.use('/dashboard', require('./src/dashboard/dashboardRoutes'));
 
     // Root endpoint
     app.get('/', (req, res) => {

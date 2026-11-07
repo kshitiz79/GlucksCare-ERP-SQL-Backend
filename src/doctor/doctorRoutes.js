@@ -13,7 +13,7 @@ const {
   assignAreaToDoctor,
   getVisitedDoctorsInRange,
   getUnvisitedDoctorsInRange,
-  setGlobalUcpmpCap,
+  setGlobalUcpmpCap, 
   setDoctorUcpmpCap,
   getDoctorEditRequests,
   approveDoctorEditRequest,
