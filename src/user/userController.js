@@ -463,9 +463,15 @@ const getAllUsers = async (req, res) => {
     const actualSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     // Fetch users with pagination
-    const { rows: users, count: totalUsers } = await User.findAndCountAll({
-      where: whereClause,
-      include: [
+    const includes = [];
+    if (req.query.minimal === 'true') {
+      includes.push({
+        model: Designation || models.Designation,
+        as: 'designation',
+        attributes: ['id', 'name']
+      });
+    } else {
+      includes.push(
         {
           model: HeadOffice,
           as: 'headOffices',
@@ -479,7 +485,12 @@ const getAllUsers = async (req, res) => {
           model: Designation || models.Designation,
           as: 'designation'
         }
-      ],
+      );
+    }
+
+    const { rows: users, count: totalUsers } = await User.findAndCountAll({
+      where: whereClause,
+      include: includes,
       limit,
       offset,
       order: [[actualSortBy, actualSortOrder]]
@@ -491,8 +502,8 @@ const getAllUsers = async (req, res) => {
     // Create a map of user_id to latest location
     const locationMap = {};
 
-    // Only fetch locations if OfflineBgTracking model exists
-    if (OfflineBgTracking && users.length > 0) {
+    // Only fetch locations if OfflineBgTracking model exists and not explicitly skipped
+    if (OfflineBgTracking && users.length > 0 && req.query.includeLocation !== 'false' && req.query.minimal !== 'true') {
       try {
         const userIds = users.map(u => u.id);
 

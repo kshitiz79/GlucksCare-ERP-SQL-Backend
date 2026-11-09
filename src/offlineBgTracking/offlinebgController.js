@@ -51,154 +51,221 @@ const getMedian = (values) => {
 };
 
 // Detect stationary clusters (>= 15 mins or >= 5 mins for visits) and collapse 50+ drift dots into a single median stop
-const detectStopsAndCollapseJitter = (points, nearbyVisits = [], clusterRadiusMeters = 75, minStopDurationMins = 15) => {
+const detectStopsAndCollapseJitter = (points, nearbyVisits = [], clusterRadiusMeters = 100, minStopDurationMins = 15) => {
   if (!points || points.length === 0) return { stops: [], collapsedRoute: [] };
 
-  const stops = [];
-  const collapsedRoute = [];
+  // 1. Cluster points using running spatial centroid to avoid peripheral anchor breaking
+  const clusters = [];
   let currentCluster = [points[0]];
-  let anchorPoint = points[0];
-
-  const processCluster = (cluster) => {
-    if (!cluster || cluster.length === 0) return;
-
-    const startTime = new Date(cluster[0].timestamp).getTime();
-    const endTime = new Date(cluster[cluster.length - 1].timestamp).getTime();
-    const durationMins = Math.round((endTime - startTime) / (1000 * 60));
-
-    if (cluster.length >= 2) {
-      const lats = cluster.map(p => parseFloat(p.lat ?? p.latitude));
-      const lngs = cluster.map(p => parseFloat(p.lng ?? p.longitude));
-      const medianLat = getMedian(lats);
-      const medianLng = getMedian(lngs);
-
-      // Check if any visit check-in matches this stop (within 250m and within +- 40 min)
-      let matchedVisit = null;
-      for (const v of nearbyVisits) {
-        const vLat = parseFloat(v.latitude || v.lat);
-        const vLng = parseFloat(v.longitude || v.lng);
-        if (isNaN(vLat) || isNaN(vLng)) continue;
-        const dist = getDistanceMeters(medianLat, medianLng, vLat, vLng);
-        const vTime = new Date(v.created_at || v.timestamp).getTime();
-        const timeDiffMins = Math.abs(vTime - startTime) / (1000 * 60);
-
-        if (dist <= 250 && timeDiffMins <= 40) {
-          matchedVisit = v;
-          break;
-        }
-      }
-
-      // Check-ins count at >= 5 mins, generic halts require >= minStopDurationMins (15 mins)
-      const requiredDuration = matchedVisit ? 5 : minStopDurationMins;
-
-      if (durationMins >= requiredDuration) {
-        // Prevent stacking: check if previous stop is within 150m
-        const prevStop = stops.length > 0 ? stops[stops.length - 1] : null;
-        if (prevStop && getDistanceMeters(prevStop.lat, prevStop.lng, medianLat, medianLng) <= 150) {
-          prevStop.end_time = cluster[cluster.length - 1].timestamp;
-          const mergedDuration = Math.round((new Date(prevStop.end_time).getTime() - new Date(prevStop.start_time).getTime()) / (1000 * 60));
-          prevStop.duration_mins = Math.max(mergedDuration, prevStop.duration_mins + durationMins);
-          prevStop.label = `${prevStop.duration_mins}m`;
-          prevStop.points_count += cluster.length;
-          if (matchedVisit && prevStop.type === 'STATIONARY') {
-            prevStop.type = matchedVisit.type || 'DOCTOR_VISIT';
-            prevStop.title = matchedVisit.name || 'Doctor Visit';
-          }
-          prevStop.lat = (prevStop.lat + medianLat) / 2;
-          prevStop.lng = (prevStop.lng + medianLng) / 2;
-          return;
-        }
-
-        let type = 'STATIONARY';
-        let title = 'Stationary';
-        if (matchedVisit) {
-          type = matchedVisit.type || 'DOCTOR_VISIT';
-          title = matchedVisit.name || 'Doctor Visit';
-        }
-
-        const stopObj = {
-          id: `stop_${stops.length + 1}_${startTime}`,
-          type,
-          title,
-          label: `${durationMins}m`,
-          lat: medianLat,
-          lng: medianLng,
-          start_time: cluster[0].timestamp,
-          end_time: cluster[cluster.length - 1].timestamp,
-          duration_mins: durationMins,
-          points_count: cluster.length,
-          is_major: durationMins >= 15
-        };
-
-        stops.push(stopObj);
-
-        // Collapse drift dots into single median coordinate
-        collapsedRoute.push({
-          lat: medianLat,
-          lng: medianLng,
-          timestamp: cluster[0].timestamp,
-          accuracy: 10,
-          battery_level: cluster[0].battery_level,
-          network_type: cluster[0].network_type,
-          is_stop: true,
-          stop_id: stopObj.id
-        });
-        return;
-      }
-    }
-
-    // Normal movement or short transit pause (< 15 min) -> keep points as is
-    cluster.forEach(p => collapsedRoute.push(p));
-  };
+  let cLat = parseFloat(points[0].lat ?? points[0].latitude);
+  let cLng = parseFloat(points[0].lng ?? points[0].longitude);
 
   for (let i = 1; i < points.length; i++) {
     const curr = points[i];
-    const anchorLat = parseFloat(anchorPoint.lat ?? anchorPoint.latitude);
-    const anchorLng = parseFloat(anchorPoint.lng ?? anchorPoint.longitude);
     const currLat = parseFloat(curr.lat ?? curr.latitude);
     const currLng = parseFloat(curr.lng ?? curr.longitude);
+    if (isNaN(currLat) || isNaN(currLng) || (currLat === 0 && currLng === 0)) continue;
 
-    const dist = getDistanceMeters(anchorLat, anchorLng, currLat, currLng);
+    const dist = getDistanceMeters(cLat, cLng, currLat, currLng);
 
     if (dist <= clusterRadiusMeters) {
       currentCluster.push(curr);
+      const n = currentCluster.length;
+      cLat = (cLat * (n - 1) + currLat) / n;
+      cLng = (cLng * (n - 1) + currLng) / n;
     } else {
-      processCluster(currentCluster);
+      clusters.push(currentCluster);
       currentCluster = [curr];
-      anchorPoint = curr;
+      cLat = currLat;
+      cLng = currLng;
+    }
+  }
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster);
+  }
+
+  // 2. Identify candidate stops from clusters
+  const rawStops = [];
+  for (const cluster of clusters) {
+    if (!cluster || cluster.length === 0) continue;
+    const startTime = new Date(cluster[0].timestamp || cluster[0].created_at).getTime();
+    const endTime = new Date(cluster[cluster.length - 1].timestamp || cluster[cluster.length - 1].created_at).getTime();
+    const durationMins = Math.round((endTime - startTime) / (1000 * 60));
+
+    const lats = cluster.map(p => parseFloat(p.lat ?? p.latitude)).filter(v => !isNaN(v));
+    const lngs = cluster.map(p => parseFloat(p.lng ?? p.longitude)).filter(v => !isNaN(v));
+    if (lats.length === 0) continue;
+    const medianLat = getMedian(lats);
+    const medianLng = getMedian(lngs);
+
+    // Check visit check-in match (within 250m and within +- 45 min)
+    let matchedVisit = null;
+    for (const v of nearbyVisits) {
+      const vLat = parseFloat(v.latitude || v.lat);
+      const vLng = parseFloat(v.longitude || v.lng);
+      if (isNaN(vLat) || isNaN(vLng)) continue;
+      const dist = getDistanceMeters(medianLat, medianLng, vLat, vLng);
+      const vTime = new Date(v.created_at || v.timestamp).getTime();
+      const timeDiffMins = Math.abs(vTime - startTime) / (1000 * 60);
+
+      if (dist <= 250 && timeDiffMins <= 45) {
+        matchedVisit = v;
+        break;
+      }
+    }
+
+    const requiredDuration = matchedVisit ? 5 : minStopDurationMins;
+    if (durationMins >= requiredDuration) {
+      rawStops.push({
+        id: `stop_${rawStops.length + 1}_${startTime}`,
+        type: matchedVisit ? (matchedVisit.type || 'DOCTOR_VISIT') : 'STATIONARY',
+        title: matchedVisit ? (matchedVisit.name || 'Doctor Visit') : 'Stationary',
+        label: `${durationMins}m`,
+        lat: medianLat,
+        lng: medianLng,
+        start_time: cluster[0].timestamp || cluster[0].created_at,
+        end_time: cluster[cluster.length - 1].timestamp || cluster[cluster.length - 1].created_at,
+        duration_mins: durationMins,
+        points_count: cluster.length,
+        is_major: durationMins >= 15
+      });
     }
   }
 
-  processCluster(currentCluster);
+  // 3. Merge adjacent stops within 180m if not separated by substantial travel
+  const mergedStops = [];
+  for (const s of rawStops.sort((a, b) => new Date(a.start_time) - new Date(b.start_time))) {
+    if (mergedStops.length === 0) {
+      mergedStops.push({ ...s });
+      continue;
+    }
+    const prev = mergedStops[mergedStops.length - 1];
+    const dist = getDistanceMeters(prev.lat, prev.lng, s.lat, s.lng);
+    const prevEnd = new Date(prev.end_time).getTime();
+    const currStart = new Date(s.start_time).getTime();
+    const gapMins = (currStart - prevEnd) / (1000 * 60);
 
-  return { stops, collapsedRoute };
+    if (dist <= 180 && gapMins <= 60) {
+      prev.end_time = new Date(Math.max(new Date(prev.end_time).getTime(), new Date(s.end_time).getTime())).toISOString();
+      const mergedDuration = Math.round((new Date(prev.end_time).getTime() - new Date(prev.start_time).getTime()) / (1000 * 60));
+      prev.duration_mins = Math.max(mergedDuration, prev.duration_mins + s.duration_mins);
+      prev.label = `${prev.duration_mins}m`;
+      prev.points_count += s.points_count;
+      prev.lat = (prev.lat + s.lat) / 2;
+      prev.lng = (prev.lng + s.lng) / 2;
+      if (s.type !== 'STATIONARY') {
+        prev.type = s.type;
+        prev.title = s.title;
+      }
+    } else {
+      mergedStops.push({ ...s });
+    }
+  }
+
+  for (const s of mergedStops) {
+    s.label = `${s.duration_mins}m`;
+  }
+
+  // 4. Pass 2: Collapse route around merged stops
+  // All drift dots during stop time & radius are collapsed to a single clean stop coordinate
+  const collapsedRoute = [];
+  let activeStopId = null;
+
+  for (const p of points) {
+    const pLat = parseFloat(p.lat ?? p.latitude);
+    const pLng = parseFloat(p.lng ?? p.longitude);
+    if (isNaN(pLat) || isNaN(pLng) || (pLat === 0 && pLng === 0)) continue;
+    const pTimeStr = p.timestamp || p.created_at || p.device_time_utc;
+    const pTime = new Date(pTimeStr).getTime();
+
+    let matchedStop = null;
+    for (const s of mergedStops) {
+      const sStart = new Date(s.start_time).getTime();
+      const sEnd = new Date(s.end_time).getTime();
+      if (pTime >= sStart && pTime <= sEnd) {
+        const d = getDistanceMeters(pLat, pLng, s.lat, s.lng);
+        if (d <= 200) {
+          matchedStop = s;
+          break;
+        }
+      }
+    }
+
+    if (matchedStop) {
+      if (activeStopId !== matchedStop.id) {
+        collapsedRoute.push({
+          lat: matchedStop.lat,
+          lng: matchedStop.lng,
+          timestamp: matchedStop.start_time,
+          accuracy: 10,
+          battery_level: p.battery_level || 100,
+          network_type: p.network_type || 'GPS',
+          is_stop: true,
+          stop_id: matchedStop.id
+        });
+        activeStopId = matchedStop.id;
+      }
+    } else {
+      activeStopId = null;
+      collapsedRoute.push({
+        lat: pLat,
+        lng: pLng,
+        timestamp: pTimeStr,
+        accuracy: p.accuracy || 10,
+        battery_level: p.battery_level || 100,
+        network_type: p.network_type || 'GPS',
+        is_stop: false
+      });
+    }
+  }
+
+  return { stops: mergedStops, collapsedRoute };
 };
 
-// Spatial filter: Removes stationary GPS jitter/drift (< 15 meters)
-const filterGPSJitter = (points, minDistanceMeters = 15) => {
+// Spatial filter: Removes stationary GPS jitter/drift (< 20 meters) and ping-pong reversals
+const filterGPSJitter = (points, minDistanceMeters = 20) => {
   if (!points || points.length === 0) return [];
   const valid = points.filter(p => {
     const lat = parseFloat(p.lat ?? p.latitude);
     const lng = parseFloat(p.lng ?? p.longitude);
     return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
   });
-  if (valid.length === 0) return [];
+  if (valid.length <= 2) return valid;
 
   const cleaned = [valid[0]];
-  let lastKept = valid[0];
 
   for (let i = 1; i < valid.length; i++) {
     const curr = valid[i];
-    const lat1 = parseFloat(lastKept.lat ?? lastKept.latitude);
-    const lon1 = parseFloat(lastKept.lng ?? lastKept.longitude);
+    const last = cleaned[cleaned.length - 1];
+
+    // Always preserve stop points
+    if (curr.is_stop || last.is_stop) {
+      cleaned.push(curr);
+      continue;
+    }
+
+    const lat1 = parseFloat(last.lat ?? last.latitude);
+    const lon1 = parseFloat(last.lng ?? last.longitude);
     const lat2 = parseFloat(curr.lat ?? curr.latitude);
     const lon2 = parseFloat(curr.lng ?? curr.longitude);
 
     const dist = getDistanceMeters(lat1, lon1, lat2, lon2);
-    if (dist >= minDistanceMeters) {
-      cleaned.push(curr);
-      lastKept = curr;
+    if (dist < minDistanceMeters) {
+      continue;
     }
+
+    // Ping-pong reversal suppression: if current point bounces back close to 2 points ago
+    if (cleaned.length >= 2) {
+      const prev2 = cleaned[cleaned.length - 2];
+      const p2Lat = parseFloat(prev2.lat ?? prev2.latitude);
+      const p2Lng = parseFloat(prev2.lng ?? prev2.longitude);
+      const distToPrev2 = getDistanceMeters(p2Lat, p2Lng, lat2, lon2);
+      if (distToPrev2 < minDistanceMeters) {
+        continue;
+      }
+    }
+
+    cleaned.push(curr);
   }
   return cleaned;
 };
@@ -1739,11 +1806,11 @@ const getUserRouteData = async (req, res) => {
     // 2. Accuracy quality cutoff: discard satellite drift readings > 75 meters
     const accuratePoints = filterGPSAccuracy(formattedRoute, 75);
 
-    // 3. Detect stationary stops (>= 15 mins) & collapse 50+ drift dots into single median stop badge
-    const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accuratePoints, userVisits, 75, 15);
+    // 3. Detect stationary stops (>= 15 mins) & collapse drift dots into single median stop badge
+    const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accuratePoints, userVisits, 100, 15);
 
-    // 4. Remove micro-drift between moving points (< 15 meters)
-    const cleanedPoints = filterGPSJitter(collapsedRoute, 15);
+    // 4. Remove micro-drift between moving points (< 20 meters) and ping-pong reversals
+    const cleanedPoints = filterGPSJitter(collapsedRoute, 20);
 
     // 5. Snap to Roads (Map Matching via OSRM with automatic fallback)
     const snapResult = await snapRouteToRoads(cleanedPoints);
@@ -1978,12 +2045,12 @@ const getAllUsersRouteData = async (req, res) => {
         // 1. Accuracy cutoff: discard satellite drift readings > 75 meters
         const accurate = filterGPSAccuracy(pts, 75);
 
-        // 2. Detect stationary stops (>= 15 mins) & collapse 50+ drift dots into single median stop badge
-        const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accurate, [], 75, 15);
+        // 2. Detect stationary stops (>= 15 mins) & collapse drift dots into single median stop badge
+        const { stops, collapsedRoute } = detectStopsAndCollapseJitter(accurate, [], 100, 15);
         userStopsMap[uid] = stops;
 
-        // 3. Remove micro-drift (< 15 meters)
-        let cleaned = filterGPSJitter(collapsedRoute, 15);
+        // 3. Remove micro-drift (< 20 meters) and ping-pong reversals
+        let cleaned = filterGPSJitter(collapsedRoute, 20);
 
         if (cleaned.length > MAX_POINTS_PER_USER) {
           const sampled = [cleaned[0]];
@@ -2443,12 +2510,18 @@ const getUserDailyDistances = async (req, res) => {
     `;
     const obtReplacements = { userId, ...(devIds.length > 0 ? { devIds } : {}) };
     if (startDate) {
-      obtQuery += ` AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startDate`;
-      obtReplacements.startDate = new Date(startDate);
+      const startObj = new Date(startDate);
+      const startBound = new Date(startObj.getTime() - 24 * 60 * 60 * 1000);
+      obtQuery += ` AND obt.created_at_utc >= :obtStartBound AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) >= :startDate`;
+      obtReplacements.startDate = startObj;
+      obtReplacements.obtStartBound = startBound;
     }
     if (endDate) {
-      obtQuery += ` AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endDate`;
-      obtReplacements.endDate = new Date(endDate);
+      const endObj = new Date(endDate);
+      const endBound = new Date(endObj.getTime() + 24 * 60 * 60 * 1000);
+      obtQuery += ` AND obt.created_at_utc <= :obtEndBound AND COALESCE((obt.payload->>'timestamp_utc')::timestamp with time zone, obt.created_at_utc) <= :endDate`;
+      obtReplacements.endDate = endObj;
+      obtReplacements.obtEndBound = endBound;
     }
 
     let obtPoints = [];

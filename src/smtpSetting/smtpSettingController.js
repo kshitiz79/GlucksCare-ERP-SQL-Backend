@@ -199,16 +199,21 @@ const testSmtpSettings = async (req, res) => {
   }
 };
 
-// SEND BULK EMAIL to all users, specific role, or selected users
+// SEND BULK EMAIL to all users, specific role, doctors, chemists, stockists, or selected recipients
 const sendBulkEmail = async (req, res) => {
   try {
     const models = req.db || (req.app && req.app.get('models')) || require('../config/database');
-    const { User } = models;
+    const { User, Doctor, Chemist, Stockist } = models;
     const { Op } = require('sequelize');
 
     const {
-      targetType = 'all', // 'all', 'role', 'selected'
+      targetType = 'all', // 'all', 'role', 'selected', 'custom'
+      targetCategory = 'users', // 'users', 'doctors', 'chemists', 'stockists', 'mixed'
       userIds = [],
+      doctorIds = [],
+      chemistIds = [],
+      stockistIds = [],
+      customRecipients = [],
       role = '',
       subject,
       message,
@@ -229,38 +234,149 @@ const sendBulkEmail = async (req, res) => {
       });
     }
 
-    // Determine target users
-    const whereClause = {
-      is_active: true,
-      email: {
-        [Op.and]: [
-          { [Op.ne]: null },
-          { [Op.ne]: '' }
-        ]
-      }
-    };
+    let recipients = [];
 
-    if (targetType === 'role' && role) {
-      whereClause.role = role;
-    } else if (targetType === 'selected') {
-      if (!Array.isArray(userIds) || userIds.length === 0) {
+    // 1. Direct custom recipients list (supports mixed entities: staff, doctors, chemists, stockists)
+    if (Array.isArray(customRecipients) && customRecipients.length > 0) {
+      recipients = customRecipients
+        .filter(r => r && r.email && typeof r.email === 'string' && r.email.trim() && r.email.includes('@'))
+        .map(r => ({
+          name: (r.name || r.firm_name || r.contact_person || 'Valued Partner').trim(),
+          email: r.email.trim(),
+          type: r.type || 'Recipient'
+        }));
+    } else if (targetCategory === 'doctors' && Doctor) {
+      // 2. Doctors Category
+      const docWhere = {
+        email: {
+          [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }]
+        }
+      };
+      const ids = (doctorIds && doctorIds.length > 0) ? doctorIds : userIds;
+      const hasSpecificDocIds = Array.isArray(ids) && ids.length > 0;
+      if (hasSpecificDocIds || targetType === 'selected') {
+        if (!hasSpecificDocIds) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please select at least one doctor recipient'
+          });
+        }
+        docWhere.id = { [Op.in]: ids };
+      }
+      const docs = await Doctor.findAll({
+        where: docWhere,
+        attributes: ['id', 'name', 'email', 'specialization', 'clinic_name']
+      });
+      recipients = docs.map(d => ({
+        id: d.id,
+        name: d.name ? `Dr. ${d.name.replace(/^Dr\.?\s*/i, '')}` : 'Doctor',
+        email: d.email,
+        type: 'Doctor'
+      }));
+    } else if (targetCategory === 'chemists' && Chemist) {
+      // 3. Chemists Category
+      const chemWhere = {
+        email_id: {
+          [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }]
+        }
+      };
+      const ids = (chemistIds && chemistIds.length > 0) ? chemistIds : userIds;
+      const hasSpecificChemIds = Array.isArray(ids) && ids.length > 0;
+      if (hasSpecificChemIds || targetType === 'selected') {
+        if (!hasSpecificChemIds) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please select at least one chemist recipient'
+          });
+        }
+        chemWhere.id = { [Op.in]: ids };
+      }
+      const chems = await Chemist.findAll({
+        where: chemWhere,
+        attributes: ['id', 'firm_name', 'contact_person_name', 'email_id']
+      });
+      recipients = chems.map(c => ({
+        id: c.id,
+        name: c.contact_person_name || c.firm_name || 'Chemist',
+        email: c.email_id,
+        type: 'Chemist'
+      }));
+    } else if (targetCategory === 'stockists' && Stockist) {
+      // 4. Stockists Category
+      const stockWhere = {
+        email_address: {
+          [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }]
+        }
+      };
+      const ids = (stockistIds && stockistIds.length > 0) ? stockistIds : userIds;
+      const hasSpecificStockIds = Array.isArray(ids) && ids.length > 0;
+      if (hasSpecificStockIds || targetType === 'selected') {
+        if (!hasSpecificStockIds) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please select at least one stockist recipient'
+          });
+        }
+        stockWhere.id = { [Op.in]: ids };
+      }
+      const stocks = await Stockist.findAll({
+        where: stockWhere,
+        attributes: ['id', 'firm_name', 'contact_person', 'email_address']
+      });
+      recipients = stocks.map(s => ({
+        id: s.id,
+        name: s.contact_person || s.firm_name || 'Stockist',
+        email: s.email_address,
+        type: 'Stockist'
+      }));
+    } else {
+      // 5. Default: Users / Staff
+      const whereClause = {
+        is_active: true,
+        email: {
+          [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }]
+        }
+      };
+
+      const hasSpecificUserIds = Array.isArray(userIds) && userIds.length > 0;
+
+      // SAFETY: If specific userIds were provided OR targetType is 'selected', NEVER send to all!
+      if (hasSpecificUserIds || targetType === 'selected') {
+        if (!hasSpecificUserIds) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please select at least one recipient user'
+          });
+        }
+        whereClause.id = { [Op.in]: userIds };
+      } else if (targetType === 'role' && role) {
+        whereClause.role = role;
+      } else if (targetType === 'all') {
+        // Explicit all users selection
+      } else {
         return res.status(400).json({
           success: false,
-          message: 'Please select at least one recipient user'
+          message: 'Invalid target selection: please choose specific users, a role, or explicit all users'
         });
       }
-      whereClause.id = { [Op.in]: userIds };
-    }
 
-    const recipients = await User.findAll({
-      where: whereClause,
-      attributes: ['id', 'name', 'email', 'role']
-    });
+      const users = await User.findAll({
+        where: whereClause,
+        attributes: ['id', 'name', 'email', 'role']
+      });
+
+      recipients = users.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        type: u.role || 'Staff'
+      }));
+    }
 
     if (recipients.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No active users found with valid email addresses for the selected criteria'
+        message: 'No recipients found with valid email addresses for the selected criteria'
       });
     }
 

@@ -106,31 +106,43 @@ const getAllExpenses = async (req, res) => {
 const getUserVisitsSummary = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { startDate, endDate } = req.query;
     const sequelize = req.app.get('sequelize');
 
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required' });
     }
 
+    let dateWhere = '';
+    const replacements = { userId };
+    if (startDate) {
+      dateWhere += ' AND date >= :startDate';
+      replacements.startDate = startDate;
+    }
+    if (endDate) {
+      dateWhere += ' AND date <= :endDate';
+      replacements.endDate = endDate;
+    }
+
     const query = `
       SELECT 'doctor' AS type, date::text, COUNT(*)::int AS count
       FROM doctor_visits
-      WHERE user_id::text = :userId AND confirmed = true
+      WHERE user_id::text = :userId AND confirmed = true ${dateWhere}
       GROUP BY date
       UNION ALL
       SELECT 'chemist' AS type, date::text, COUNT(*)::int AS count
       FROM chemist_visits
-      WHERE user_id::text = :userId AND confirmed = true
+      WHERE user_id::text = :userId AND confirmed = true ${dateWhere}
       GROUP BY date
       UNION ALL
       SELECT 'stockist' AS type, date::text, COUNT(*)::int AS count
       FROM stockist_visits
-      WHERE user_id::text = :userId AND confirmed = true
+      WHERE user_id::text = :userId AND confirmed = true ${dateWhere}
       GROUP BY date;
     `;
 
     const rows = await sequelize.query(query, {
-      replacements: { userId },
+      replacements,
       type: sequelize.QueryTypes.SELECT
     });
 
