@@ -200,6 +200,7 @@ const getAllDoctors = async (req, res) => {
         areaId: doctorObj.areaId || doctorObj.area_id || doctorObj.Area?.id || null,
         area_id: doctorObj.areaId || doctorObj.area_id || doctorObj.Area?.id || null,
         is_assigned_to_area: !!(doctorObj.areaId || doctorObj.area_id || doctorObj.Area?.id),
+        id: doctorObj.id,
         _id: doctorObj.id,
         createdAt: doctorObj.created_at,
         updatedAt: doctorObj.updated_at,

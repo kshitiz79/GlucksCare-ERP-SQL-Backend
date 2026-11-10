@@ -122,6 +122,7 @@ const getAllChemists = async (req, res) => {
         areaId: chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id || null,
         area_id: chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id || null,
         is_assigned_to_area: !!(chemistObj.area_id || chemistObj.areaId || chemistObj.Area?.id),
+        id: chemistObj.id,
         _id: chemistObj.id,
         createdAt: chemistObj.created_at,
         updatedAt: chemistObj.updated_at,

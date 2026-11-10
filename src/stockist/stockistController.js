@@ -152,6 +152,7 @@ const getAllStockists = async (req, res) => {
         areaId: stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id || null,
         area_id: stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id || null,
         is_assigned_to_area: !!(stockistObj.area_id || stockistObj.areaId || stockistObj.Area?.id),
+        id: stockistObj.id,
         _id: stockistObj.id,
         createdAt: stockistObj.created_at,
         updatedAt: stockistObj.updated_at,
