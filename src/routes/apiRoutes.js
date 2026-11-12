@@ -49,6 +49,7 @@ const beatRoutes = require('../beat/beatRoutes');
 const tourPlanRoutes = require('../tourPlan/tourPlanRoutes');
 const dcrRoutes = require('../dcr/dcrRoutes');
 const dcrSettingsRoutes = require('../dcrSettings/dcrSettingsRoutes');
+const firstCallRuleRoutes = require('../firstCallRule/firstCallRuleRoutes');
 
 // Sales & Finance
 const salesRoutes = require('../sale/salesRoutes');
@@ -156,6 +157,7 @@ router.use('/tour-plans', tourPlanRoutes);
 router.use('/tour-plan', tourPlanRoutes);
 router.use('/dcr', dcrRoutes);
 router.use('/dcr-settings', dcrSettingsRoutes);
+router.use('/first-call-rules', firstCallRuleRoutes);
 
 router.use('/sales', salesRoutes);
 router.use('/sales-targets', salesTargetRoutes);

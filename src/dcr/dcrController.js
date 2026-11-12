@@ -1,4 +1,9 @@
 const { Op } = require('sequelize');
+const {
+  getActiveRules,
+  resolveRuleForUser,
+  evaluateFirstCallCompliance
+} = require('../firstCallRule/firstCallRuleService');
 
 /**
  * Helper to get date string formatted in Indian Standard Time (Asia/Kolkata) as YYYY-MM-DD
@@ -623,13 +628,36 @@ const getUserWiseVisits = async (req, res) => {
       return b.stats.total_all_visits - a.stats.total_all_visits;
     });
 
+    // Evaluate First Call Condition compliance per employee on the backend
+    const activeFirstCallRules = await getActiveRules(sequelize).catch((err) => {
+      console.warn('FirstCallRule load warning:', err.message);
+      return null;
+    });
+    const complianceTargetDate = dateEnd || dateStart;
+
     userWiseList.forEach(item => {
       item.visits.sort((a, b) => {
         const timeA = a.created_at || a.createdAt || a.date;
         const timeB = b.created_at || b.createdAt || b.date;
         return new Date(timeB) - new Date(timeA);
       });
+
+      const effectiveRule = resolveRuleForUser(item.user?.id, activeFirstCallRules);
+      item.first_call_compliance = evaluateFirstCallCompliance({
+        rule: effectiveRule,
+        visits: item.visits,
+        targetDate: complianceTargetDate
+      });
     });
+
+    const firstCallSummary = {
+      enabled: activeFirstCallRules?.companyRule?.is_enabled ?? true,
+      company_rule: activeFirstCallRules?.companyRule || null,
+      satisfied: userWiseList.filter(u => u.first_call_compliance?.status === 'satisfied').length,
+      failed: userWiseList.filter(u => u.first_call_compliance?.status === 'failed').length,
+      pending: userWiseList.filter(u => u.first_call_compliance?.status === 'pending').length,
+      disabled: userWiseList.filter(u => u.first_call_compliance?.status === 'disabled').length
+    };
 
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.max(1, parseInt(limit, 10));
@@ -652,6 +680,7 @@ const getUserWiseVisits = async (req, res) => {
         endDate: dateEnd,
         visit_type: visit_type
       },
+      first_call_summary: firstCallSummary,
       summary: {
         total_users: userWiseList.length,
         active_users_with_visits: activeUsersCount,
