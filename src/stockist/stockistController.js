@@ -1245,18 +1245,12 @@ const getStockistsByHeadOffice = async (req, res) => {
 
 const getMyStockists = async (req, res) => {
   try {
-    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area, StockistVisit } = req.app.get('models');
+    const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Stockist, HeadOffice, User, StockistAnnualTurnover, Address, Area, StockistVisit } = models;
+    const { resolveUserHeadOfficeIds } = require('../utils/userHeadOfficeHelper');
 
-
-    const user = await User.findByPk(req.user.id, {
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] } // D 
-        }
-      ]
-    });
+    const user = await User.findByPk(req.user.id);
 
     if (!user) {
       return res.status(404).json({
@@ -1265,14 +1259,7 @@ const getMyStockists = async (req, res) => {
       });
     }
 
-    // Get all user's head office IDs
-    let headOfficeIds = [];
-
-    if (user.headOffices && user.headOffices.length > 0) {
-      headOfficeIds = user.headOffices.map(office => office.id);
-    } else if (user.head_office_id) {
-      headOfficeIds = [user.head_office_id];
-    }
+    const headOfficeIds = await resolveUserHeadOfficeIds(user, models, sequelize);
 
     if (headOfficeIds.length === 0) {
       return res.status(400).json({

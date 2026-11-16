@@ -1892,20 +1892,16 @@ const deleteUser = async (req, res) => {
 // GET current user's assigned head offices
 const getMyHeadOffices = async (req, res) => {
   try {
-    // Get the User, HeadOffice, and State models from app context
-    const { User, HeadOffice, State } = req.app.get('models');
+    const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { resolveUserHeadOffices } = require('../utils/userHeadOfficeHelper');
 
-    // Get the current user with their head offices
-    const user = await User.findOne({
-      where: {
-        id: req.user.id,
-        is_active: true
-      },
+    const user = await models.User.findByPk(req.user.id, {
       include: [
         {
-          model: HeadOffice,
+          model: models.HeadOffice,
           as: 'headOffices',
-          through: { attributes: [] } // Don't include junction table attributes
+          through: { attributes: [] }
         }
       ]
     });
@@ -1917,69 +1913,7 @@ const getMyHeadOffices = async (req, res) => {
       });
     }
 
-    let headOffices = [];
-
-    // Check if user is State Head
-    if (user.role === 'State Head') {
-      // For State Head, return all head offices in their assigned state
-      if (!user.state_id) {
-        return res.status(400).json({
-          success: false,
-          message: 'State Head user does not have a state assigned.'
-        });
-      }
-
-      // Find all head offices belonging to this state
-      const stateHeadOffices = await HeadOffice.findAll({
-        where: {
-          stateId: user.state_id,
-          is_active: true
-        }
-      });
-
-      headOffices = stateHeadOffices.map(ho => ({
-        _id: ho.id,
-        id: ho.id,
-        name: ho.name,
-        code: ho.code,
-        stateId: ho.stateId,
-        pincode: ho.pincode,
-        isActive: ho.is_active,
-        createdAt: ho.created_at,
-        updatedAt: ho.updated_at
-      }));
-    } else {
-      // For other users, return their assigned head offices
-      if (user.headOffices && user.headOffices.length > 0) {
-        headOffices = user.headOffices.map(ho => ({
-          _id: ho.id,
-          id: ho.id,
-          name: ho.name,
-          code: ho.code,
-          stateId: ho.stateId,
-          pincode: ho.pincode,
-          isActive: ho.is_active,
-          createdAt: ho.created_at,
-          updatedAt: ho.updated_at
-        }));
-      } else if (user.head_office_id) {
-        // If user has a single head office, fetch it
-        const singleHeadOffice = await HeadOffice.findByPk(user.head_office_id);
-        if (singleHeadOffice) {
-          headOffices = [{
-            _id: singleHeadOffice.id,
-            id: singleHeadOffice.id,
-            name: singleHeadOffice.name,
-            code: singleHeadOffice.code,
-            stateId: singleHeadOffice.stateId,
-            pincode: singleHeadOffice.pincode,
-            isActive: singleHeadOffice.is_active,
-            createdAt: singleHeadOffice.created_at,
-            updatedAt: singleHeadOffice.updated_at
-          }];
-        }
-      }
-    }
+    const headOffices = await resolveUserHeadOffices(user, models, sequelize);
 
     res.json({
       success: true,

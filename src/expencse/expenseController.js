@@ -34,11 +34,22 @@ const getAllExpenses = async (req, res) => {
     const { userId, lean, includeInactive } = req.query;
 
     let whereClause = {};
-    if (userId) {
+
+    // Role-based scoping:
+    // Regular users (MRs) can only view their own expenses
+    const loggedInUser = req.user;
+    const isFullAccessRole = loggedInUser && (
+      ['Super Admin', 'Admin', 'admin', 'super admin', 'superadmin', 'Opps Team', 'Accounts'].includes(loggedInUser.role) ||
+      (typeof loggedInUser.role === 'string' && loggedInUser.role.toLowerCase().includes('admin'))
+    );
+
+    if (!isFullAccessRole && loggedInUser?.role === 'User') {
+      whereClause.user_id = loggedInUser.id;
+    } else if (userId) {
       whereClause.user_id = userId;
     }
 
-    const isLean = lean === 'true' || !userId;
+    const isLean = lean === 'true' || (!userId && isFullAccessRole);
 
     const findOptions = {
       where: whereClause,
@@ -186,6 +197,14 @@ const getExpenseById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Expense record not found'
+      });
+    }
+
+    // Role-based authorization: regular users can only view their own expense
+    if (req.user && req.user.role === 'User' && expense.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - you can only view your own expenses'
       });
     }
 
@@ -446,6 +465,22 @@ const updateExpense = async (req, res) => {
       });
     }
 
+    // Role-based authorization: regular users can only edit their own pending expense
+    if (req.user && req.user.role === 'User') {
+      if (expense.user_id !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied - you can only edit your own expenses'
+        });
+      }
+      if (expense.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot edit an expense that has already been approved or rejected'
+        });
+      }
+    }
+
     // Determine if requester is an Admin or Super Admin
     let isAdmin = false;
     const authHeader = req.headers.authorization || req.header('Authorization');
@@ -688,6 +723,27 @@ const deleteExpense = async (req, res) => {
       });
     }
 
+    // Role-based authorization: regular users can only delete their own pending expense
+    if (req.user && req.user.role === 'User') {
+      if (expense.user_id !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied - you can only delete your own expenses'
+        });
+      }
+      if (expense.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot delete an expense that has already been approved or rejected'
+        });
+      }
+    }
+          success: false,
+          message: 'Cannot edit an expense that has already been approved or rejected'
+        });
+      }
+    }
+
     await expense.destroy();
     res.json({
       success: true,
@@ -710,6 +766,14 @@ const approveExpense = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Expense record not found'
+      });
+    }
+
+    // Role-based authorization: only admins and managers can approve expenses
+    if (req.user && req.user.role === 'User') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - only admins and managers can approve expenses'
       });
     }
 
@@ -747,6 +811,14 @@ const rejectExpense = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Expense record not found'
+      });
+    }
+
+    // Role-based authorization: only admins and managers can reject expenses
+    if (req.user && req.user.role === 'User') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied - only admins and managers can reject expenses'
       });
     }
 

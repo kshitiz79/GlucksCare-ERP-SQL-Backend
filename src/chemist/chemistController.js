@@ -1005,20 +1005,14 @@ const getChemistsByHeadOffice = async (req, res) => {
 const getMyChemists = async (req, res) => {
   try {
     const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
     if (!models || !models.Chemist || !models.HeadOffice || !models.User || !models.ChemistAnnualTurnover || !models.ChemistVisit) {
       throw new Error('Required models are not available');
     }
     const { Chemist, HeadOffice, User, ChemistAnnualTurnover, Area, ChemistVisit } = models;
+    const { resolveUserHeadOfficeIds } = require('../utils/userHeadOfficeHelper');
 
-    const user = await User.findByPk(req.user.id, {
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] }
-        }
-      ]
-    });
+    const user = await User.findByPk(req.user.id);
 
     if (!user) {
       return res.status(404).json({
@@ -1027,12 +1021,7 @@ const getMyChemists = async (req, res) => {
       });
     }
 
-    let headOfficeIds = [];
-    if (user.headOffices && user.headOffices.length > 0) {
-      headOfficeIds = user.headOffices.map(office => office.id);
-    } else if (user.head_office_id) {
-      headOfficeIds = [user.head_office_id];
-    }
+    const headOfficeIds = await resolveUserHeadOfficeIds(user, models, sequelize);
 
     if (headOfficeIds.length === 0) {
       return res.status(400).json({

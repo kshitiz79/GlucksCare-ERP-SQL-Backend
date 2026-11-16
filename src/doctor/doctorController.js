@@ -1775,18 +1775,13 @@ const getDoctorsByHeadOffice = async (req, res) => {
 // GET doctors for current user's head offices
 const getMyDoctors = async (req, res) => {
   try {
-    const { Doctor, HeadOffice, User, Area, DoctorVisit } = req.app.get('models');
+    const models = req.app.get('models');
+    const sequelize = req.app.get('sequelize');
+    const { Doctor, HeadOffice, User, Area, DoctorVisit } = models;
+    const { resolveUserHeadOfficeIds } = require('../utils/userHeadOfficeHelper');
 
-    // Get the current user with their head offices
-    const user = await User.findByPk(req.user.id, {
-      include: [
-        {
-          model: HeadOffice,
-          as: 'headOffices',
-          through: { attributes: [] }
-        }
-      ]
-    });
+    // Get the current user
+    const user = await User.findByPk(req.user.id);
 
     if (!user) {
       return res.status(404).json({
@@ -1795,27 +1790,7 @@ const getMyDoctors = async (req, res) => {
       });
     }
 
-    // Get all user's head office IDs
-    const officeIds = new Set();
-    if (user.head_office_id) {
-      officeIds.add(user.head_office_id);
-    }
-    if (user.headOffices && user.headOffices.length > 0) {
-      user.headOffices.forEach(office => officeIds.add(office.id));
-    }
-    const { UserHeadOffice } = req.app.get('models');
-    if (UserHeadOffice) {
-      const uhoList = await UserHeadOffice.findAll({
-        where: { user_id: user.id },
-        attributes: ['head_office_id'],
-        raw: true
-      }).catch(() => []);
-      uhoList.forEach(u => {
-        if (u.head_office_id) officeIds.add(u.head_office_id);
-      });
-    }
-
-    const headOfficeIds = Array.from(officeIds);
+    const headOfficeIds = await resolveUserHeadOfficeIds(user, models, sequelize);
 
     if (headOfficeIds.length === 0) {
       return res.status(400).json({

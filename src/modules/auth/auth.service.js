@@ -27,50 +27,23 @@ const parseJSON = (data) => {
 
 const getUserAssignedHeadOffices = async (user, targetModels = null) => {
     if (!user) return [];
-    const models = targetModels || require('../../config/database');
-    const { HeadOffice, UserHeadOffice } = models;
-    const officeIds = new Set();
-
-    if (user.head_office_id) {
-        officeIds.add(user.head_office_id);
+    try {
+        const models = targetModels || require('../../config/database');
+        const sequelize = user.sequelize || models.sequelize || (models.User && models.User.sequelize);
+        const { resolveUserHeadOffices } = require('../../utils/userHeadOfficeHelper');
+        const offices = await resolveUserHeadOffices(user, models, sequelize);
+        return offices.map(ho => ({
+            id: ho.id,
+            name: ho.name,
+            latitude: ho.latitude ? Number(ho.latitude) : 0,
+            longitude: ho.longitude ? Number(ho.longitude) : 0,
+            pincode: ho.pincode || null,
+            state_id: ho.state_id || ho.stateId || null
+        }));
+    } catch (err) {
+        console.warn('⚠️ [getUserAssignedHeadOffices] error:', err.message);
+        return [];
     }
-
-    if (UserHeadOffice) {
-        const userOffices = await UserHeadOffice.findAll({
-            where: { user_id: user.id },
-            attributes: ['head_office_id'],
-            raw: true
-        }).catch(() => []);
-        userOffices.forEach(uo => {
-            if (uo.head_office_id) officeIds.add(uo.head_office_id);
-        });
-    }
-
-    if (user.headOffices && Array.isArray(user.headOffices)) {
-        user.headOffices.forEach(ho => {
-            if (ho.id) officeIds.add(ho.id);
-        });
-    }
-
-    if (officeIds.size === 0) return [];
-
-    const { Op } = require('sequelize');
-    const offices = await HeadOffice.findAll({
-        where: {
-            id: { [Op.in]: Array.from(officeIds) }
-        },
-        attributes: ['id', 'name', 'latitude', 'longitude', 'pincode', 'state_id'],
-        raw: true
-    }).catch(() => []);
-
-    return offices.map(ho => ({
-        id: ho.id,
-        name: ho.name,
-        latitude: ho.latitude ? Number(ho.latitude) : 0,
-        longitude: ho.longitude ? Number(ho.longitude) : 0,
-        pincode: ho.pincode || null,
-        state_id: ho.state_id || null
-    }));
 };
 
 const resolveCompanyData = async (tenantContext = null, targetModels = null) => {

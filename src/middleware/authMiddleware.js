@@ -46,6 +46,23 @@ const resolveTenantForContext = async (req, decoded) => {
         if (reqResult) {
             return { tenant: reqResult.tenant, tenantDb: reqResult.db };
         }
+
+        // 4. Fallback: If user ID is in decoded token, find which tenant owns this user
+        if (decoded?.id) {
+            const { Tenant } = require('../platform/masterDb');
+            const allTenants = await Tenant.findAll({ where: { status: 'ACTIVE' } });
+            for (const tenant of allTenants) {
+                try {
+                    const tenantDb = getTenantDb(tenant.db_name);
+                    const userExists = await tenantDb.models.User.findByPk(decoded.id);
+                    if (userExists) {
+                        return { tenant, tenantDb };
+                    }
+                } catch (e) {
+                    // Ignore single tenant check error
+                }
+            }
+        }
     } catch (err) {
         console.warn('⚠️ [resolveTenantForContext] Tenant resolution warning:', err.message);
     }

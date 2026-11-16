@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
-const { optionalAuth } = require('../middleware/authMiddleware');
+const { authMiddleware } = require('../middleware/authMiddleware');
 const {
   getAllExpenses,
   getExpenseById,
@@ -19,10 +19,8 @@ const {
   getUserVisitsSummary
 } = require('./expenseController');
 
-// Support optional auth / tenant context resolution
-if (optionalAuth) {
-  router.use(optionalAuth);
-}
+// All expense operations require authenticated tenant context
+router.use(authMiddleware);
 
 // GET expense settings
 router.get('/settings', getExpenseSettings);
