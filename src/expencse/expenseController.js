@@ -738,11 +738,6 @@ const deleteExpense = async (req, res) => {
         });
       }
     }
-          success: false,
-          message: 'Cannot edit an expense that has already been approved or rejected'
-        });
-      }
-    }
 
     await expense.destroy();
     res.json({
