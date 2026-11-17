@@ -50,6 +50,7 @@ const tourPlanRoutes = require('../tourPlan/tourPlanRoutes');
 const dcrRoutes = require('../dcr/dcrRoutes');
 const dcrSettingsRoutes = require('../dcrSettings/dcrSettingsRoutes');
 const firstCallRuleRoutes = require('../firstCallRule/firstCallRuleRoutes');
+const ruleApplicabilityRoutes = require('../ruleApplicability/ruleApplicabilityRoutes');
 
 // Sales & Finance
 const salesRoutes = require('../sale/salesRoutes');
@@ -158,6 +159,7 @@ router.use('/tour-plan', tourPlanRoutes);
 router.use('/dcr', dcrRoutes);
 router.use('/dcr-settings', dcrSettingsRoutes);
 router.use('/first-call-rules', firstCallRuleRoutes);
+router.use('/rule-applicability', ruleApplicabilityRoutes);
 
 router.use('/sales', salesRoutes);
 router.use('/sales-targets', salesTargetRoutes);
