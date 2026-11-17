@@ -150,6 +150,7 @@ async function getActiveRules(sequelize) {
      FROM first_call_rules fcr
      LEFT JOIN users u ON fcr.user_id = u.id
      LEFT JOIN users upd ON fcr.updated_by = upd.id
+     WHERE fcr.scope = 'company' OR (fcr.scope = 'employee' AND (u.is_active = true OR u.id IS NULL))
      ORDER BY fcr.scope ASC, fcr.updated_at DESC`,
     { type: sequelize.QueryTypes.SELECT }
   );

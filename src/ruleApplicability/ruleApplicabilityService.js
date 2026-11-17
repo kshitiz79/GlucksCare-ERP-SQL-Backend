@@ -24,6 +24,7 @@ class RuleApplicabilityService {
       Department ? Department.findAll({ where: { is_active: true }, order: [['name', 'ASC']] }).catch(() => []) : [],
       Branch ? Branch.findAll({ where: { is_active: true }, order: [['name', 'ASC']] }).catch(() => []) : [],
       User.findAll({
+        where: { is_active: true },
         attributes: ['id', 'name', 'employee_code', 'role', 'is_active', 'designation_id', 'head_office_id', 'state_id'],
         include: [
           Designation ? { model: Designation, as: 'designation', attributes: ['id', 'name'] } : null,
@@ -33,9 +34,10 @@ class RuleApplicabilityService {
       }).catch(() => [])
     ]);
 
-    // Format managers (Users with leadership roles or referenced as superiors)
+    // Format managers (Active users with leadership roles or referenced as superiors)
+    const activeUsers = rawUsers.filter(u => u.is_active !== false);
     const managerRoles = ['Manager', 'Area Manager', 'Zonal Manager', 'State Head', 'National Head', 'Admin', 'Super Admin'];
-    const managers = rawUsers
+    const managers = activeUsers
       .filter(u => managerRoles.includes(u.role))
       .map(u => ({
         id: u.id,
@@ -45,8 +47,8 @@ class RuleApplicabilityService {
         designationName: u.designation?.name || u.role
       }));
 
-    // Format all employees for individual selector and exclusion
-    const employees = rawUsers.map(u => {
+    // Format active employees for individual selector and exclusion
+    const employees = activeUsers.map(u => {
       const hoName = (u.headOffices && u.headOffices.length > 0)
         ? u.headOffices.map(h => h.name).join(', ')
         : 'N/A';
@@ -90,8 +92,9 @@ class RuleApplicabilityService {
 
     const { User, Designation, HeadOffice, UserManager, UserHeadOffice } = models;
 
-    // Fetch candidate users with associations
+    // Fetch candidate active users with associations
     const candidateUsers = await User.findAll({
+      where: { is_active: true },
       attributes: ['id', 'name', 'employee_code', 'role', 'is_active', 'designation_id', 'head_office_id', 'state_id', 'department_id', 'branch_id'],
       include: [
         Designation ? { model: Designation, as: 'designation', attributes: ['id', 'name'] } : null,
