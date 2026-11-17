@@ -19,14 +19,14 @@ const {
   getUserVisitsSummary
 } = require('./expenseController');
 
-// All expense operations require authenticated tenant context
-router.use(authMiddleware);
-
-// GET expense settings
+// GET expense settings (no token required)
 router.get('/settings', getExpenseSettings);
 
-// UPDATE expense settings
+// UPDATE expense settings (no token required)
 router.put('/settings', updateExpenseSettings);
+
+// All other expense operations require authenticated tenant context
+router.use(authMiddleware);
 
 // UPLOAD bill image
 router.post('/upload-bill', upload.single('bill'), uploadBillImage);

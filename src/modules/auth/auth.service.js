@@ -268,7 +268,7 @@ class AuthService {
                 email: email.toLowerCase().trim(),
                 password_hash: password, // Will be hashed by the model hook
                 mobile_number: mobileNumber || phone,
-                head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? null : validHeadOfficeId,
+                head_office_id: (parsedHeadOffices && parsedHeadOffices.length > 0) ? (parsedHeadOffices[0] && isUUID(parsedHeadOffices[0]) ? parsedHeadOffices[0] : null) : validHeadOfficeId,
                 employee_code: employeeCode,
                 role,
                 gender,

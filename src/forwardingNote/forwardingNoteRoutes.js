@@ -8,7 +8,8 @@ const {
     getForwardingNoteById,
     createForwardingNote,
     updateForwardingNote,
-    deleteForwardingNote
+    deleteForwardingNote,
+    sendForwardingNoteEmail
 } = require('./forwardingNoteController');
 
 // GET route for specific forwarding note (Public - for QR scan)
@@ -23,6 +24,7 @@ router.get('/:id', getForwardingNoteById);
 
 // POST routes
 router.post('/', createForwardingNote);
+router.post('/:id/send-email', sendForwardingNoteEmail);
 
 // PUT routes
 router.put('/:id', updateForwardingNote);

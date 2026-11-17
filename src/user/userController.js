@@ -702,6 +702,7 @@ const getAllUsers = async (req, res) => {
       if (user.headOffices) {
         transformedUser.headOffices = user.headOffices.map(ho => ({
           id: ho.id,
+          _id: ho.id,
           name: ho.name,
           stateId: ho.state_id,
           pincode: ho.pincode,
@@ -857,6 +858,7 @@ const getUserById = async (req, res) => {
     if (user.headOffices) {
       transformedUser.headOffices = user.headOffices.map(ho => ({
         id: ho.id,
+        _id: ho.id,
         name: ho.name,
         stateId: ho.state_id,
         pincode: ho.pincode,
@@ -1028,6 +1030,36 @@ const createUser = async (req, res) => {
       }
 
       const user = await User.create(userData, { transaction });
+
+      // Handle headOffices association in createUser if provided
+      let headOfficeIds = [];
+      if (req.body.headOffices) {
+        let parsed = req.body.headOffices;
+        if (typeof parsed === 'string') {
+          try { parsed = JSON.parse(parsed); } catch (e) { parsed = [parsed]; }
+        }
+        if (Array.isArray(parsed)) {
+          headOfficeIds = parsed.map(h => (typeof h === 'object' && h !== null) ? (h.id || h._id) : h).filter(Boolean);
+        }
+      } else if (req.body.headOffice) {
+        headOfficeIds = [req.body.headOffice];
+      }
+
+      if (headOfficeIds.length > 0) {
+        try {
+          const { HeadOffice } = req.app.get('models');
+          const hoRecords = await HeadOffice.findAll({
+            where: { id: headOfficeIds },
+            transaction
+          });
+          if (hoRecords.length > 0 && typeof user.setHeadOffices === 'function') {
+            await user.setHeadOffices(hoRecords, { transaction });
+          }
+          await user.update({ head_office_id: headOfficeIds[0] }, { transaction });
+        } catch (hoErr) {
+          console.error('Error associating head offices during user creation:', hoErr);
+        }
+      }
 
       // Commit transaction
       await transaction.commit();
@@ -1223,14 +1255,19 @@ const updateUser = async (req, res) => {
       await user.update(updateData, { transaction });
 
       // Handle headOffices association
-      if (req.body.headOffices && Array.isArray(req.body.headOffices)) {
+      if (req.body.headOffices !== undefined && Array.isArray(req.body.headOffices)) {
         try {
-          const headOffices = await HeadOffice.findAll({
-            where: { id: req.body.headOffices },
+          const officeIds = req.body.headOffices
+            .map(h => (typeof h === 'object' && h !== null) ? (h.id || h._id) : h)
+            .filter(Boolean);
+          const headOffices = officeIds.length > 0 ? await HeadOffice.findAll({
+            where: { id: officeIds },
             transaction
-          });
+          }) : [];
           await user.setHeadOffices(headOffices, { transaction });
-          console.log(`✅ Updated head offices for user ${user.id}: ${req.body.headOffices.length} offices`);
+          const primaryHoId = officeIds.length > 0 ? officeIds[0] : null;
+          await user.update({ head_office_id: primaryHoId }, { transaction });
+          console.log(`✅ Updated head offices for user ${user.id}: ${headOffices.length} offices`);
         } catch (hoError) {
           console.error('Error updating head offices:', hoError);
           // Continue even if head office update fails

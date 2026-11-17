@@ -16,6 +16,7 @@ const {
   serveInvoicePdf,
   sendInvoiceEmail
 } = require('./invoiceTrackingController');
+const { sendForwardingNoteEmail } = require('../forwardingNote/forwardingNoteController');
 
 // Public route for WhatsApp and external PDF viewers (no auth required)
 router.get('/:id/pdf', serveInvoicePdf);
@@ -29,6 +30,7 @@ router.get('/user', getUserInvoiceTracking);
 router.get('/stockists', getStockistsForDropdown);
 router.get('/:id/signed-url', getInvoiceSignedUrl); // Must be before /:id
 router.post('/:id/send-email', sendInvoiceEmail);
+router.post('/:id/send-dispatch-email', sendForwardingNoteEmail);
 router.get('/:id', getInvoiceTrackingById);
 
 // POST routes
