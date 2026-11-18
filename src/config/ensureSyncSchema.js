@@ -229,6 +229,11 @@ async function ensureTenantSyncSchema(sequelize) {
     } catch (tpErr) {
       console.warn('⚠️ [ensureTenantSyncSchema] Tour plan days setup warning:', tpErr.message);
     }
+
+    // Ensure courier_companies transporter_id column exists
+    try {
+      await sequelize.query("ALTER TABLE courier_companies ADD COLUMN IF NOT EXISTS transporter_id VARCHAR(100);").catch(() => {});
+    } catch (ccErr) {}
   } catch (err) {
     console.warn('⚠️ [ensureTenantSyncSchema] Warning:', err.message);
   }

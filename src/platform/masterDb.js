@@ -496,7 +496,7 @@ async function initMasterDatabase() {
           name: 'GlucksCare Pharmaceuticals (Main)',
           slug: 'gluckscare',
           logo_url: 'https://gluckscare.com/logo.png',
-          backend_url: 'https://api.gluckscare.com',
+          backend_url: 'http://localhost:5051',
           db_name: process.env.DB_NAME || 'gluckscare_erp_production',
           subdomain: 'gluckscare.gluckscare.com',
           admin_name: 'Main Administrator',
@@ -526,7 +526,7 @@ async function initMasterDatabase() {
           console.warn(`[initMasterDatabase] Tenant schema pre-warm warning for ${t.db_name}:`, tErr.message);
         }
       }
-    } catch (pwErr) {}
+    } catch (pwErr) { }
 
     return true;
   } catch (error) {

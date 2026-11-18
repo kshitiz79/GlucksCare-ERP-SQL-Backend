@@ -354,7 +354,9 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
     });
   }
 
-  if (!pickup_location || !pickup_location.trim()) {
+  const pickupLocName = (pickup_location || PICKUP_LOCATION || process.env.DELHIVERY_PICKUP_LOCATION || 'GlucksCare_Warehouse').trim();
+
+  if (!pickupLocName) {
     return res.status(400).json({
       success: false,
       message: 'Pickup location is not configured. Please set DELHIVERY_PICKUP_LOCATION in .env or enter a valid pickup location registered with Delhivery.',
@@ -367,6 +369,9 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
 
   const weightGrams = Math.round(parseFloat(weight_kg) * 1000);
 
+  // Delhivery CMU Create API requires:
+  // 1. "pickup_location" inside each shipment as string (warehouse name)
+  // 2. "pickup_location" at the root level as an object: { name: warehouse_name }
   const shipmentPayload = {
     shipments: [{
       name: consignee_name,
@@ -389,10 +394,13 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
       seller_state,
       seller_cst_no: '',
       seller_tin_no: '',
-      quantity: parseInt(quantity),
-      total_amount: parseFloat(total_amount),
+      quantity: parseInt(quantity) || 1,
+      total_amount: parseFloat(total_amount) || 0,
+      pickup_location: pickupLocName,
     }],
-    pickup_location: pickup_location.trim(),
+    pickup_location: {
+      name: pickupLocName,
+    },
   };
 
   // Delhivery requires form-encoded: format=json&data=<JSON string>
@@ -411,6 +419,18 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
       });
     }
 
+    const pkg = body?.packages?.[0];
+
+    // Check package level failure
+    if (pkg && pkg.status === 'Fail') {
+      const errMsg = pkg.remarks?.filter(Boolean).join(', ') || body.rmk || 'Package creation failed';
+      return res.status(200).json({
+        success: false,
+        message: errMsg,
+        raw: body,
+      });
+    }
+
     // Delhivery returns 200 even on errors — check body.success
     if (body.error || !body.success) {
       return res.status(200).json({
@@ -424,7 +444,7 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
       success: true,
       message: 'Shipment created successfully',
       data: {
-        waybill: body.packages?.[0]?.waybill || body.upload_wbn,
+        waybill: pkg?.waybill || body.packages?.[0]?.waybill || body.upload_wbn,
         packages: body.packages || [],
         package_count: body.package_count,
         cod_count: body.cod_count,
