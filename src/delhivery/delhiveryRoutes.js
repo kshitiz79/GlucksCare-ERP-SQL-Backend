@@ -175,15 +175,23 @@ router.get('/freight', authMiddleware, async (req, res) => {
 
     if (status !== 200) {
       console.error('[Delhivery] freight API error:', status, body);
+      const errMsg = typeof body === 'object' 
+        ? (body.error || (Array.isArray(body) && body[0]?.remarks?.join(', ')) || body.message || 'Delhivery rate calculation failed') 
+        : body;
       return res.status(status).json({
         success: false,
-        message: typeof body === 'object' ? (body.error || 'Delhivery API error') : body,
+        message: errMsg,
         raw: body,
       });
     }
 
     // body is an array — return first element (Delivered scenario)
     const result = Array.isArray(body) ? body[0] : body;
+
+    if (!result || result.status === 'Failed' || result.error) {
+      const errMsg = result?.remarks?.join(', ') || result?.error || 'Rate calculation failed for the specified pincodes';
+      return res.status(400).json({ success: false, message: errMsg, raw: body });
+    }
 
     return res.json({ success: true, data: result });
   } catch (err) {
@@ -251,14 +259,21 @@ router.get('/b2b-freight', authMiddleware, async (req, res) => {
     }
 
     if (status !== 200) {
+      const errMsg = typeof body === 'object'
+        ? (body.error || (Array.isArray(body) && body[0]?.remarks?.join(', ')) || body.message || 'Delhivery API error')
+        : body;
       return res.status(status).json({
         success: false,
-        message: typeof body === 'object' ? (body.error || 'Delhivery API error') : body,
+        message: errMsg,
         raw: body,
       });
     }
 
     const result = Array.isArray(body) ? body[0] : body;
+    if (!result || result.status === 'Failed' || result.error) {
+      const errMsg = result?.remarks?.join(', ') || result?.error || 'Rate calculation failed for the specified pincodes';
+      return res.status(400).json({ success: false, message: errMsg, raw: body });
+    }
     return res.json({ success: true, data: result });
   } catch (err) {
     console.error('[Delhivery] b2b-freight error:', err.message);
@@ -425,7 +440,7 @@ router.post('/create-shipment', authMiddleware, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/delhivery/track/:waybill
-// Track a shipment by waybill number
+// Track a shipment by waybill or LR number (Unified Search)
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/track/:waybill', authMiddleware, async (req, res) => {
   const { waybill } = req.params;
@@ -435,28 +450,13 @@ router.get('/track/:waybill', authMiddleware, async (req, res) => {
   }
 
   const wb = waybill.trim();
+  const fallback = {
+    tracking_url: `https://track.delhivery.com/p/lr/${wb}`,
+    public_url:   `https://www.delhivery.com/track/package/${wb}`,
+    portal_url:   `https://one.delhivery.com/shipments/b2b?lrn=${wb}`,
+  };
 
-  // ── Detect BEFORE making any API call ────────────────────────────────────
-  // B2B LR numbers: 7–10 digits (e.g. 304109647 = 9 digits)
-  // B2C Express waybills: 11–18 digits (e.g. 1234567890123 = 13 digits)
-  const isLikelyB2B = /^\d{7,10}$/.test(wb);
-
-  // Short-circuit for B2B — no point calling Express API, it will always fail
-  if (isLikelyB2B) {
-    console.log('[Delhivery] B2B LR detected, skipping Express API:', wb);
-    return res.json({
-      success: true,
-      type: 'b2b',
-      data: {
-        waybill: wb,
-        tracking_url: `https://track.delhivery.com/p/lr/${wb}`,
-        public_url: `https://www.delhivery.com/track/package/${wb}`,
-        message: 'B2B LR — open Delhivery portal to track',
-      },
-    });
-  }
-
-  // ── B2C Express waybill — call the API ───────────────────────────────────
+  // ── Step 1: Query Delhivery's official Express package tracking API ────────
   try {
     const { status, body } = await delhiveryGet(
       `/api/v1/packages/json/?waybill=${encodeURIComponent(wb)}`
@@ -464,31 +464,72 @@ router.get('/track/:waybill', authMiddleware, async (req, res) => {
 
     console.log('[Delhivery] B2C track response:', status, JSON.stringify(body).slice(0, 200));
 
-    if (typeof body === 'string' && (body.includes('<html') || body.includes('<!DOCTYPE'))) {
-      return res.status(502).json({
-        success: false,
-        message: 'Delhivery returned an unexpected non-JSON response.',
-      });
-    }
-
-    if (status === 200 && body.Success !== false && body.ShipmentData?.length > 0) {
+    if (status === 200 && body?.Success !== false && body?.ShipmentData?.length > 0) {
       const shipmentData = body.ShipmentData[0]?.Shipment || null;
-      return res.json({
-        success: true,
-        type: 'b2c',
-        data: { waybill: wb, shipment: shipmentData, raw: body },
-      });
+      if (shipmentData) {
+        return res.json({
+          success: true,
+          type: 'b2c',
+          data: { waybill: wb, shipment: shipmentData, raw: body, fallback },
+        });
+      }
     }
-
-    return res.json({
-      success: false,
-      message: body.Error || body.rmk || 'Waybill not found. Check the number and try again.',
-    });
-
   } catch (err) {
-    console.error('[Delhivery] track error:', err.message);
-    return res.status(500).json({ success: false, message: 'Failed to reach Delhivery API' });
+    console.warn('[Delhivery] official package track query error:', err.message);
   }
+
+  // ── Step 2: If not found in Express, try B2B UCP Gateway if token is set ───
+  if (_delhiveryB2BToken) {
+    try {
+      const { status, body } = await delhiveryB2BPost({ lrnNumbers: [wb] });
+      if (status === 200 && body?.shipment_list?.length > 0) {
+        const shipment = body.shipment_list.find(s => s.lrn === wb) || body.shipment_list[0];
+        if (shipment) {
+          return res.json({
+            success: true,
+            type: 'b2b',
+            data: {
+              lrnum:           shipment.lrn,
+              mwn:             shipment.mwn,
+              status:          shipment.shipment_status,
+              status_type:     shipment.status_type,
+              consignee:       shipment.consignee_details?.name,
+              origin_city:     shipment.origin?.city,
+              origin_state:    shipment.origin?.state,
+              dest_city:       shipment.destination?.city,
+              dest_state:      shipment.destination?.state,
+              pickup_from:     shipment.pickup_details?.client_warehouse_name,
+              boxes:           shipment.box_count,
+              freight:         shipment.freight_total,
+              payment_mode:    shipment.payment_mode,
+              invoice_num:     shipment.invoice_details?.[0]?.inv_num,
+              invoice_amt:     shipment.invoice_details?.[0]?.inv_amt,
+              picked_at:       shipment.dates?.pickup     ? new Date(shipment.dates.pickup).toISOString()     : null,
+              manifested_at:   shipment.dates?.manifested_at ? new Date(shipment.dates.manifested_at).toISOString() : null,
+              delivered_at:    shipment.dates?.delivered_at   ? new Date(shipment.dates.delivered_at).toISOString()   : null,
+              expected_delivery: shipment.dates?.expected_delivery ? new Date(shipment.dates.expected_delivery).toISOString() : null,
+              fallback,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[Delhivery] B2B gateway query error:', err.message);
+    }
+  }
+
+  // ── Step 3: Not found in direct APIs — return fallback portal links ────────
+  return res.json({
+    success: false,
+    not_found: true,
+    message: 'Shipment data not yet available via direct API. Track directly on Delhivery using the links below.',
+    fallback,
+    data: {
+      waybill: wb,
+      lrnum: wb,
+      fallback,
+    },
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -646,10 +687,33 @@ router.get('/b2b-track', authMiddleware, async (req, res) => {
     public_url:   `https://www.delhivery.com/track/package/${lr}`,
   };
 
+  // If B2B token is missing or expired, attempt Express package tracking API first
+  const tryExpressFallback = async () => {
+    try {
+      const { status, body } = await delhiveryGet(`/api/v1/packages/json/?waybill=${encodeURIComponent(lr)}`);
+      if (status === 200 && body?.Success !== false && body?.ShipmentData?.length > 0) {
+        const shipmentData = body.ShipmentData[0]?.Shipment || null;
+        if (shipmentData) {
+          return {
+            success: true,
+            type: 'b2c',
+            data: { waybill: lr, shipment: shipmentData, raw: body, fallback },
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  };
+
   if (!_delhiveryB2BToken) {
+    const expressResult = await tryExpressFallback();
+    if (expressResult) return res.json(expressResult);
+
     return res.json({
       success: false, no_token: true,
-      message: 'B2B token not set. Paste fresh token from one.delhivery.com Network tab into DELHIVERY_B2B_TOKEN in .env',
+      message: 'B2B token not set. Use portal links below or configure DELHIVERY_B2B_TOKEN in .env',
       fallback,
     });
   }
@@ -665,9 +729,12 @@ router.get('/b2b-track', authMiddleware, async (req, res) => {
       || /unauthorized|expired|invalid.?token|jwt/i.test(typeof body === 'string' ? body : (body?.message || body?.error || ''));
 
     if (authFailed) {
+      const expressResult = await tryExpressFallback();
+      if (expressResult) return res.json(expressResult);
+
       return res.json({
         success: false, token_expired: true,
-        message: 'B2B token expired or invalid. Please update B2B Token.',
+        message: 'B2B token expired or invalid. Track on portal or update B2B Token.',
         fallback,
       });
     }

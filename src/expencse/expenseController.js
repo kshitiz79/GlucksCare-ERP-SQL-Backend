@@ -82,25 +82,92 @@ const getAllExpenses = async (req, res) => {
 
     const expenses = await Expense.findAll(findOptions);
 
+    // Gather unique user_ids and dates from expenses to attach confirmed visit counts
+    const userIds = [...new Set(expenses.map(e => e.user_id).filter(Boolean))];
+    const dates = [...new Set(expenses.map(e => {
+      if (!e.date) return null;
+      if (typeof e.date === 'string') return e.date.split('T')[0];
+      try { return new Date(e.date).toISOString().split('T')[0]; } catch(err) { return null; }
+    }).filter(Boolean))];
+
+    const visitMap = {};
+    if (userIds.length > 0 && dates.length > 0) {
+      try {
+        const sequelize = req.app.get('sequelize');
+        const visitQuery = `
+          SELECT 'doctor' AS type, user_id::text AS user_id, date::text, COUNT(*)::int AS count
+          FROM doctor_visits
+          WHERE user_id::text IN (:userIds) AND date::text IN (:dates) AND confirmed = true
+          GROUP BY user_id, date
+          UNION ALL
+          SELECT 'chemist' AS type, user_id::text AS user_id, date::text, COUNT(*)::int AS count
+          FROM chemist_visits
+          WHERE user_id::text IN (:userIds) AND date::text IN (:dates) AND confirmed = true
+          GROUP BY user_id, date
+          UNION ALL
+          SELECT 'stockist' AS type, user_id::text AS user_id, date::text, COUNT(*)::int AS count
+          FROM stockist_visits
+          WHERE user_id::text IN (:userIds) AND date::text IN (:dates) AND confirmed = true
+          GROUP BY user_id, date;
+        `;
+        const vRows = await sequelize.query(visitQuery, {
+          replacements: { userIds: userIds.map(String), dates: dates.map(String) },
+          type: sequelize.QueryTypes.SELECT
+        });
+        vRows.forEach(r => {
+          const d = r.date ? r.date.split('T')[0] : '';
+          const key = `${r.user_id}_${d}`;
+          if (!visitMap[key]) {
+            visitMap[key] = { doctor: 0, chemist: 0, stockist: 0, total: 0 };
+          }
+          const cnt = Number(r.count) || 0;
+          if (r.type === 'doctor') visitMap[key].doctor += cnt;
+          else if (r.type === 'chemist') visitMap[key].chemist += cnt;
+          else if (r.type === 'stockist') visitMap[key].stockist += cnt;
+          visitMap[key].total += cnt;
+        });
+      } catch (err) {
+        console.error('Error fetching batch visits for expenses in getAllExpenses:', err);
+      }
+    }
+
     // Transform the response to match frontend expectations
     const transformedExpenses = expenses.map(expense => {
       const expenseObj = expense.toJSON();
+      const dStr = expenseObj.date ? (typeof expenseObj.date === 'string' ? expenseObj.date.split('T')[0] : new Date(expenseObj.date).toISOString().split('T')[0]) : '';
+      const vKey = `${expenseObj.user_id}_${dStr}`;
+      const visits = visitMap[vKey] || { doctor: 0, chemist: 0, stockist: 0, total: 0 };
+
+      const travelDetails = Array.isArray(expenseObj.travel_details)
+        ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 }))
+        : (typeof expenseObj.travel_details === 'string'
+            ? (() => { try { const parsed = JSON.parse(expenseObj.travel_details); return Array.isArray(parsed) ? parsed.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : []; } catch(e) { return []; } })()
+            : []);
+
+      const calculatedKm = travelDetails.reduce((sum, leg) => sum + (Number(leg.km) || 0), 0);
+      const totalDistanceKm = Number(expenseObj.total_distance_km) || calculatedKm || 0;
+
       return {
         ...expenseObj,
         _id: expenseObj.id, // For compatibility with frontend
         user: expenseObj.user_id,
         userName: expenseObj.user_name || (expenseObj.UserInfo ? expenseObj.UserInfo.name : 'Unknown User'),
         userIsActive: expenseObj.UserInfo ? expenseObj.UserInfo.is_active : true,
-        totalDistanceKm: expenseObj.total_distance_km,
+        totalDistanceKm: totalDistanceKm,
+        total_distance_km: totalDistanceKm,
         ratePerKm: expenseObj.rate_per_km,
         amount: expenseObj.amount,
-        travelDetails: Array.isArray(expenseObj.travel_details)
-          ? expenseObj.travel_details.map(leg => ({ ...leg, km: Number(leg.km) || 0 }))
-          : (typeof expenseObj.travel_details === 'string'
-              ? (() => { try { const parsed = JSON.parse(expenseObj.travel_details); return Array.isArray(parsed) ? parsed.map(leg => ({ ...leg, km: Number(leg.km) || 0 })) : []; } catch(e) { return []; } })()
-              : []),
+        travelDetails: travelDetails,
+        travel_details: travelDetails,
         dailyAllowanceType: expenseObj.daily_allowance_type,
-        UserInfo: undefined
+        visits: visits,
+        UserInfo: expenseObj.UserInfo ? {
+          id: expenseObj.UserInfo.id,
+          name: expenseObj.UserInfo.name,
+          role: expenseObj.UserInfo.role,
+          headOfficeName: expenseObj.UserInfo.headOfficeName || expenseObj.UserInfo.head_office_name,
+          is_active: expenseObj.UserInfo.is_active
+        } : undefined
       };
     });
 
