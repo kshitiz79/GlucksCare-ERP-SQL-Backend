@@ -19,7 +19,7 @@ export const options = {
 };
 
 // Target URL can be overridden via CLI using -e TARGET_URL=...
-// e.g.: k6 run -e TARGET_URL=http://localhost:5051/health k6-load-test.js
+// e.g.: k6 run -e TARGET_URL=https://api.gluckscare.com/health k6-load-test.js
 const TARGET_URL = __ENV.TARGET_URL || 'https://test.gluckscare.com/health';
 
 export default function () {

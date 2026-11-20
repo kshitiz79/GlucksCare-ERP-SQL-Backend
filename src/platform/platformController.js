@@ -102,7 +102,7 @@ async function getTenants(req, res) {
         name: t.name,
         slug: t.slug,
         logoUrl: t.logo_url,
-        backendUrl: t.backend_url || process.env.PUBLIC_API_URL || 'http://localhost:5051',
+        backendUrl: t.backend_url || process.env.PUBLIC_API_URL || 'https://api.gluckscare.com',
         db_name: t.db_name,
         subdomain: t.subdomain,
         adminName: realAdminName,
@@ -357,7 +357,7 @@ async function getCompanyConfig(req, res) {
       });
     }
 
-    const defaultApiUrl = process.env.PUBLIC_API_URL || 'http://localhost:5051';
+    const defaultApiUrl = process.env.PUBLIC_API_URL || 'https://api.gluckscare.com';
 
     return res.json({
       success: true,
@@ -392,7 +392,7 @@ async function getPublicCompanies(req, res) {
       order: [['name', 'ASC']]
     });
 
-    const defaultApiUrl = process.env.PUBLIC_API_URL || 'http://localhost:5051';
+    const defaultApiUrl = process.env.PUBLIC_API_URL || 'https://api.gluckscare.com';
 
     const formatted = tenants.map(t => ({
       id: t.id,

@@ -1324,33 +1324,7 @@ const getRecentInvoicesData = async (userId, models) => {
             }));
         }
 
-        // Fallback default invoices if none yet in DB
-        return [
-            {
-                id: "invoice-001",
-                invoiceNumber: "GSK/2026-27/006",
-                customerId: "customer-001",
-                customerName: "Singh Medical Hall",
-                invoiceDate: "2026-11-06",
-                amount: 5400
-            },
-            {
-                id: "invoice-002",
-                invoiceNumber: "GSK/2026-27/005",
-                customerId: "customer-002",
-                customerName: "Santosh Medical",
-                invoiceDate: "2026-11-05",
-                amount: 3900
-            },
-            {
-                id: "invoice-003",
-                invoiceNumber: "GSK/2026-27/004",
-                customerId: "customer-003",
-                customerName: "Life Care Stores",
-                invoiceDate: "2026-11-04",
-                amount: 6125
-            }
-        ];
+        return [];
     } catch (err) {
         console.error('Error getting recent invoices:', err);
         return [];
@@ -1358,7 +1332,7 @@ const getRecentInvoicesData = async (userId, models) => {
 };
 
 /**
- * Helper to get top products and product focus categories
+ * Helper to get top products and product focus categories for THIS tenant/company
  */
 const getProductCategoriesData = async (models) => {
     try {
@@ -1371,130 +1345,60 @@ const getProductCategoriesData = async (models) => {
             }).catch(() => []);
         }
 
-        if (dbProducts.length >= 2) {
-            const p1 = dbProducts[0];
-            const p2 = dbProducts[1];
-            const p3 = dbProducts[2] || dbProducts[0];
-            const p4 = dbProducts[3] || dbProducts[1];
+        if (dbProducts && dbProducts.length > 0) {
+            const topProducts = dbProducts.slice(0, 5).map((p, idx) => ({
+                productId: p.id,
+                name: p.name,
+                subtitle: p.dosage || p.description || (idx === 0 ? 'Core product' : 'Focus product'),
+                imageUrl: p.image || null,
+                targetAmount: 10000,
+                achievedAmount: 0,
+                achievementPercentage: 0
+            }));
 
-            const topProducts = [
-                {
-                    productId: p1.id,
-                    name: p1.name,
-                    subtitle: p1.dosage || p1.description || 'Core product',
-                    imageUrl: p1.image || 'https://cdn.example.com/products/gluxotuss.png',
-                    targetAmount: 10000,
-                    achievedAmount: 4200,
-                    achievementPercentage: 42
-                },
-                {
-                    productId: p2.id,
-                    name: p2.name,
-                    subtitle: p2.dosage || p2.description || 'Focus product',
-                    imageUrl: p2.image || 'https://cdn.example.com/products/gluxofer.png',
-                    targetAmount: 10000,
-                    achievedAmount: 3500,
-                    achievementPercentage: 35
-                }
-            ];
+            const p1 = dbProducts[0];
+            const p2 = dbProducts[1] || p1;
+            const p3 = dbProducts[2] || p1;
+            const p4 = dbProducts[3] || p2;
 
             const productFocus = {
-                primary: topProducts,
-                secondary: [
+                primary: topProducts.slice(0, 2),
+                secondary: dbProducts.length > 2 ? [
                     {
                         productId: p3.id,
                         name: p3.name,
                         subtitle: p3.dosage || p3.description || 'Secondary',
-                        imageUrl: p3.image || 'https://cdn.example.com/products/cefglux.png',
+                        imageUrl: p3.image || null,
                         targetAmount: 1000,
-                        achievedAmount: 550,
-                        achievementPercentage: 55
+                        achievedAmount: 0,
+                        achievementPercentage: 0
                     }
-                ],
-                newLaunch: [
+                ] : [],
+                newLaunch: dbProducts.length > 3 ? [
                     {
                         productId: p4.id,
                         name: p4.name,
                         subtitle: p4.dosage || p4.description || 'New launch',
-                        imageUrl: p4.image || 'https://cdn.example.com/products/aziglux.png',
+                        imageUrl: p4.image || null,
                         targetAmount: 1000,
-                        achievedAmount: 300,
-                        achievementPercentage: 30
+                        achievedAmount: 0,
+                        achievementPercentage: 0
                     }
-                ]
+                ] : []
             };
 
             return { topProducts, productFocus };
         }
 
-        // Standard GlucksCare pharmaceutical product portfolio
-        const topProducts = [
-            {
-                productId: "product-001",
-                name: "Gluxotuss Syp",
-                subtitle: "Core product",
-                imageUrl: "https://cdn.example.com/products/gluxotuss.png",
-                targetAmount: 10000,
-                achievedAmount: 4200,
-                achievementPercentage: 42
-            },
-            {
-                productId: "product-002",
-                name: "Gluxofer XT Plus",
-                subtitle: "Focus product",
-                imageUrl: "https://cdn.example.com/products/gluxofer.png",
-                targetAmount: 10000,
-                achievedAmount: 3500,
-                achievementPercentage: 35
+        // When this company has no products yet in DB, return clean empty structure
+        return {
+            topProducts: [],
+            productFocus: {
+                primary: [],
+                secondary: [],
+                newLaunch: []
             }
-        ];
-
-        const productFocus = {
-            primary: [
-                {
-                    productId: "product-001",
-                    name: "Gluxotuss Syp",
-                    subtitle: "Core product",
-                    imageUrl: "https://cdn.example.com/products/gluxotuss.png",
-                    targetAmount: 10000,
-                    achievedAmount: 4200,
-                    achievementPercentage: 42
-                },
-                {
-                    productId: "product-002",
-                    name: "Gluxofer XT Plus",
-                    subtitle: "Focus product",
-                    imageUrl: "https://cdn.example.com/products/gluxofer.png",
-                    targetAmount: 10000,
-                    achievedAmount: 3500,
-                    achievementPercentage: 35
-                }
-            ],
-            secondary: [
-                {
-                    productId: "product-003",
-                    name: "Cefglux Dry Syrup",
-                    subtitle: "Secondary",
-                    imageUrl: "https://cdn.example.com/products/cefglux.png",
-                    targetAmount: 1000,
-                    achievedAmount: 550,
-                    achievementPercentage: 55
-                }
-            ],
-            newLaunch: [
-                {
-                    productId: "product-004",
-                    name: "Aziglux Syp",
-                    subtitle: "New launch",
-                    imageUrl: "https://cdn.example.com/products/aziglux.png",
-                    targetAmount: 1000,
-                    achievedAmount: 300,
-                    achievementPercentage: 30
-                }
-            ]
         };
-
-        return { topProducts, productFocus };
     } catch (err) {
         console.error('Error getting product categories data:', err);
         return { topProducts: [], productFocus: { primary: [], secondary: [], newLaunch: [] } };
@@ -1615,42 +1519,11 @@ const getRecentDoctorVisitsData = async (userId, todayStr, models) => {
                 }));
             }
         }
+        return [];
     } catch (err) {
         console.error('Error fetching recent doctor visits:', err);
+        return [];
     }
-
-    return [
-        {
-            visitId: "doctor-visit-001",
-            doctorId: "doctor-001",
-            doctorName: "Dr. S. Kumar",
-            specialization: "Child specialist",
-            areaName: "Samastipur City",
-            visitedAt: `${todayStr}T09:00:00+05:30`,
-            status: "confirmed",
-            statusLabel: "Done"
-        },
-        {
-            visitId: "doctor-visit-002",
-            doctorId: "doctor-002",
-            doctorName: "Dr. Neha Singh",
-            specialization: "General physician",
-            areaName: "Samastipur",
-            visitedAt: `${todayStr}T13:00:00+05:30`,
-            status: "confirmed",
-            statusLabel: "Done"
-        },
-        {
-            visitId: "doctor-visit-003",
-            doctorId: "doctor-003",
-            doctorName: "Dr. R. Tripathi",
-            specialization: "ENT specialist",
-            areaName: "Samastipur Rural",
-            visitedAt: null,
-            status: "scheduled",
-            statusLabel: "Pending"
-        }
-    ];
 };
 
 /**
@@ -1682,39 +1555,11 @@ const getRecentChemistVisitsData = async (userId, todayStr, models) => {
                 }));
             }
         }
+        return [];
     } catch (err) {
         console.error('Error fetching recent chemist visits:', err);
+        return [];
     }
-
-    return [
-        {
-            visitId: "chemist-visit-001",
-            chemistId: "chemist-001",
-            chemistName: "City Care Pharma",
-            areaName: "Samastipur City",
-            visitedAt: `${todayStr}T09:30:00+05:30`,
-            status: "confirmed",
-            statusLabel: "Done"
-        },
-        {
-            visitId: "chemist-visit-002",
-            chemistId: "chemist-002",
-            chemistName: "Life Care Stores",
-            areaName: "Samastipur",
-            visitedAt: `${todayStr}T15:00:00+05:30`,
-            status: "confirmed",
-            statusLabel: "Done"
-        },
-        {
-            visitId: "chemist-visit-003",
-            chemistId: "chemist-003",
-            chemistName: "New Bharat Medical",
-            areaName: "Samastipur Rural",
-            visitedAt: null,
-            status: "scheduled",
-            statusLabel: "Pending"
-        }
-    ];
 };
 
 /**
@@ -1776,45 +1621,17 @@ const getTerritoryData = async (userId, models) => {
         }
 
         return {
-            id: ho?.id || "territory-001",
-            name: ho?.name || "Samastipur",
+            id: ho?.id || null,
+            name: ho?.name || "Territory",
             center: { latitude: 25.8629, longitude: 85.781 },
             zoom: 12,
-            areas: [
-                {
-                    areaId: "area-001",
-                    name: "Samastipur City",
-                    latitude: 25.8629,
-                    longitude: 85.781,
-                    doctorsCount: 12,
-                    chemistsCount: 8,
-                    stockistsCount: 2
-                },
-                {
-                    areaId: "area-002",
-                    name: "Area X",
-                    latitude: 25.875,
-                    longitude: 85.8,
-                    doctorsCount: 8,
-                    chemistsCount: 6,
-                    stockistsCount: 1
-                },
-                {
-                    areaId: "area-003",
-                    name: "Samastipur Rural",
-                    latitude: 25.84,
-                    longitude: 85.76,
-                    doctorsCount: 10,
-                    chemistsCount: 7,
-                    stockistsCount: 2
-                }
-            ]
+            areas: []
         };
     } catch (err) {
         console.error('Error fetching territory data:', err);
         return {
-            id: "territory-001",
-            name: "Samastipur",
+            id: null,
+            name: "Territory",
             center: { latitude: 25.8629, longitude: 85.781 },
             zoom: 12,
             areas: []
